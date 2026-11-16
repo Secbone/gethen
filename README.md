@@ -23,8 +23,8 @@ pnpm verify:ws
 GETHEN_E2E=1 node scripts/e2e-sdk.mjs               # 真实 dsh SDK + 模型
 ```
 
-部署、systemd、TLS/反向代理、DSH 形态 Master、故障排查见
-[docs/deploy.md](docs/deploy.md)；设计见
+最短启用步骤见 [docs/enable.md](docs/enable.md)；部署、systemd、TLS/反向代理、
+DSH 形态 Master、故障排查见 [docs/deploy.md](docs/deploy.md)；设计见
 [docs/design/refactor-plan-control-plane-2026-11-16.md](docs/design/refactor-plan-control-plane-2026-11-16.md)。
 
 ## 安装与快速开始

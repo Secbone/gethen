@@ -1,5 +1,7 @@
 # 部署手册：Master / Worker / 本机验证
 
+> 想最快跑通？先看 [启用指南 enable.md](enable.md)，本文是完整部署与运维参考。
+
 本文对应控制面独立重构的 R1–R5：[重构计划](design/refactor-plan-control-plane-2026-11-16.md)、
 [WS 控制面协议](design/p4-ws-control-plane.md)。目标形态是 **Master 独立进程**
 （`gethen serve`）＋ **Worker 守护进程**（`gethen worker`，出站 `wss` 连 Master）。
