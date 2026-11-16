@@ -223,4 +223,7 @@ CLI serve 的升级默认 parked（后续加 `--escalation`）；worker-agent �
 - **CLI**：`gethen run`、`serve --escalation auto|park`、`worker --dsh-args`。
 - **真实 e2e**（`GETHEN_E2E=1`）与 `pnpm verify:ws` 均通过；31 包 / 713 tests。
 
+通讯分层（L1 transport + L2 mailbox）见
+[comms-two-layer.md](comms-two-layer.md)。
+
 部署：见 [docs/deploy.md](../deploy.md)（§1.5 DSH 形态 Master + 反向代理）。
