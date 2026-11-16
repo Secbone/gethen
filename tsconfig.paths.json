@@ -14,14 +14,8 @@
       "@gethen/benchmark-file": [
         "packages/benchmark-file/src/index.ts"
       ],
-      "@gethen/observability": [
-        "packages/observability/src/index.ts"
-      ],
-      "@gethen/source-github": [
-        "packages/source-github/src/index.ts"
-      ],
-      "@gethen/transport-acp": [
-        "packages/transport-acp/src/index.ts"
+      "@gethen/bridge-remote": [
+        "packages/bridge-remote/src/index.ts"
       ],
       "@gethen/worker-bridge": [
         "packages/worker-bridge/src/index.ts"
@@ -31,9 +25,6 @@
       ],
       "@gethen/storage-file": [
         "packages/storage-file/src/index.ts"
-      ],
-      "@gethen/transport-pi": [
-        "packages/transport-pi/src/index.ts"
       ],
       "@gethen/dsh-client": [
         "packages/dsh-client/index.js"
@@ -47,11 +38,11 @@
       "@gethen/evolution": [
         "packages/evolution/src/index.ts"
       ],
-      "@gethen/harnesses": [
-        "packages/harnesses/src/index.ts"
-      ],
       "@gethen/workspace": [
         "packages/workspace/src/index.ts"
+      ],
+      "@gethen/evidence": [
+        "packages/evidence/src/index.ts"
       ],
       "@gethen/effects": [
         "packages/effects/src/index.ts"
@@ -79,9 +70,6 @@
       ],
       "@gethen/panel": [
         "packages/panel/src/index.ts"
-      ],
-      "@gethen/store": [
-        "packages/store/src/index.ts"
       ],
       "@gethen/core": [
         "packages/core/src/index.ts"

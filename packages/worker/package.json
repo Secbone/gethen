@@ -12,10 +12,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@gethen/core": "workspace:*",
-    "@gethen/domain": "workspace:*",
-    "@gethen/pack": "workspace:*",
-    "@gethen/session": "workspace:*"
+    "@gethen/worker-bridge": "workspace:*"
   },
-  "description": "WorkerAdapter contract for heterogeneous agent executors"
+  "description": "Worker-side assignment envelopes, reports, escalations and capability-pack materialization"
 }

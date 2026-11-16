@@ -44,6 +44,12 @@ importers:
         specifier: ^1.32.1
         version: 1.32.1(zod@4.6.7)
 
+  packages/bridge-remote:
+    dependencies:
+      '@gethen/worker-bridge':
+        specifier: workspace:*
+        version: link:../worker-bridge
+
   packages/cli: {}
 
   packages/core: {}
@@ -52,6 +58,9 @@ importers:
 
   packages/dsh:
     dependencies:
+      '@gethen/bridge-remote':
+        specifier: workspace:*
+        version: link:../bridge-remote
       '@gethen/master':
         specifier: workspace:*
         version: link:../master
@@ -79,6 +88,8 @@ importers:
         specifier: 8.20.0
         version: 8.20.0
 
+  packages/evidence: {}
+
   packages/evolution:
     dependencies:
       '@gethen/core':
@@ -103,18 +114,6 @@ importers:
         specifier: workspace:*
         version: link:../storage-file
 
-  packages/harnesses:
-    dependencies:
-      '@gethen/core':
-        specifier: workspace:*
-        version: link:../core
-      '@gethen/transport-acp':
-        specifier: workspace:*
-        version: link:../transport-acp
-      '@gethen/transport-pi':
-        specifier: workspace:*
-        version: link:../transport-pi
-
   packages/kernel:
     dependencies:
       '@gethen/core':
@@ -122,21 +121,6 @@ importers:
         version: link:../core
 
   packages/master: {}
-
-  packages/observability:
-    dependencies:
-      '@gethen/core':
-        specifier: workspace:*
-        version: link:../core
-      '@gethen/evolution':
-        specifier: workspace:*
-        version: link:../evolution
-      '@gethen/session':
-        specifier: workspace:*
-        version: link:../session
-      '@gethen/storage-file':
-        specifier: workspace:*
-        version: link:../storage-file
 
   packages/pack:
     dependencies:
@@ -162,55 +146,13 @@ importers:
         specifier: workspace:*
         version: link:../core
 
-  packages/source-github:
-    dependencies:
-      '@gethen/domain':
-        specifier: workspace:*
-        version: link:../domain
-      '@gethen/effects':
-        specifier: workspace:*
-        version: link:../effects
-      '@gethen/storage-file':
-        specifier: workspace:*
-        version: link:../storage-file
-
   packages/storage-file: {}
-
-  packages/store:
-    dependencies:
-      '@gethen/domain':
-        specifier: workspace:*
-        version: link:../domain
-      '@gethen/storage-file':
-        specifier: workspace:*
-        version: link:../storage-file
-
-  packages/transport-acp:
-    dependencies:
-      '@gethen/core':
-        specifier: workspace:*
-        version: link:../core
-
-  packages/transport-pi:
-    dependencies:
-      '@gethen/core':
-        specifier: workspace:*
-        version: link:../core
 
   packages/worker:
     dependencies:
-      '@gethen/core':
+      '@gethen/worker-bridge':
         specifier: workspace:*
-        version: link:../core
-      '@gethen/domain':
-        specifier: workspace:*
-        version: link:../domain
-      '@gethen/pack':
-        specifier: workspace:*
-        version: link:../pack
-      '@gethen/session':
-        specifier: workspace:*
-        version: link:../session
+        version: link:../worker-bridge
 
   packages/worker-bridge: {}
 

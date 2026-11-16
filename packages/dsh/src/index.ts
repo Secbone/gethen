@@ -9,13 +9,16 @@
  */
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
+import type { RemoteClientLike } from "@gethen/bridge-remote";
 import {
   createFakeLaunch,
+  type LaunchPort,
   MasterService,
   type Policy,
   type Trigger,
   ticketStage,
 } from "@gethen/master";
+import { createRemoteLaunchPort, type RemoteLaunchConfig } from "./remote-launch";
 
 /** The narrow DSH surface this plugin uses; no DSH package is imported. */
 export interface DshToolDefinition {
@@ -33,12 +36,19 @@ export interface DshContext {
   provide(name: string, value: unknown): () => void;
   tools: { register(definition: DshToolDefinition): () => void };
   effect?(setup: () => (() => void) | void): () => void;
+  /** Present when the DSH Remote client plugin is mounted in this profile. */
+  get?(name: string): unknown;
   logger?: { error?(message: string): void };
 }
 
 export interface GethenConfig {
   /** State directory; defaults to `$GETHEN_STATE_DIR` or `<cwd>/.gethen/master`. */
   dir?: string;
+  /**
+   * Dispatch through the DSH Remote client to a Worker host. Requires the
+   * `dshRemoteClient` service; without it the fake launch is used.
+   */
+  remote?: RemoteLaunchConfig;
 }
 
 export const name = "gethen";
@@ -55,11 +65,11 @@ export const DEFAULT_POLICY: Policy = {
   sources: { local: { allowed: ["local-user"], bots: [] } },
 };
 
-function createMasterService(dir: string): MasterService {
+function createMasterService(dir: string, launch: LaunchPort): MasterService {
   return new MasterService({
     dbPath: join(dir, "master.sqlite"),
     policy: DEFAULT_POLICY,
-    launch: createFakeLaunch(),
+    launch,
   });
 }
 
@@ -78,7 +88,14 @@ function objectSchema(
 export function apply(ctx: DshContext, config: GethenConfig = {}): void {
   const dir =
     config.dir ?? process.env.GETHEN_STATE_DIR ?? join(process.cwd(), ".gethen", "master");
-  const service = createMasterService(dir);
+  const remoteClient = ctx.get?.("dshRemoteClient") as RemoteClientLike | undefined;
+  const useRemote = config.remote !== undefined && remoteClient !== undefined;
+  const launchMode = useRemote ? "remote" : "fake";
+  const launch: LaunchPort =
+    useRemote && config.remote !== undefined
+      ? createRemoteLaunchPort(config.remote, remoteClient as RemoteClientLike)
+      : createFakeLaunch();
+  const service = createMasterService(dir, launch);
   service.start();
   ctx.provide("gethen", service);
   ctx.effect?.(() => () => service.stop());
@@ -94,8 +111,9 @@ export function apply(ctx: DshContext, config: GethenConfig = {}): void {
           open: { type: "number" },
           receipts: { type: "number" },
           running: { type: "number" },
+          launch: { type: "string", enum: ["fake", "remote"] },
         },
-        ["tickets", "open", "receipts", "running"],
+        ["tickets", "open", "receipts", "running", "launch"],
       ),
       render: (_args, value) => text(value),
     },
@@ -108,6 +126,7 @@ export function apply(ctx: DshContext, config: GethenConfig = {}): void {
         running: service.store.assignments
           .list()
           .filter((assignment) => assignment.state === "running").length,
+        launch: launchMode,
       };
     },
   });

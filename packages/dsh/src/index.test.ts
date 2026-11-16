@@ -18,6 +18,7 @@ interface StatusResult {
   open: number;
   receipts: number;
   running: number;
+  launch: "fake" | "remote";
 }
 
 interface OverviewResult {
@@ -115,6 +116,7 @@ describe("Gethen DSH plugin", () => {
       open: 1,
       receipts: 1,
       running: 0,
+      launch: "fake",
     } satisfies StatusResult);
     const overview = (await tool(tools, "gethen_overview").execute({}, {})) as OverviewResult;
     expect(overview.tickets).toHaveLength(1);

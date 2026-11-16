@@ -9,7 +9,6 @@ import { build } from "esbuild";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const out = resolve(process.argv[2] ?? join(root, "dist", "dsh"));
 mkdirSync(out, { recursive: true });
-mkdirSync(join(out, "bridge"), { recursive: true });
 mkdirSync(join(out, "dsh-client"), { recursive: true });
 
 const common = {
@@ -27,10 +26,6 @@ await build({
   outfile: join(out, "index.js"),
 });
 
-cpSync(
-  join(root, "packages/transport-pi/src/bridge/gethen-bridge.ts"),
-  join(out, "bridge/gethen-bridge.ts"),
-);
 for (const file of ["client.js", "index.js", "package.json"])
   cpSync(join(root, "packages/dsh-client", file), join(out, "dsh-client", file));
 process.stdout.write(`${out}\n`);

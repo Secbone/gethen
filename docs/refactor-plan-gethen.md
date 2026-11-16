@@ -375,3 +375,20 @@ Node 上每个项目一个 profile（如 `gethen-project-a`），由
   fake launch）。全仓 27 包、456 项测试通过。
 - **P1 偏差**：面板与 client shell 延后到 P6；GitHub source 已实现并测试，但尚未
   接入 service 的轮询循环（随 P4 fleet/source 调度一起接）。
+
+### P2/P3 进度（2026-11-16 晚）
+
+- **P2 完成**：新增 `@gethen/evidence`（receipts 聚合、eval gate、canary，25 tests）；
+  删除 `observability`、`source-github`、`harnesses`、`transport-pi`、`transport-acp`、
+  `store` 六个旧包（77 个跟踪文件），包数 27 → 23。
+- **P3 代码完成**：
+  - `@gethen/bridge-remote`：DSH Remote 客户端 → `WorkerBridge` 适配器（16 tests，
+    operationId 规范化、session/state 映射、transcript 归一化；参数形状已按真实
+    `remote_*` 工具 schema 对准）。
+  - `@gethen/worker`：重写为 Worker 侧信封/报告/升级文本 + pack 物化（20 tests）。
+  - `@gethen/dsh`：新增 `remote-launch.ts`，`ctx.get("dshRemoteClient")` + `config.remote`
+    时走远端派工；否则 fake。`gethen_status` 返回 `launch: "fake"|"remote"`。
+- 构件冒烟（fake remote client）：create → send → wait → read → report → receipt，
+  `launch:"remote"`。
+- **待办**：真实远端 e2e（需要远端 DSH 已登录 Remote 并配置 `remote.hostId/workspaceId`）；
+  阻塞升级（`gethen_escalate` 工具 + Master 召回）留到 P3b。
