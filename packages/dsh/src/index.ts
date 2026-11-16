@@ -18,6 +18,7 @@ import {
   type Trigger,
   ticketStage,
 } from "@gethen/master";
+import { createScriptedRemoteClient } from "./dev/fake-remote";
 import { createRemoteLaunchPort, type RemoteLaunchConfig } from "./remote-launch";
 
 /** The narrow DSH surface this plugin uses; no DSH package is imported. */
@@ -54,6 +55,8 @@ export interface GethenConfig {
    * escalation with this text. Without it an escalation is parked for a person.
    */
   escalation?: { answer?: string };
+  /** Dev only: use the bundled scripted Remote client instead of a real one. */
+  devRemote?: boolean;
 }
 
 export const name = "gethen";
@@ -94,44 +97,49 @@ export function apply(ctx: DshContext, config: GethenConfig = {}): void {
   const dir =
     config.dir ?? process.env.GETHEN_STATE_DIR ?? join(process.cwd(), ".gethen", "master");
   const clientService = config.remote?.clientService ?? "dshRemoteClient";
-  const remoteClient = ctx.get?.(clientService) as RemoteClientLike | undefined;
-  const useRemote = config.remote !== undefined && remoteClient !== undefined;
+  const devClient =
+    config.devRemote === true || process.env.GETHEN_DEV_REMOTE === "1"
+      ? createScriptedRemoteClient()
+      : undefined;
+  const remoteConfig =
+    config.remote ??
+    (devClient === undefined ? undefined : { hostId: "dev-local", workspaceId: "ws-dev" });
+  const useRemote = remoteConfig !== undefined;
   const launchMode = useRemote ? "remote" : "fake";
   let service: MasterService | undefined;
   const answer = config.escalation?.answer;
   const resolveEscalation =
     answer === undefined ? undefined : async () => ({ kind: "answer" as const, text: answer });
   const launch: LaunchPort =
-    useRemote && config.remote !== undefined
-      ? createRemoteLaunchPort(
-          {
-            ...config.remote,
-            ...(resolveEscalation === undefined ? {} : { resolveEscalation }),
-            onEscalation: (record) => {
-              const saved = service?.engine.escalate(record.ticket, {
-                id: record.id,
-                assignment: record.assignment,
-                session: record.session,
-                kind: record.kind,
-                question: record.question,
-                options: record.options,
-                ...(record.defaultOption === undefined
-                  ? {}
-                  : { defaultOption: record.defaultOption }),
-              });
-              if (saved !== undefined) service?.store.saveEscalation(saved);
-            },
-            onResolution: (record) => {
-              if (record.resolution === undefined) {
-                service?.store.saveEscalation(record);
-                return;
-              }
-              const saved = service?.engine.resolve(record.ticket, record.resolution);
-              service?.store.saveEscalation(saved ?? record);
-            },
+    useRemote && remoteConfig !== undefined
+      ? createRemoteLaunchPort({
+          ...remoteConfig,
+          clientProvider: () =>
+            devClient ?? (ctx.get?.(clientService) as RemoteClientLike | undefined),
+          ...(resolveEscalation === undefined ? {} : { resolveEscalation }),
+          onEscalation: (record) => {
+            const saved = service?.engine.escalate(record.ticket, {
+              id: record.id,
+              assignment: record.assignment,
+              session: record.session,
+              kind: record.kind,
+              question: record.question,
+              options: record.options,
+              ...(record.defaultOption === undefined
+                ? {}
+                : { defaultOption: record.defaultOption }),
+            });
+            if (saved !== undefined) service?.store.saveEscalation(saved);
           },
-          remoteClient as RemoteClientLike,
-        )
+          onResolution: (record) => {
+            if (record.resolution === undefined) {
+              service?.store.saveEscalation(record);
+              return;
+            }
+            const saved = service?.engine.resolve(record.ticket, record.resolution);
+            service?.store.saveEscalation(saved ?? record);
+          },
+        })
       : createFakeLaunch();
   service = createMasterService(dir, launch);
   service.start();

@@ -20,6 +20,13 @@ export interface RemoteLaunchConfig {
    * `dshRemoteClient`; tests/dev harnesses may inject another name.
    */
   clientService?: string;
+  /** Eager client; `clientProvider` wins when both are set. */
+  client?: RemoteClientLike;
+  /**
+   * Resolve the client at launch time. Lets the client service appear after
+   * this port is built (hot-loaded plugins, dev harnesses).
+   */
+  clientProvider?: () => RemoteClientLike | undefined;
   /** DSH Remote host id (deviceId) of the worker machine. */
   hostId: string;
   /** Workspace id on that host, as returned by `listRemoteWorkspaces`. */
@@ -101,17 +108,11 @@ async function waitForIdle(options: {
  */
 export function createRemoteLaunchPort(
   config: RemoteLaunchConfig,
-  client: RemoteClientLike,
+  client?: RemoteClientLike,
 ): LaunchPort {
   const now = config.now ?? (() => new Date());
   const sleep =
     config.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
-  const bridge = createRemoteBridge({
-    client,
-    hostId: config.hostId,
-    workspaceId: config.workspaceId,
-    ...(config.model === undefined ? {} : { model: config.model }),
-  });
   const worker = (request: LaunchRequest): string => config.worker ?? request.assignment.worker;
   const pollMs = config.pollMs ?? DEFAULT_POLL_MS;
   const maxPolls = config.maxPolls ?? DEFAULT_MAX_POLLS;
@@ -119,6 +120,16 @@ export function createRemoteLaunchPort(
 
   return {
     async launch(request: LaunchRequest): Promise<LaunchResult> {
+      const resolved = config.clientProvider?.() ?? config.client ?? client;
+      if (resolved === undefined) {
+        throw new Error("REMOTE_CLIENT_UNAVAILABLE: no Remote client is available for this launch");
+      }
+      const bridge = createRemoteBridge({
+        client: resolved,
+        hostId: config.hostId,
+        workspaceId: config.workspaceId,
+        ...(config.model === undefined ? {} : { model: config.model }),
+      });
       const ref = await bridge.open({
         ticket: request.ticket.id,
         assignment: request.assignment.id,
