@@ -91,6 +91,13 @@ function context(options: { webServer?: FakeWebServer; listen?: boolean; log?: s
   };
   if (options.listen !== false) {
     ctx.get = (name) => (name === "webServer" ? options.webServer : undefined);
+    if (options.webServer !== undefined) {
+      ctx.inject = (deps, callback) => {
+        if (!deps.includes("webServer")) return;
+        const dispose = callback(ctx);
+        if (typeof dispose === "function") cleanups.push(dispose);
+      };
+    }
   }
   if (options.log !== undefined) {
     const log = options.log;

@@ -44,21 +44,31 @@ gethen --help
 
 ### 1.1 生成 worker token
 
-每个 Worker 一个唯一 token，绑定一个 `workerId`；token 只存明文于 Master 的配置文件，
-Master 进程内哈希后用于校验，不要在日志/工单里传播。
+每个 Worker 一个唯一 token，绑定一个 `workerId`。推荐用 CLI 发 token：明文只打印一次，
+Master 的 sqlite `workers` 表只存哈希；同时可写入 `--tokens-file` 供 serve 使用。
 
 ```bash
-openssl rand -hex 32        # 或: node -e 'console.log(require("crypto").randomBytes(32).toString("hex"))'
+# 首次：先启动一次 Master 以创建 sqlite（无 tokens 时 launch=fake），然后 Ctrl-C
+gethen serve --db /var/lib/gethen/master.sqlite
+
+# 发 token（stdout 只显示一次；--tokens-file 原子合并，权限 0600）
+gethen worker add \
+  --db /var/lib/gethen/master.sqlite \
+  --worker-id build-1 --name "build-1" \
+  --tokens-file /etc/gethen/worker-tokens.json
+
+gethen worker ls --db /var/lib/gethen/master.sqlite   # 查看已登记/已吊销
 ```
 
-`/etc/gethen/worker-tokens.json`（权限 `0600`，属主为运行 Master 的用户）：
+`/etc/gethen/worker-tokens.json`（可直接给 `gethen serve --tokens`）：
 
 ```json
-[
-  { "workerId": "build-1", "token": "5f2c...9a" },
-  { "workerId": "build-2", "token": "91ab...03" }
-]
+[{ "workerId": "build-1", "token": "5f2c...9a" }]
 ```
+
+没有 CLI 时也可手写该文件（`openssl rand -hex 32` 生成）。轮换：`gethen worker add --force`
+生成新 token 并更新 `--tokens-file`，然后重启 Master；`gethen worker revoke --id build-1`
+后旧 token 在下次启动时失效。
 
 ### 1.2 启动 Master
 
@@ -174,6 +184,32 @@ journalctl -u gethen-master -f
 
 升级/轮换 token：改 `/etc/gethen/worker-tokens.json` 后 `systemctl restart gethen-master`。
 只允许一个 Master 进程写同一个 sqlite（`master.lock`）；`gethen status` 是只读的，可随时跑。
+
+### 1.5 可选：DSH 形态的 Master（agent 直接派活）
+
+如果远端跑的是 DSH，可以不起独立 `gethen serve`，而是把 gethen 作为 DSH 插件挂载：
+agent 用 `gethen_run` 工具派活，`/gethen/worker` 由 DSH 的 webServer 托管。
+
+```yaml
+# ~/.dsh/profiles/<profile>/cordis.patch.yml
+- insert:
+    - id: gethen
+      name: 'file:///home/<user>/.local/share/gethen/dsh/index.js'
+- id: gethen
+  config:
+    dir: /var/lib/gethen
+    ws:
+      tokensFile: /etc/gethen/worker-tokens.json
+      workspace: /srv/projects
+    escalation: {}            # 或 { answer: "..." } 自动答复
+```
+
+- 插件会在 `webServer` 上注册精确路径 `/gethen/worker`（`gethen.worker.v1`）；
+- DSH web 默认绑回环：远端需要反向代理终止 TLS 并转发 `/gethen/worker`
+  （`Upgrade`/`Authorization` 头），或用 SSH 隧道；
+- agent 工具：`gethen_run` / `gethen_status` / `gethen_overview` / `gethen_escalations`；
+- `gethen_status` 额外返回 `workers` 与 `launch: "ws"`；
+- 没有 `ws` 配置时退回旧的 remote/fake 路径（行为不变）。
 
 ## 2. Worker 部署
 
@@ -305,6 +341,22 @@ gethen status --db /var/lib/gethen/master.sqlite --json
 `gethen status` 不启动 outbox/launch、也不抢 `master.lock`，可以对着运行中的 Master 读
 （sqlite WAL）；它只反映**持久化状态**，Worker 在线数看 `/health` 的 `workers`。
 
+## 3.1 用 CLI 触发与观察
+
+```bash
+# Master 上（或任意能访问 Master 的机器）
+gethen run --master http://127.0.0.1:8080 "在 /tmp/demo 下创建 ok.txt"
+gethen run --master http://127.0.0.1:8080 --json "..."   # 原样输出 Master 响应
+
+gethen status --db /var/lib/gethen/master.sqlite          # 计数 + 最近工单
+gethen worker ls --db /var/lib/gethen/master.sqlite
+gethen doctor --json
+```
+
+- `report` 为 `ready`/`failed` 时 `gethen run` 退出 0/非 0；`waiting` 表示升级在等人（退出 0）。
+- 想要自动答复升级（仅测试用）：`gethen serve --escalation auto`（按 defaultOption/第一个选项回答）。
+- Worker 默认 `park`（等人）；生产建议由 DSH agent 或面板回答。
+
 ## 4. 故障排查
 
 | 现象 | 排查 |
@@ -334,3 +386,16 @@ gethen status --db /var/lib/gethen/master.sqlite --json
 - [ ] Worker 不暴露入站端口；`workspaces` 白名单只放必要目录；
 - [ ] 模型凭证只放 systemd EnvironmentFile / 密钥管理，不写 worker JSON、不进仓库；
 - [ ] `gethen doctor --json` 的输出可安全贴进工单（凭证值不会被打印）。
+
+### 升级注意：插件 bundle 更新后重启
+
+DSH 的 HMR 对 **bundle 文件替换**并不总是可靠（模块缓存/加载顺序）。升级
+`~/.local/share/gethen/dsh/{index.js,worker.js}` 后，如果出现"工具消失"或
+`/gethen/worker` 返回 404，重启一次 DSH 即可：
+
+```bash
+pkill -f 'dsh --profile <profile>'
+dsh --profile <profile> --no-open --port <port>
+```
+
+CLI 形态（`gethen serve`）无此问题，重启进程即可。

@@ -69,6 +69,8 @@ export interface DshContext {
   effect?(setup: () => (() => void) | void): () => void;
   /** Present when the DSH Remote client plugin is mounted in this profile. */
   get?(name: string): unknown;
+  /** Register a sub-plugin that runs once its injected services are available. */
+  inject?(deps: string[], callback: (scope: DshContext) => (() => void) | void): unknown;
   logger?: { error?(message: string): void };
 }
 
@@ -401,19 +403,27 @@ function applyWs(
   const mounted = runtime;
 
   ctx.provide("gethen", mounted.service);
-  const webServer = ctx.get?.("webServer") as DshWebServer | undefined;
-  if (webServer !== undefined && mounted.handleUpgrade !== undefined) {
-    const handleUpgrade = mounted.handleUpgrade;
+  const handleUpgrade = mounted.handleUpgrade;
+  const mountRoute = (scope: DshContext): (() => void) | void => {
+    const webServer = scope.get?.("webServer") as DshWebServer | undefined;
+    if (webServer === undefined || handleUpgrade === undefined) return;
     const dispose = webServer.registerUpgrade({
       path: WORKER_PATH,
       handler: (request, socket, head) => handleUpgrade(request, socket, head),
     });
-    ctx.effect?.(() => () => dispose());
-  } else if (webServer === undefined) {
+    return () => dispose();
+  };
+  // The webServer service may be created after this plugin (entry order), so
+  // register through an injected sub-plugin instead of a one-shot ctx.get.
+  if (ctx.inject !== undefined) {
+    ctx.inject(["webServer"], mountRoute);
+  } else if (ctx.get?.("webServer") === undefined) {
     ctx.logger?.error?.(
       "gethen: ws config is set but the DSH webServer service is not mounted; " +
         `${WORKER_PATH} is not exposed and no worker can connect`,
     );
+  } else {
+    mountRoute(ctx);
   }
 
   ctx.effect?.(() => () => {

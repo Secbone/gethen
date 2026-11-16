@@ -210,3 +210,17 @@ GETHEN_E2E=1 node scripts/e2e-sdk.mjs   # 真实 dsh --profile sdk + 模型
 已知缺口：engine 的 assignment workspace 由 launch 边界补齐（应回到 master）；
 CLI serve 的升级默认 parked（后续加 `--escalation`）；worker-agent 重连定时器 unref，
 `gethen worker` 用 ref 的 interval 保活。
+
+### 2026-11-16 收尾完成
+
+- **DSH 形态 Master 已接 WS**：`packages/dsh` 通过 `@gethen/master-runtime` 装配，
+  `webServer.registerUpgrade("/gethen/worker")`，`gethen_run` 工具走 WS dispatch；
+  无 `ws` 配置时保留 remote/fake 回退。
+- **master-runtime**：CLI serve 与 DSH 插件共用装配（gateway+bridge、worker 快照、
+  按负载选 worker、升级回调）。
+- **token 持久化**：master sqlite `workers` 表（只存 sha256），
+  `gethen worker add/ls/revoke`（`--tokens-file` 原子合并、token 只打印一次）。
+- **CLI**：`gethen run`、`serve --escalation auto|park`、`worker --dsh-args`。
+- **真实 e2e**（`GETHEN_E2E=1`）与 `pnpm verify:ws` 均通过；31 包 / 713 tests。
+
+部署：见 [docs/deploy.md](../deploy.md)（§1.5 DSH 形态 Master + 反向代理）。

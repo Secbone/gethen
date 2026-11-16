@@ -2,6 +2,31 @@
 
 Gethen 是一个自迭代 agent 框架试验台。它通过 Pi / OpenCode 等引擎执行任务，管理上下文、记忆、流程知识和执行轨迹，并通过提案、门控、评测、选择和归档验证修改。
 
+## 控制面（Remote Master ↔ Worker）
+
+新的控制面不依赖 `ds-harness-remote`：Master 提供 WebSocket 端点（`/gethen/worker`），
+Worker 只出站连接；执行由 Worker 上的 `dsh --profile sdk` 完成。
+
+```bash
+# Master（纯 Node，无需 DSH）
+gethen serve --tokens /etc/gethen/worker-tokens.json --host 127.0.0.1 --port 8080
+gethen run --master http://127.0.0.1:8080 "在 /tmp/demo 下创建 ok.txt"
+gethen status --db /var/lib/gethen/master.sqlite
+
+# Worker
+gethen worker add --db /var/lib/gethen/master.sqlite --worker-id build-1 \
+  --tokens-file /etc/gethen/worker-tokens.json      # token 只显示一次
+gethen worker --config /etc/gethen/worker.json
+
+# 本地确定性验证（不花模型钱）
+pnpm verify:ws
+GETHEN_E2E=1 node scripts/e2e-sdk.mjs               # 真实 dsh SDK + 模型
+```
+
+部署、systemd、TLS/反向代理、DSH 形态 Master、故障排查见
+[docs/deploy.md](docs/deploy.md)；设计见
+[docs/design/refactor-plan-control-plane-2026-11-16.md](docs/design/refactor-plan-control-plane-2026-11-16.md)。
+
 ## 安装与快速开始
 
 需要 Node.js >=22、pnpm 11.26.0。在仓库根目录执行：
