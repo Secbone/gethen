@@ -1,0 +1,19 @@
+{
+  "name": "@gethen/agent",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@gethen/harness": "workspace:*",
+    "@gethen/mailbox": "workspace:*"
+  },
+  "description": "Worker-side L2 mailbox consumer: gethen.task.* envelopes driven through the harness-agnostic HarnessExecutor port"
+}

@@ -19,6 +19,9 @@ export const ALLOWED_WORKSPACE_DEPS = {
   "@gethen/sdk-driver": [],
   "@gethen/bridge-ws": ["@gethen/master", "@gethen/transport-ws", "@gethen/worker-protocol"],
   "@gethen/transport": [],
+  "@gethen/mailbox-link": ["@gethen/transport", "@gethen/mailbox"],
+  "@gethen/agent": ["@gethen/harness", "@gethen/mailbox"],
+  "@gethen/bridge-mailbox": ["@gethen/master", "@gethen/mailbox"],
   "@gethen/mailbox": [],
   "@gethen/harness": [],
   "@gethen/master-runtime": [
@@ -84,6 +87,9 @@ export const CONTROL_PLANE_PACKAGES = new Set([
   "@gethen/executor-sdk",
   "@gethen/transport",
   "@gethen/mailbox",
+  "@gethen/mailbox-link",
+  "@gethen/agent",
+  "@gethen/bridge-mailbox",
   "@gethen/harness",
   "@gethen/panel",
 ]);

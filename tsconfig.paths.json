@@ -17,6 +17,9 @@
       "@gethen/benchmark-file": [
         "packages/benchmark-file/src/index.ts"
       ],
+      "@gethen/bridge-mailbox": [
+        "packages/bridge-mailbox/src/index.ts"
+      ],
       "@gethen/master-runtime": [
         "packages/master-runtime/src/index.ts"
       ],
@@ -31,6 +34,9 @@
       ],
       "@gethen/executor-sdk": [
         "packages/executor-sdk/src/index.ts"
+      ],
+      "@gethen/mailbox-link": [
+        "packages/mailbox-link/src/index.ts"
       ],
       "@gethen/storage-file": [
         "packages/storage-file/src/index.ts"
@@ -97,6 +103,9 @@
       ],
       "@gethen/worker": [
         "packages/worker/src/index.ts"
+      ],
+      "@gethen/agent": [
+        "packages/agent/src/index.ts"
       ],
       "@gethen/fleet": [
         "packages/fleet/src/index.ts"

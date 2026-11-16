@@ -1,0 +1,19 @@
+{
+  "name": "@gethen/bridge-mailbox",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@gethen/master": "workspace:*",
+    "@gethen/mailbox": "workspace:*"
+  },
+  "description": "Master-side LaunchPort over L2 mailbox: gethen.task.assign/result/ask/answer envelopes with escalation parking"
+}

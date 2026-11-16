@@ -33,6 +33,15 @@ importers:
         specifier: ^8.23.0
         version: 8.23.0
 
+  packages/agent:
+    dependencies:
+      '@gethen/harness':
+        specifier: workspace:*
+        version: link:../harness
+      '@gethen/mailbox':
+        specifier: workspace:*
+        version: link:../mailbox
+
   packages/benchmark: {}
 
   packages/benchmark-file:
@@ -49,6 +58,15 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.32.1
         version: 1.32.1(zod@4.6.7)
+
+  packages/bridge-mailbox:
+    dependencies:
+      '@gethen/mailbox':
+        specifier: workspace:*
+        version: link:../mailbox
+      '@gethen/master':
+        specifier: workspace:*
+        version: link:../master
 
   packages/bridge-remote:
     dependencies:
@@ -184,6 +202,15 @@ importers:
         version: link:../core
 
   packages/mailbox: {}
+
+  packages/mailbox-link:
+    dependencies:
+      '@gethen/mailbox':
+        specifier: workspace:*
+        version: link:../mailbox
+      '@gethen/transport':
+        specifier: workspace:*
+        version: link:../transport
 
   packages/master: {}
 

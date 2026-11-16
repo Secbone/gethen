@@ -1,0 +1,19 @@
+{
+  "name": "@gethen/mailbox-link",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@gethen/mailbox": "workspace:*",
+    "@gethen/transport": "workspace:*"
+  },
+  "description": "L2 mailbox over an L1 transport session: worker-side remote mailbox client and master-side mailbox server link"
+}
