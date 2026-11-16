@@ -37,7 +37,7 @@ export interface WorkerToolDefinition {
 
 export interface WorkerDshContext {
   tools: { register(definition: WorkerToolDefinition): () => void };
-  logger?: { error?(message: string): void };
+  logger?: { info?(message: string): void; error?(message: string): void };
 }
 
 export interface WorkerConfig {
@@ -138,6 +138,8 @@ function isReportKind(value: unknown): value is ReportKindLike {
  */
 export function applyWorker(ctx: WorkerDshContext, config: WorkerConfig = {}): void {
   const worker = config.worker ?? workerName;
+  if (process.env.GETHEN_DEBUG) process.stderr.write("[gethen-worker] tools registered\n");
+  ctx.logger?.info?.("[gethen-worker] tools registered");
 
   ctx.tools.register({
     name: "gethen_escalate",
