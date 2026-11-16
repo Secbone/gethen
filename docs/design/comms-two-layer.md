@@ -251,3 +251,13 @@ legacy 保留一个版本周期。
 - [NATS JetStream pull consumers](https://docs.nats.io/learn/jetstream/pull-consumers)（fetch/consume、显式 ack、redelivery、worker pool）
 - [RabbitMQ Queues](https://www.rabbitmq.com/docs/queues)（durable queue、ack/nack、prefetch、TTL、DLQ、priority）
 - [WAMP](https://wamp-proto.org/)（RPC + PubSub 应用层协议，可跑在 WebSocket/TCP/UDS 上——分层参考）
+
+## 实施进展（2026-11-17）
+
+| 阶段 | 状态 | 产出 |
+|---|---|---|
+| C1 L1 transport | ✅ | `@gethen/transport`：TransportSession 接口 + ws adapter（鉴权/心跳/背压/close），19 tests |
+| C2 L2 mailbox | ✅ | `@gethen/mailbox`：CloudEvents 信封、memory+sqlite store、lease/ack/nack/retry/DLQ、request/reply、cursor，43 tests |
+| C4-a harness 端口 | ✅ | `@gethen/harness`：HarnessExecutor/HarnessTask/Sink/Report 纯端口，12 tests |
+| C3 link/agent/bridge | 🚧 | `@gethen/mailbox-link`、`@gethen/agent`、`@gethen/bridge-mailbox` 并行开发中 |
+| 集成 | ⏳ | `master-runtime` 增加 `comms.mode=legacy\|mailbox`，CLI/DSH 开关，fake-harness e2e |
