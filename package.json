@@ -27,7 +27,8 @@
     "dev:dsh": "node scripts/build-dsh.mjs --watch",
     "serve": "tsx packages/cli/src/bin.ts serve",
     "verify:ws": "node scripts/verify-ws.mjs",
-    "e2e:sdk": "node scripts/e2e-sdk.mjs"
+    "e2e:sdk": "node scripts/e2e-sdk.mjs",
+    "verify:mailbox": "node scripts/verify-mailbox.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.3.8",

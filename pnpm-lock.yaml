@@ -88,15 +88,24 @@ importers:
 
   packages/cli:
     dependencies:
-      '@gethen/bridge-ws':
+      '@gethen/agent':
         specifier: workspace:*
-        version: link:../bridge-ws
+        version: link:../agent
       '@gethen/executor-sdk':
         specifier: workspace:*
         version: link:../executor-sdk
+      '@gethen/mailbox-link':
+        specifier: workspace:*
+        version: link:../mailbox-link
       '@gethen/master':
         specifier: workspace:*
         version: link:../master
+      '@gethen/master-runtime':
+        specifier: workspace:*
+        version: link:../master-runtime
+      '@gethen/transport':
+        specifier: workspace:*
+        version: link:../transport
       '@gethen/transport-ws':
         specifier: workspace:*
         version: link:../transport-ws

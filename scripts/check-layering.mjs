@@ -66,9 +66,13 @@ export const ALLOWED_WORKSPACE_DEPS = {
   "@gethen/evaluation": ["@gethen/core", "@gethen/evolution"],
   "@gethen/workspace": ["@gethen/core", "@gethen/evolution", "@gethen/storage-file"],
   "@gethen/cli": [
+    "@gethen/agent",
     "@gethen/bridge-ws",
     "@gethen/executor-sdk",
+    "@gethen/mailbox-link",
     "@gethen/master",
+    "@gethen/master-runtime",
+    "@gethen/transport",
     "@gethen/transport-ws",
     "@gethen/worker-agent",
     "@gethen/worker-protocol",

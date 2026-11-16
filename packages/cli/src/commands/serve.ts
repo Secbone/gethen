@@ -1,23 +1,14 @@
 import { mkdirSync, readFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { dirname } from "node:path";
-import { createWsLaunchPort, type WsLaunchBridge } from "@gethen/bridge-ws";
-import {
-  createFakeLaunch,
-  type EscalationRecord,
-  type EscalationResolutionInput,
-  type LaunchPort,
-  type LaunchRequest,
+import type {
+  EscalationRecord,
+  EscalationResolutionInput,
   MasterService,
-  type Policy,
-  type Trigger,
+  Trigger,
 } from "@gethen/master";
-import {
-  createMemoryTokenStore,
-  createWorkerGateway,
-  type WorkerGateway,
-  type WorkerTokenRecord,
-} from "@gethen/transport-ws";
+import { type CommsMode, type CommsOptions, createMasterRuntime } from "@gethen/master-runtime";
+import type { WorkerTokenRecord } from "@gethen/transport-ws";
 import { PROTOCOL_NAME } from "@gethen/worker-protocol";
 import { defaultMasterDbPath } from "../paths";
 
@@ -33,7 +24,7 @@ export interface ServeConfig {
   port?: number;
   /**
    * Worker credentials served by the WS gateway. Absent or empty keeps the
-   * fake launch and does not expose the worker endpoint.
+   * fake launch and does not expose the worker endpoint (legacy mode).
    */
   tokens?: readonly WorkerTokenRecord[];
   /**
@@ -47,30 +38,43 @@ export interface ServeConfig {
    * not model a workspace yet; until it does, the host supplies the default.
    */
   workspace?: string;
-  /** Pack digest recorded for dispatches without one; defaults to `DEFAULT_PACK_DIGEST`. */
+  /** Pack digest recorded for dispatches without one. */
   packDigest?: string;
+  /** Communication stack; defaults to `"legacy"` (the pre-mailbox behavior). */
+  comms?: CommsMode;
+  /** Mailbox mode: the single worker served; defaults to the only token's id. */
+  workerId?: string;
+  /** Mailbox mode: mailbox sqlite file; defaults to `<db dir>/mailbox.sqlite`. */
+  mailboxDbPath?: string;
+  /** Mailbox mode: full master mailbox name; defaults to `mailbox:master`. */
+  masterMailbox?: string;
+  /** Mailbox mode: bridge/link poll interval (tests and verify scripts). */
+  mailboxPollIntervalMs?: number;
+  /** Mailbox mode: lease/visibility timeout (tests and verify scripts). */
+  mailboxVisibilityTimeoutMs?: number;
 }
 
 export interface ServeHandle {
   server: Server;
   service: MasterService;
   port: number;
-  /** `"ws"` when the worker gateway is attached, else the fake launch. */
+  /** `"ws"` when a launch bridge is attached, else the fake launch. */
   launch: "ws" | "fake";
+  /** The assembled communication stack. */
+  comms: CommsMode;
   close(): Promise<void>;
 }
 
-const POLICY: Policy = {
-  version: 1,
-  acceptMode: "auto",
-  rules: [],
-  sources: { local: { allowed: ["local-user"], bots: [] } },
-};
+export interface ServeCommandOptions {
+  /** Environment for `--tokens` fallback (tests). Defaults to `process.env`. */
+  readonly env?: NodeJS.ProcessEnv;
+  /** Sink for stdout lines (tests). Defaults to stdout. */
+  readonly write?: (line: string) => void;
+  /** Sink for error lines (tests). Defaults to stderr. */
+  readonly error?: (line: string) => void;
+}
 
 const MAX_BODY_BYTES = 64 * 1024;
-
-/** Pack digest recorded when the engine has none (no real pack pinning yet). */
-const DEFAULT_PACK_DIGEST = "sha256:local-unpinned";
 
 function text(value: unknown, workspace: string): Trigger {
   const message = typeof value === "string" ? value.trim() : "";
@@ -110,37 +114,6 @@ function send(response: ServerResponse, status: number, value: unknown): void {
   response.end(body);
 }
 
-/**
- * The P1 engine persists assignments without a workspace or pack digest, which
- * the WS dispatch frame rejects. Fill host-level defaults in at the launch
- * boundary only; the engine's own rows stay untouched.
- */
-function withLaunchDefaults(
-  port: LaunchPort,
-  defaults: { workspace: string; packDigest: string },
-): LaunchPort {
-  return {
-    launch(request: LaunchRequest) {
-      const assignment = {
-        ...request.assignment,
-        workspace:
-          request.assignment.workspace.length > 0
-            ? request.assignment.workspace
-            : defaults.workspace,
-        packDigest:
-          request.assignment.packDigest.length > 0
-            ? request.assignment.packDigest
-            : defaults.packDigest,
-      };
-      return port.launch({
-        ...request,
-        assignment,
-        packDigest: request.packDigest.length > 0 ? request.packDigest : defaults.packDigest,
-      });
-    },
-  };
-}
-
 /** Resolution text for auto-answered escalations; logs show it was not a person. */
 export const AUTO_ESCALATION_TEXT = "auto-answered by gethen serve --escalation auto";
 
@@ -162,50 +135,43 @@ export function autoEscalationResolver(): (
   };
 }
 
+function mailboxOptions(config: ServeConfig): CommsOptions {
+  return {
+    mode: "mailbox",
+    ...(config.workerId === undefined ? {} : { workerId: config.workerId }),
+    ...(config.mailboxDbPath === undefined ? {} : { mailboxDbPath: config.mailboxDbPath }),
+    ...(config.masterMailbox === undefined ? {} : { masterMailbox: config.masterMailbox }),
+    ...(config.mailboxPollIntervalMs === undefined
+      ? {}
+      : { pollIntervalMs: config.mailboxPollIntervalMs }),
+    ...(config.mailboxVisibilityTimeoutMs === undefined
+      ? {}
+      : { visibilityTimeoutMs: config.mailboxVisibilityTimeoutMs }),
+  };
+}
+
 /**
- * Start the master control plane: sqlite + outbox, a small HTTP surface for
- * health and local dispatch, and (when worker tokens are configured) the
- * `gethen.worker/v1` WS endpoint on the same server, with the Master launching
- * assignments through the WS `LaunchPort` instead of the fake one.
+ * Start the master control plane: the `@gethen/master-runtime` assembly (sqlite
+ * store + outbox + launch bridge, either the legacy WS gateway/bridge or the L1
+ * transport + L2 mailbox stack), plus a small HTTP surface for health and local
+ * dispatch. The worker upgrade path is `/gethen/worker` in both comms modes.
  */
 export async function startServe(config: ServeConfig = {}): Promise<ServeHandle> {
   const dbPath = config.dbPath ?? defaultMasterDbPath();
   mkdirSync(dirname(dbPath), { recursive: true });
 
-  const tokens = config.tokens ?? [];
-  let gateway: WorkerGateway | undefined;
-  let bridge: WsLaunchBridge | undefined;
-  if (tokens.length > 0) {
-    const tokenStore = createMemoryTokenStore(tokens);
-    gateway = createWorkerGateway({
-      verifyToken: (token) => tokenStore.lookup(token),
-      onHello: () => undefined,
-      // `bridge` is assigned below; frames can only arrive after the server
-      // starts listening, so the closure always observes the finished bridge.
-      onFrame: (connection, frame) => bridge?.handleFrame(connection, frame),
-      onClose: () => undefined,
-      onError: () => undefined,
-    });
-    bridge = createWsLaunchPort({
-      gateway,
-      ...(config.resolveEscalation === undefined
-        ? {}
-        : { resolveEscalation: config.resolveEscalation }),
-    });
-  }
-  const launch: "ws" | "fake" = bridge === undefined ? "fake" : "ws";
-  const workspace = config.workspace ?? process.cwd();
-  const launchPort = withLaunchDefaults(bridge?.launchPort ?? createFakeLaunch(), {
-    workspace,
-    packDigest: config.packDigest ?? DEFAULT_PACK_DIGEST,
-  });
-
-  const service = new MasterService({
+  const comms: CommsMode = config.comms ?? "legacy";
+  const runtime = createMasterRuntime({
     dbPath,
-    policy: POLICY,
-    launch: launchPort,
+    workspace: config.workspace ?? process.cwd(),
+    ...(config.tokens === undefined ? {} : { tokens: config.tokens }),
+    ...(config.packDigest === undefined ? {} : { packDigest: config.packDigest }),
+    ...(config.resolveEscalation === undefined
+      ? {}
+      : { resolveEscalation: config.resolveEscalation }),
+    ...(comms === "mailbox" ? { comms: mailboxOptions(config) } : {}),
   });
-  service.start();
+  const service = runtime.service;
   const startedAt = Date.now();
 
   const server = createServer((request, response) => {
@@ -213,28 +179,17 @@ export async function startServe(config: ServeConfig = {}): Promise<ServeHandle>
       const { pathname } = new URL(request.url ?? "/", "http://localhost");
       try {
         if (request.method === "GET" && pathname === "/health") {
-          const tickets = service.store.tickets.list();
-          const workers =
-            gateway === undefined
-              ? 0
-              : gateway.connections().filter((connection) => connection.workerId !== undefined)
-                  .length;
           send(response, 200, {
             ok: true,
             uptimeMs: Date.now() - startedAt,
-            tickets: tickets.length,
-            open: tickets.filter((ticket) => ticket.endedAt === undefined).length,
-            receipts: service.store.listReceipts().length,
-            escalations: service.store.listEscalations().length,
-            workers,
-            launch,
+            ...runtime.health(),
             protocol: PROTOCOL_NAME,
           });
           return;
         }
         if (request.method === "POST" && pathname === "/gethen/run") {
           const body = await readJson(request);
-          const trigger = text(body.text as string | undefined, workspace);
+          const trigger = text(body.text as string | undefined, config.workspace ?? process.cwd());
           const result = await service.submit(trigger);
           const ticket = service.store.tickets.list().at(-1);
           send(response, 200, {
@@ -259,12 +214,12 @@ export async function startServe(config: ServeConfig = {}): Promise<ServeHandle>
   // 404 and a destroyed socket (never a half-open connection).
   server.on("upgrade", (request, socket, head) => {
     const { pathname } = new URL(request.url ?? "/", "http://localhost");
-    if (gateway === undefined || pathname !== WORKER_PATH) {
+    if (runtime.handleUpgrade === undefined || pathname !== WORKER_PATH) {
       socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
       socket.destroy();
       return;
     }
-    gateway.handleUpgrade(request, socket, head);
+    runtime.handleUpgrade(request, socket, head);
   });
 
   const port = await new Promise<number>((resolve, reject) => {
@@ -280,22 +235,30 @@ export async function startServe(config: ServeConfig = {}): Promise<ServeHandle>
     server,
     service,
     port,
-    launch,
+    launch: runtime.launch,
+    comms: runtime.comms,
     async close() {
       if (closed) return;
       closed = true;
-      // Gateway first: it closes worker sockets, so `server.close` can finish.
-      await gateway?.close();
-      await new Promise<void>((resolve) => server.close(() => resolve()));
-      service.stop();
+      if (runtime.comms === "legacy") {
+        // Legacy close order stays explicit: gateway -> HTTP server -> service.
+        await runtime.gateway?.close();
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+        service.stop();
+      } else {
+        // Mailbox mode: stop accepting upgrades first, then let the runtime
+        // close the bridge, session links, ws server, mailbox store and service.
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+        await runtime.close();
+      }
     },
   };
 }
 
 /**
  * Parse the worker credential JSON: `[{"workerId":"...","token":"..."}]`.
- * Structural validation only; duplicate/invalid entries are rejected by
- * `createMemoryTokenStore` when the server starts.
+ * Structural validation only; duplicate/invalid entries are rejected by the
+ * token store when the worker gateway starts.
  */
 export function parseWorkerTokens(raw: string): WorkerTokenRecord[] {
   let parsed: unknown;
@@ -321,16 +284,28 @@ export function parseWorkerTokens(raw: string): WorkerTokenRecord[] {
   });
 }
 
-/** `gethen serve [--db <file>] [--host <addr>] [--port <n>] [--tokens <file>]` */
-export async function serveCommand(argv: string[]): Promise<number> {
+/** `gethen serve [--db <file>] [--host <addr>] [--port <n>] …` */
+export async function serveCommand(
+  argv: string[],
+  options: ServeCommandOptions = {},
+): Promise<number> {
+  const write = options.write ?? ((line: string) => process.stdout.write(`${line}\n`));
+  const writeError = options.error ?? ((line: string) => process.stderr.write(`${line}\n`));
   if (argv.includes("-h") || argv.includes("--help")) {
-    process.stdout.write(
+    write(
       "Usage: gethen serve [--db <file>] [--host <addr>] [--port <n>]\n" +
         "                    [--tokens <file>] [--workspace <dir>]\n" +
+        "                    [--escalation auto|park]\n" +
+        "                    [--comms legacy|mailbox] [--worker-id <id>]\n" +
+        "                    [--mailbox-db <file>] [--master-mailbox <name>]\n" +
         "Starts the master control plane.\n" +
         "Worker tokens come from --tokens <file> or GETHEN_WORKER_TOKENS_JSON\n" +
         `([{"workerId":"...","token":"..."}]); with them the ${PROTOCOL_NAME} endpoint is\n` +
         `served at ${WORKER_PATH}. Without them the fake launch is used.\n` +
+        "--comms selects the communication stack (default legacy): legacy uses the\n" +
+        "gethen.worker/v1 gateway; mailbox uses the L1 transport + L2 mailbox stack\n" +
+        "for a single worker (requires worker tokens; --worker-id defaults to the\n" +
+        "only token, --mailbox-db defaults to <db dir>/mailbox.sqlite).\n" +
         "--workspace is the worker-side path dispatched assignments run in\n" +
         "(the engine has no per-assignment workspace yet).\n" +
         "--escalation auto|park (default park): park waits for a person (the run\n" +
@@ -339,6 +314,7 @@ export async function serveCommand(argv: string[]): Promise<number> {
     );
     return 0;
   }
+  const env = options.env ?? process.env;
   const option = (name: string): string | undefined => {
     const index = argv.indexOf(name);
     return index >= 0 ? argv[index + 1] : undefined;
@@ -346,9 +322,12 @@ export async function serveCommand(argv: string[]): Promise<number> {
 
   const escalation = option("--escalation") ?? "park";
   if (escalation !== "auto" && escalation !== "park") {
-    process.stderr.write(
-      `gethen serve: --escalation must be "auto" or "park", got "${escalation}"\n`,
-    );
+    writeError(`gethen serve: --escalation must be "auto" or "park", got "${escalation}"`);
+    return 1;
+  }
+  const comms = option("--comms") ?? "legacy";
+  if (comms !== "legacy" && comms !== "mailbox") {
+    writeError(`gethen serve: --comms must be "legacy" or "mailbox", got "${comms}"`);
     return 1;
   }
 
@@ -356,12 +335,17 @@ export async function serveCommand(argv: string[]): Promise<number> {
   const tokensPath = option("--tokens");
   try {
     const raw =
-      tokensPath === undefined
-        ? process.env.GETHEN_WORKER_TOKENS_JSON
-        : readFileSync(tokensPath, "utf8");
-    if (raw !== undefined) tokens = parseWorkerTokens(raw);
+      tokensPath === undefined ? env.GETHEN_WORKER_TOKENS_JSON : readFileSync(tokensPath, "utf8");
+    if (raw !== undefined && raw.trim().length > 0) tokens = parseWorkerTokens(raw);
   } catch (error) {
-    process.stderr.write(`gethen serve: ${messageOf(error)}\n`);
+    writeError(`gethen serve: ${messageOf(error)}`);
+    return 1;
+  }
+  if (comms === "mailbox" && (tokens === undefined || tokens.length === 0)) {
+    writeError(
+      "gethen serve: --comms mailbox requires worker tokens (--tokens <file> or " +
+        "GETHEN_WORKER_TOKENS_JSON)",
+    );
     return 1;
   }
 
@@ -369,22 +353,40 @@ export async function serveCommand(argv: string[]): Promise<number> {
   const dbPath = option("--db");
   const portValue = option("--port");
   const workspace = option("--workspace");
-  const handle = await startServe({
-    host,
-    ...(dbPath === undefined ? {} : { dbPath }),
-    ...(portValue === undefined ? {} : { port: Number(portValue) }),
-    ...(workspace === undefined ? {} : { workspace }),
-    ...(tokens === undefined ? {} : { tokens }),
-    ...(escalation === "auto" ? { resolveEscalation: autoEscalationResolver() } : {}),
-  });
+  const workerId = option("--worker-id");
+  const mailboxDbPath = option("--mailbox-db");
+  const masterMailbox = option("--master-mailbox");
+  let handle: ServeHandle;
+  try {
+    handle = await startServe({
+      host,
+      ...(dbPath === undefined ? {} : { dbPath }),
+      ...(portValue === undefined ? {} : { port: Number(portValue) }),
+      ...(workspace === undefined ? {} : { workspace }),
+      ...(tokens === undefined ? {} : { tokens }),
+      ...(escalation === "auto" ? { resolveEscalation: autoEscalationResolver() } : {}),
+      ...(comms === "legacy" ? {} : { comms: "mailbox" }),
+      ...(workerId === undefined ? {} : { workerId }),
+      ...(mailboxDbPath === undefined ? {} : { mailboxDbPath }),
+      ...(masterMailbox === undefined ? {} : { masterMailbox }),
+    });
+  } catch (error) {
+    writeError(`gethen serve: ${messageOf(error)}`);
+    return 1;
+  }
 
-  process.stdout.write(`gethen master listening on http://${host}:${handle.port}\n`);
+  write(`gethen master listening on http://${host}:${handle.port}`);
   if (escalation === "auto") {
-    process.stdout.write("escalations: auto (answering the default/first option)\n");
+    write("escalations: auto (answering the default/first option)");
+  }
+  if (handle.comms === "mailbox") {
+    const served =
+      workerId ?? (tokens !== undefined && tokens.length === 1 ? tokens[0]?.workerId : undefined);
+    write(`comms: mailbox${served === undefined ? "" : ` (worker: ${served})`}`);
   }
   if (handle.launch === "ws") {
-    process.stdout.write(
-      `worker endpoint: ws://${host}:${handle.port}${WORKER_PATH} (launch: ws)\n`,
+    write(
+      `worker endpoint: ws://${host}:${handle.port}${WORKER_PATH} (comms: ${handle.comms}, launch: ws)`,
     );
   }
   await new Promise<void>((resolve) => {

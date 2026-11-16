@@ -128,7 +128,13 @@ describe("gethen serve", () => {
     expect(handle.launch).toBe("fake");
 
     const health = await getJson(handle, "/health");
-    expect(health).toMatchObject({ ok: true, tickets: 0, workers: 0, launch: "fake" });
+    expect(health).toMatchObject({
+      ok: true,
+      tickets: 0,
+      workers: 0,
+      launch: "fake",
+      comms: "legacy",
+    });
 
     const run = await postJson(handle, "/gethen/run", { text: "standalone smoke" });
     expect(run).toMatchObject({
@@ -232,6 +238,45 @@ describe("gethen serve", () => {
     expect(await serveCommand(["--escalation", "bogus"])).toBe(1);
 
     expect(stderr.mock.calls.map((call) => String(call[0])).join("")).toContain("--escalation");
+  });
+
+  it("serves the mailbox stack when comms is mailbox", async () => {
+    const mailboxDir = mkdtempSync(join(tmpdir(), "gethen-serve-mailbox-"));
+    dirs.push(mailboxDir);
+    const handle = await serve({
+      comms: "mailbox",
+      workerId: "worker-1",
+      tokens: [{ workerId: "worker-1", token: "mailbox-token" }],
+      mailboxDbPath: join(mailboxDir, "mailbox.sqlite"),
+      mailboxPollIntervalMs: 10,
+      mailboxVisibilityTimeoutMs: 2_000,
+    });
+
+    expect(handle.comms).toBe("mailbox");
+    expect(handle.launch).toBe("ws");
+    const health = await getJson(handle, "/health");
+    expect(health).toMatchObject({
+      ok: true,
+      comms: "mailbox",
+      launch: "ws",
+      workers: 0,
+      tickets: 0,
+    });
+    expect(health.mailbox).toEqual({ pending: 0, leased: 0, dead: 0 });
+    expect(await upgradeStatus(handle.port, "/gethen/worker")).toBe("HTTP/1.1 401 Unauthorized");
+  });
+
+  it("rejects unknown --comms values and mailbox mode without tokens", async () => {
+    const errors: string[] = [];
+    const error = (line: string) => errors.push(line);
+    const write = () => undefined;
+
+    expect(await serveCommand(["--comms", "bogus"], { env: {}, write, error })).toBe(1);
+    expect(errors.join("\n")).toContain("--comms");
+
+    errors.length = 0;
+    expect(await serveCommand(["--comms", "mailbox"], { env: {}, write, error })).toBe(1);
+    expect(errors.join("\n")).toContain("mailbox requires worker tokens");
   });
 
   it("rejects upgrades on other paths and without a bearer token", async () => {

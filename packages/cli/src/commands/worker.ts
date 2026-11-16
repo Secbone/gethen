@@ -1,6 +1,10 @@
 import { readFileSync } from "node:fs";
 import { hostname } from "node:os";
-import { createSdkExecutor } from "@gethen/executor-sdk";
+import { agentMailboxName, createMailboxAgent, type MailboxAgent } from "@gethen/agent";
+import { createSdkExecutor, createSdkHarnessExecutor } from "@gethen/executor-sdk";
+import { createMailboxClientLink, type MailboxClientLink } from "@gethen/mailbox-link";
+import type { CommsMode } from "@gethen/master-runtime";
+import { createWsTransport, type TransportSession } from "@gethen/transport";
 import { createWorkerAgent, type WorkerAgent } from "@gethen/worker-agent";
 import { WORKER_PATH } from "./serve";
 import { workerTokenCommand } from "./worker-token";
@@ -16,6 +20,8 @@ export interface WorkerConfig {
   quota?: number;
   dshCommand?: string;
   dshArgs?: string[];
+  /** Communication stack; absent means `"legacy"`. */
+  comms?: CommsMode;
 }
 
 export interface WorkerConfigOptions {
@@ -34,6 +40,8 @@ interface WorkerConfigFile {
   quota?: number;
   dshCommand?: string;
   dshArgs?: string[];
+  /** Raw config-file value; validated by {@link parseWorkerConfig}. */
+  comms?: string;
 }
 
 /**
@@ -72,6 +80,7 @@ export function parseWorkerConfig(argv: string[], options: WorkerConfigOptions =
   const dshArgs = flagDshArgs.length > 0 ? flagDshArgs : file.dshArgs;
   const quota = positiveInteger(flagValue(argv, "--quota") ?? file.quota, "quota");
   const machine = flagValue(argv, "--machine") ?? file.machine;
+  const comms = parseComms(flagValue(argv, "--comms") ?? file.comms);
 
   return {
     masterUrl: normalizeMasterUrl(masterUrl),
@@ -84,6 +93,7 @@ export function parseWorkerConfig(argv: string[], options: WorkerConfigOptions =
     ...(quota === undefined ? {} : { quota }),
     ...(file.dshCommand === undefined ? {} : { dshCommand: file.dshCommand }),
     ...(dshArgs === undefined ? {} : { dshArgs }),
+    ...(comms === undefined ? {} : { comms }),
   };
 }
 
@@ -131,6 +141,11 @@ export async function workerCommand(argv: string[]): Promise<number> {
     return 1;
   }
 
+  const comms: CommsMode = config.comms ?? "legacy";
+  if (comms === "mailbox") {
+    return runMailboxWorker(config);
+  }
+
   const executor = createSdkExecutor({
     provider: config.provider,
     model: config.model,
@@ -171,10 +186,14 @@ const WORKER_USAGE = `Usage:
   gethen worker --config <file>
   gethen worker --master-url <url> --token <token> --worker-id <id> \\
                 --provider <provider> --model <model> [--workspace <dir>]...
-                [--dsh-args <arg>]...
+                [--dsh-args <arg>]... [--comms legacy|mailbox]
 
 Without a subcommand the worker daemon starts and connects out to a master; the
 daemon executes dispatched assignments through the DSH SDK executor.
+--comms selects the communication stack (default legacy): legacy speaks
+gethen.worker/v1 through the worker-agent; mailbox attaches to the master's L1
+transport + L2 mailbox stack, runs a mailbox consumer and reconnects with
+exponential backoff.
 add/ls/revoke manage worker tokens persisted in the master sqlite (--db,
 default $GETHEN_STATE_DIR/master.sqlite or ~/.gethen/master.sqlite).
 
@@ -185,9 +204,139 @@ comma-separated, e.g.
 A daemon config file is JSON:
   { "masterUrl": "wss://master/gethen/worker", "token": "...", "workerId": "...",
     "provider": "...", "model": "...", "workspaces": ["/srv/project"],
-    "machine": "...", "quota": 1, "dshCommand": "dsh", "dshArgs": ["--profile", "sdk"] }
+    "machine": "...", "quota": 1, "dshCommand": "dsh", "dshArgs": ["--profile", "sdk"],
+    "comms": "legacy|mailbox" }
 Flags win over the file. SIGINT/SIGTERM shut the worker down gracefully.
 `;
+
+/** Master mailbox the worker replies to (matches the L2 mailbox default). */
+const MASTER_MAILBOX = "mailbox:master";
+const RECONNECT_INITIAL_MS = 500;
+const RECONNECT_MAX_MS = 30_000;
+
+function parseComms(value: string | undefined): CommsMode | undefined {
+  if (value === undefined) return undefined;
+  if (value === "legacy" || value === "mailbox") return value;
+  throw new Error(`worker config: comms must be "legacy" or "mailbox", got "${value}"`);
+}
+
+/**
+ * Mailbox-mode daemon (C3): dial the master's L1 ws transport, attach the L2
+ * mailbox link for `mailbox:<workerId>` and let the mailbox agent drive the DSH
+ * SDK harness. Disconnects reconnect with exponential backoff and re-attach the
+ * same link; SIGTERM/SIGINT drain the agent, then close link, session and
+ * harness. The legacy worker-agent path above is untouched.
+ */
+async function runMailboxWorker(config: WorkerConfig): Promise<number> {
+  const workerId = config.workerId;
+  const mailbox = agentMailboxName(workerId);
+  const transport = createWsTransport({ heartbeat: true });
+  const connect = (): Promise<TransportSession> =>
+    transport.connect({ url: config.masterUrl }, { kind: "bearer", token: config.token });
+
+  let session: TransportSession;
+  try {
+    session = await connect();
+  } catch (error) {
+    process.stderr.write(
+      `gethen worker: mailbox connect to ${config.masterUrl} failed: ${messageOf(error)}\n`,
+    );
+    return 1;
+  }
+
+  const link: MailboxClientLink = await createMailboxClientLink({ session, mailbox });
+  const harness = createSdkHarnessExecutor({
+    provider: config.provider,
+    model: config.model,
+    cwdFor: (workspace) => workspace,
+    ...(config.dshCommand === undefined ? {} : { dshCommand: config.dshCommand }),
+    ...(config.dshArgs === undefined ? {} : { dshArgs: config.dshArgs }),
+  });
+  const agent: MailboxAgent = createMailboxAgent({
+    workerId,
+    mailbox: link,
+    harness,
+    quota: config.quota ?? 1,
+    mailboxName: mailbox,
+    masterMailbox: MASTER_MAILBOX,
+    onError: (error, context) =>
+      process.stderr.write(`gethen worker: mailbox ${context.phase} error: ${messageOf(error)}\n`),
+  });
+  agent.start();
+  process.stdout.write(
+    `worker ${workerId} connected to ${config.masterUrl} (comms: mailbox, mailbox: ${mailbox})\n`,
+  );
+
+  let currentSession = session;
+  let stopping = false;
+  let reconnecting = false;
+  let reconnectPromise: Promise<void> | undefined;
+  let reconnectTimer: NodeJS.Timeout | undefined;
+  let attempt = 0;
+
+  function watch(target: TransportSession): void {
+    target.onState((state) => {
+      if (state !== "closed" || stopping || target !== currentSession) return;
+      scheduleReconnect();
+    });
+  }
+
+  function scheduleReconnect(): void {
+    if (stopping || reconnecting || reconnectTimer !== undefined) return;
+    const base = Math.min(RECONNECT_MAX_MS, RECONNECT_INITIAL_MS * 2 ** attempt);
+    attempt += 1;
+    const delay = Math.round(base * (0.8 + Math.random() * 0.4));
+    process.stderr.write(`gethen worker: mailbox link closed; reconnecting in ${delay}ms\n`);
+    const timer = setTimeout(() => {
+      reconnectTimer = undefined;
+      reconnectPromise = reconnectOnce().finally(() => {
+        reconnectPromise = undefined;
+      });
+    }, delay);
+    timer.unref();
+    reconnectTimer = timer;
+  }
+
+  async function reconnectOnce(): Promise<void> {
+    if (stopping || reconnecting) return;
+    reconnecting = true;
+    try {
+      const next = await connect();
+      if (stopping) {
+        await next.close("worker_stopped").catch(() => undefined);
+        return;
+      }
+      await link.attach(next);
+      currentSession = next;
+      watch(next);
+      attempt = 0;
+      process.stdout.write(`worker ${workerId} reconnected (mailbox: ${mailbox})\n`);
+    } catch (error) {
+      process.stderr.write(`gethen worker: mailbox reconnect failed: ${messageOf(error)}\n`);
+      scheduleReconnect();
+    } finally {
+      reconnecting = false;
+    }
+  }
+
+  watch(session);
+  await waitForSignal();
+  stopping = true;
+  if (reconnectTimer !== undefined) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = undefined;
+  }
+  if (reconnectPromise !== undefined) await reconnectPromise.catch(() => undefined);
+
+  await agent.stop();
+  link.close();
+  await currentSession.close("worker_stopped").catch((error: unknown) => {
+    process.stderr.write(`gethen worker: closing mailbox session failed: ${messageOf(error)}\n`);
+  });
+  await harness.close();
+  process.stdout.write(`worker ${workerId} stopped\n`);
+  return 0;
+}
 
 function waitForSignal(): Promise<void> {
   return new Promise<void>((resolve) => {
@@ -233,6 +382,7 @@ function configFile(argv: string[]): WorkerConfigFile {
   const dshCommand = optionalString(parsed, "dshCommand");
   const workspaces = optionalStringArray(parsed, "workspaces");
   const dshArgs = optionalStringArray(parsed, "dshArgs");
+  const comms = optionalString(parsed, "comms");
   const quota = optionalNumber(parsed, "quota");
   if (masterUrl !== undefined) file.masterUrl = masterUrl;
   if (token !== undefined) file.token = token;
@@ -243,6 +393,7 @@ function configFile(argv: string[]): WorkerConfigFile {
   if (dshCommand !== undefined) file.dshCommand = dshCommand;
   if (workspaces !== undefined) file.workspaces = workspaces;
   if (dshArgs !== undefined) file.dshArgs = dshArgs;
+  if (comms !== undefined) file.comms = comms;
   if (quota !== undefined) file.quota = quota;
   return file;
 }

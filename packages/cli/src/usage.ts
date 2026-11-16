@@ -13,4 +13,6 @@ GETHEN_* environment variables are optional. Run \`gethen doctor\` to check
 this machine before running a worker, and \`gethen status --json\` to inspect a
 running master's persisted state. \`gethen serve --escalation auto\` auto-answers
 worker escalations for remote testing; the default is to park them for a person.
+Both \`gethen serve\` and \`gethen worker\` accept \`--comms legacy|mailbox\`
+(default legacy); mailbox runs the L1 transport + L2 mailbox stack for one worker.
 `;

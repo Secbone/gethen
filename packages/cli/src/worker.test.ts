@@ -164,4 +164,70 @@ describe("gethen worker config", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+  it("parses --comms and lets it override the config file", () => {
+    const required = [
+      "--master-url",
+      "http://127.0.0.1:8080",
+      "--token",
+      "worker-token",
+      "--worker-id",
+      "worker-1",
+      "--provider",
+      "deepseek",
+      "--model",
+      "deepseek-v4",
+    ];
+
+    const fromFlags = parseWorkerConfig([...required, "--comms", "mailbox"], {
+      cwd: "/tmp/ignored",
+    });
+    expect(fromFlags.comms).toBe("mailbox");
+
+    const dir = mkdtempSync(join(tmpdir(), "gethen-worker-"));
+    try {
+      const path = join(dir, "worker.json");
+      writeFileSync(
+        path,
+        JSON.stringify({
+          comms: "mailbox",
+          workspaces: ["/tmp/ignored"],
+          dshArgs: ["--profile", "sdk"],
+        }),
+      );
+      const fromFile = parseWorkerConfig([...required, "--config", path], { cwd: "/tmp/ignored" });
+      expect(fromFile.comms).toBe("mailbox");
+
+      const overridden = parseWorkerConfig([...required, "--config", path, "--comms", "legacy"], {
+        cwd: "/tmp/ignored",
+      });
+      expect(overridden.comms).toBe("legacy");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects an unknown comms value from flags or config", () => {
+    const required = [
+      "--master-url",
+      "http://127.0.0.1:8080",
+      "--token",
+      "worker-token",
+      "--worker-id",
+      "worker-1",
+      "--provider",
+      "deepseek",
+      "--model",
+      "deepseek-v4",
+    ];
+    expect(() => parseWorkerConfig([...required, "--comms", "bogus"])).toThrow(/comms/);
+
+    const dir = mkdtempSync(join(tmpdir(), "gethen-worker-"));
+    try {
+      const path = join(dir, "worker.json");
+      writeFileSync(path, JSON.stringify({ comms: "bogus" }));
+      expect(() => parseWorkerConfig([...required, "--config", path])).toThrow(/comms/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
