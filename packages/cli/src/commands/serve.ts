@@ -1,7 +1,6 @@
 import { mkdirSync, readFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import { createWsLaunchPort, type WsLaunchBridge } from "@gethen/bridge-ws";
 import {
   createFakeLaunch,
@@ -20,6 +19,7 @@ import {
   type WorkerTokenRecord,
 } from "@gethen/transport-ws";
 import { PROTOCOL_NAME } from "@gethen/worker-protocol";
+import { defaultMasterDbPath } from "../paths";
 
 /** The only upgrade path this host accepts for the worker control plane. */
 export const WORKER_PATH = "/gethen/worker";
@@ -148,8 +148,7 @@ function withLaunchDefaults(
  * assignments through the WS `LaunchPort` instead of the fake one.
  */
 export async function startServe(config: ServeConfig = {}): Promise<ServeHandle> {
-  const stateDir = process.env.GETHEN_STATE_DIR ?? join(homedir(), ".gethen");
-  const dbPath = config.dbPath ?? join(stateDir, "master.sqlite");
+  const dbPath = config.dbPath ?? defaultMasterDbPath();
   mkdirSync(dirname(dbPath), { recursive: true });
 
   const tokens = config.tokens ?? [];

@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
@@ -23,6 +23,7 @@ it.each([["help"], ["-h"], ["--help"]])("prints usage for %s", async (command: s
   expect(output).toContain("gethen init");
   expect(output).toContain("gethen serve");
   expect(output).toContain("gethen worker");
+  expect(output).toContain("gethen status");
   expect(output).toContain("gethen doctor");
   expect(output).toContain("gethen help");
   expect(output).not.toContain("bench");
@@ -62,7 +63,11 @@ it("doctor reports warnings without failing", () => {
   const lines: string[] = [];
 
   try {
-    expect(doctorCommand({ home, write: (line) => lines.push(line) })).toBe(0);
+    const fakeDsh = join(home, "fake-dsh");
+    writeFileSync(fakeDsh, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    expect(
+      doctorCommand({ home, env: { GETHEN_DSH: fakeDsh }, write: (line) => lines.push(line) }),
+    ).toBe(0);
     expect(lines.length).toBeGreaterThanOrEqual(4);
     expect(lines[0]).toMatch(/^(ok|warn|info)\s/);
   } finally {
