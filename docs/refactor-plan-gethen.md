@@ -408,3 +408,11 @@ Node 上每个项目一个 profile（如 `gethen-project-a`），由
   parked 不自动继续、worker bundle 工具注册）；gate 23 包 / 455 tests 全绿。
 - 待用户验证：真实远端 e2e（远端 DSH 登录 Remote、master 配 `remote` + 可选
   `escalation.answer`，worker profile 挂 `worker.js`）。
+
+### 2026-11-16 修订：控制面独立
+
+[控制面独立重构计划](design/refactor-plan-control-plane-2026-11-16.md) 取代本文件
+P4 之后的部分：Master 可独立进程（`gethen serve`）或 DSH 插件；Worker 改为
+`gethen worker` 守护进程管理本机 DSH 生命周期；传输改为自建 WS 控制面（无中继），
+`dsh-remote` 保留为可选适配器。协议细节见
+[P4-WS 设计](design/p4-ws-control-plane.md)。

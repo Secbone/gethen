@@ -3,7 +3,8 @@
 日期：2026-11-16。目标：用自建的 **出站 WebSocket 控制面**替换 `ds-harness-remote`
 作为 Master↔Worker 的传输，不依赖第三方中继，同时把 Worker 生命周期纳入 Master 管理。
 
-状态：设计提案。落地前保留 `remote` 适配器作为可选项。
+状态：设计提案。落地前保留 `remote` 适配器作为可选项。进程形态与控制面独立方案见
+[控制面独立重构计划](refactor-plan-control-plane-2026-11-16.md)。
 
 ## 0. 结论
 
