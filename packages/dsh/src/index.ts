@@ -93,7 +93,8 @@ function objectSchema(
 export function apply(ctx: DshContext, config: GethenConfig = {}): void {
   const dir =
     config.dir ?? process.env.GETHEN_STATE_DIR ?? join(process.cwd(), ".gethen", "master");
-  const remoteClient = ctx.get?.("dshRemoteClient") as RemoteClientLike | undefined;
+  const clientService = config.remote?.clientService ?? "dshRemoteClient";
+  const remoteClient = ctx.get?.(clientService) as RemoteClientLike | undefined;
   const useRemote = config.remote !== undefined && remoteClient !== undefined;
   const launchMode = useRemote ? "remote" : "fake";
   let service: MasterService | undefined;

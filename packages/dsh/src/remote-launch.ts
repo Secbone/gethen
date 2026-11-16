@@ -15,6 +15,11 @@ import {
 } from "@gethen/master";
 
 export interface RemoteLaunchConfig {
+  /**
+   * Service name that provides the Remote client. Defaults to
+   * `dshRemoteClient`; tests/dev harnesses may inject another name.
+   */
+  clientService?: string;
   /** DSH Remote host id (deviceId) of the worker machine. */
   hostId: string;
   /** Workspace id on that host, as returned by `listRemoteWorkspaces`. */
