@@ -59,6 +59,9 @@
       "@gethen/evolution": [
         "packages/evolution/src/index.ts"
       ],
+      "@gethen/transport": [
+        "packages/transport/src/index.ts"
+      ],
       "@gethen/workspace": [
         "packages/workspace/src/index.ts"
       ],
@@ -67,6 +70,12 @@
       ],
       "@gethen/effects": [
         "packages/effects/src/index.ts"
+      ],
+      "@gethen/harness": [
+        "packages/harness/src/index.ts"
+      ],
+      "@gethen/mailbox": [
+        "packages/mailbox/src/index.ts"
       ],
       "@gethen/session": [
         "packages/session/src/index.ts"

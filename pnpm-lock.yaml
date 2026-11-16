@@ -175,11 +175,15 @@ importers:
         specifier: workspace:*
         version: link:../worker-protocol
 
+  packages/harness: {}
+
   packages/kernel:
     dependencies:
       '@gethen/core':
         specifier: workspace:*
         version: link:../core
+
+  packages/mailbox: {}
 
   packages/master: {}
 
@@ -234,6 +238,16 @@ importers:
         version: link:../core
 
   packages/storage-file: {}
+
+  packages/transport:
+    dependencies:
+      ws:
+        specifier: ^8.23.0
+        version: 8.23.0
+    devDependencies:
+      '@types/ws':
+        specifier: ^8.18.2
+        version: 8.18.2
 
   packages/transport-ws:
     dependencies:

@@ -1,0 +1,16 @@
+{
+  "name": "@gethen/harness",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {},
+  "description": "Harness-agnostic executor port for Gethen workers: tasks, events, escalations, resolutions and reports (zero dependencies)"
+}
