@@ -86,7 +86,6 @@ test("validates test-only dependencies and detects unused declarations", (t) => 
   assert.match(f.check().join("\n"), /stale dependency @gethen\/core/);
 });
 
-
 test("control-plane packages cannot import DSH", (t) => {
   const f = fixture(t);
   f.pkg("core", 'import "@deepseek-ai/dsh";');

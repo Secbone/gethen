@@ -121,6 +121,12 @@ importers:
         specifier: workspace:*
         version: link:../storage-file
 
+  packages/fleet:
+    dependencies:
+      '@gethen/worker-protocol':
+        specifier: workspace:*
+        version: link:../worker-protocol
+
   packages/kernel:
     dependencies:
       '@gethen/core':
@@ -162,6 +168,8 @@ importers:
         version: link:../worker-bridge
 
   packages/worker-bridge: {}
+
+  packages/worker-protocol: {}
 
   packages/workspace:
     dependencies:

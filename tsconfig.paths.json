@@ -11,6 +11,9 @@
       "@gethen/storage-file/lock": [
         "packages/storage-file/src/lock.mjs"
       ],
+      "@gethen/worker-protocol": [
+        "packages/worker-protocol/src/index.ts"
+      ],
       "@gethen/benchmark-file": [
         "packages/benchmark-file/src/index.ts"
       ],
@@ -67,6 +70,9 @@
       ],
       "@gethen/worker": [
         "packages/worker/src/index.ts"
+      ],
+      "@gethen/fleet": [
+        "packages/fleet/src/index.ts"
       ],
       "@gethen/panel": [
         "packages/panel/src/index.ts"

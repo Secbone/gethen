@@ -12,6 +12,8 @@ export const ALLOWED_WORKSPACE_DEPS = {
   "@gethen/domain": [],
   "@gethen/evidence": [],
   "@gethen/master": [],
+  "@gethen/worker-protocol": [],
+  "@gethen/fleet": ["@gethen/worker-protocol"],
   "@gethen/router": ["@gethen/worker-bridge"],
   "@gethen/worker-bridge": [],
   "@gethen/bridge-remote": ["@gethen/worker-bridge"],
@@ -55,6 +57,8 @@ export const CONTROL_PLANE_PACKAGES = new Set([
 
 const PURE_PACKAGES = new Set([
   "@gethen/evidence",
+  "@gethen/worker-protocol",
+  "@gethen/fleet",
   "@gethen/benchmark",
   "@gethen/session",
   "@gethen/core",
