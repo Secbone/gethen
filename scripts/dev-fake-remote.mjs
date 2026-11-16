@@ -37,7 +37,9 @@ const ESCALATION = {
 };
 
 export function apply(ctx) {
-  let reads = 0;
+  // Read counters are per session: each created session replays the same
+  // escalation -> resolution -> report scenario independently.
+  const reads = new Map();
   const calls = [];
   const client = {
     async devices() {
@@ -49,14 +51,21 @@ export function apply(ctx) {
     async runSessionTool(operation, args) {
       calls.push({ operation, args });
       appendFileSync(LOG, `${new Date().toISOString()} ${operation}\n`);
-      if (operation === "remote_create_session") return { sessionId: "sess-dev" };
+      if (operation === "remote_create_session") {
+        const sessionId = `sess-dev-${reads.size + 1}`;
+        reads.set(sessionId, 0);
+        return { sessionId };
+      }
       if (operation === "remote_wait_sessions") {
-        return { sessions: [{ sessionId: "sess-dev", state: "idle" }] };
+        const sessionId = String((args ?? {}).targets?.[0]?.sessionId ?? "");
+        return { sessions: [{ sessionId, state: "idle" }] };
       }
       if (operation === "remote_read_session") {
-        reads += 1;
+        const sessionId = String((args ?? {}).sessionId ?? "");
+        const round = (reads.get(sessionId) ?? 0) + 1;
+        reads.set(sessionId, round);
         const at = new Date().toISOString();
-        if (reads === 1) {
+        if (round === 1) {
           return {
             events: [
               {
