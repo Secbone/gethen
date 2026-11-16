@@ -84,3 +84,29 @@ export interface LaunchPort {
 }
 
 export type { AssignmentId };
+
+export type HttpMethod = "GET" | "POST" | "PATCH" | "PUT";
+
+export interface HttpRequest {
+  url: string;
+  method?: HttpMethod;
+  headers?: Record<string, string>;
+  body?: string;
+}
+
+export interface HttpResponse {
+  status: number;
+  headers: Record<string, string>;
+  body: string;
+}
+
+/** Injected HTTP transport; sources never call fetch directly, tests inject fakes. */
+export interface HttpPort {
+  send(request: HttpRequest): Promise<HttpResponse>;
+}
+
+/** Durable key-value state for a source's read positions. */
+export interface SourceState {
+  get<T>(key: string): T | undefined;
+  set(key: string, value: unknown): void;
+}
