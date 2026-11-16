@@ -28,3 +28,14 @@ export {
   type WorkerEvidence,
   type WorkerScore,
 } from "./routing";
+export {
+  DEFAULT_SCHEDULE_WEIGHTS,
+  type ScheduleDecision,
+  type ScheduleEvidence,
+  type ScheduleEvidenceEntry,
+  type ScheduleOptions,
+  type ScheduleParkReason,
+  type ScheduleWeights,
+  scheduleTask,
+  type TaskRequirement as FleetTaskRequirement,
+} from "./schedule";

@@ -12,7 +12,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@gethen/fleet": "workspace:*",
     "@gethen/worker-bridge": "workspace:*"
   },
-  "description": "Master routing, blocking escalation policy and assignment lifecycle"
+  "description": "Master routing, fleet scheduling, blocking escalation policy and assignment lifecycle"
 }

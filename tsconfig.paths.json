@@ -29,11 +29,20 @@
       "@gethen/storage-file": [
         "packages/storage-file/src/index.ts"
       ],
+      "@gethen/transport-ws": [
+        "packages/transport-ws/src/index.ts"
+      ],
+      "@gethen/worker-agent": [
+        "packages/worker-agent/src/index.ts"
+      ],
       "@gethen/dsh-client": [
         "packages/dsh-client/index.js"
       ],
       "@gethen/evaluation": [
         "packages/evaluation/src/index.ts"
+      ],
+      "@gethen/sdk-driver": [
+        "packages/sdk-driver/src/index.ts"
       ],
       "@gethen/benchmark": [
         "packages/benchmark/src/index.ts"
