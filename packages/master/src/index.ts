@@ -1,5 +1,6 @@
 export * from "./engine";
 export * from "./executor";
+export * from "./fake";
 export * from "./lock";
 export * from "./memory";
 export * from "./model";

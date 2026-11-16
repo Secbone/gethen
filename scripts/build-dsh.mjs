@@ -26,11 +26,6 @@ await build({
   entryPoints: [join(root, "packages/dsh/src/index.ts")],
   outfile: join(out, "index.js"),
 });
-await build({
-  ...common,
-  entryPoints: [join(root, "packages/dsh/src/panel.ts")],
-  outfile: join(out, "panel.js"),
-});
 
 cpSync(
   join(root, "packages/transport-pi/src/bridge/gethen-bridge.ts"),

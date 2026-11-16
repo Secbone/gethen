@@ -16,7 +16,7 @@
 | `@gethen/harnesses` | 引擎特有策略、MCP 配置与默认注册 | core、transport-pi、transport-acp |
 | `@gethen/host` | 宿主装配、访问边界、召回、执行与资源关闭 | core、session、assistant、memory、memory-file、memory-mcp、observability、skills-mcp |
 | `@gethen/kernel` | 插件、作用域与服务注册生命周期 | core |
-| `@gethen/memory` | 记忆规则、状态、访问策略与上下文选择 | 无 |
+| `@gethen/master` | 自研控制面引擎：领域状态机、SQLite 持久化、outbox、策略与来源 | 无 |
 | `@gethen/memory-evolution` | 记忆制品、召回代理评估及演化结果应用 | core、evolution、memory |
 | `@gethen/memory-file` | 记忆事务日志、审计与恢复 | memory、storage-file |
 | `@gethen/memory-mcp` | 记忆工具协议与子进程入口 | core、memory、memory-file |

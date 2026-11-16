@@ -363,3 +363,15 @@ Node 上每个项目一个 profile（如 `gethen-project-a`），由
 - 两台节点可调度：reuse / start / queue / park 四种决策都有测试与面板展示。
 - ADR-0009（本重构）与 0007/0008 状态更新，README 与 layering 同步。
 - 仓库内没有任何 `dsh-superagent` 代码（仅文档引用其作为规格参考）。
+
+## 进度（2026-11-16）
+
+- **P0 完成**（commit `81e5a3d`）：36 → 26 包，旧 CLI runtime、`experiments/`、
+  探针脚本删除；CLI 收敛为 `init/doctor/help`。
+- **P1 完成**（commits `7ac9195`、`b1b7156`、后续）：自研 `@gethen/master` 落地
+  ——model/engine/memory（19 tests）、sqlite store + lock + outbox（18 tests）、
+  policy（32）、GitHub source（12）、prompts/executor（24）、service 端到端（3）、
+  integration（2）；`@gethen/dsh` 重写为最小挂载（`gethen_status/run/overview`，
+  fake launch）。全仓 27 包、456 项测试通过。
+- **P1 偏差**：面板与 client shell 延后到 P6；GitHub source 已实现并测试，但尚未
+  接入 service 的轮询循环（随 P4 fleet/source 调度一起接）。

@@ -52,42 +52,9 @@ importers:
 
   packages/dsh:
     dependencies:
-      '@gethen/benchmark':
+      '@gethen/master':
         specifier: workspace:*
-        version: link:../benchmark
-      '@gethen/core':
-        specifier: workspace:*
-        version: link:../core
-      '@gethen/domain':
-        specifier: workspace:*
-        version: link:../domain
-      '@gethen/effects':
-        specifier: workspace:*
-        version: link:../effects
-      '@gethen/evaluation':
-        specifier: workspace:*
-        version: link:../evaluation
-      '@gethen/evolve':
-        specifier: workspace:*
-        version: link:../evolve
-      '@gethen/harnesses':
-        specifier: workspace:*
-        version: link:../harnesses
-      '@gethen/pack':
-        specifier: workspace:*
-        version: link:../pack
-      '@gethen/panel':
-        specifier: workspace:*
-        version: link:../panel
-      '@gethen/source-github':
-        specifier: workspace:*
-        version: link:../source-github
-      '@gethen/store':
-        specifier: workspace:*
-        version: link:../store
-      '@gethen/worker':
-        specifier: workspace:*
-        version: link:../worker
+        version: link:../master
 
   packages/dsh-client: {}
 

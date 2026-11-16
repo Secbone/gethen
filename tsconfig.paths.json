@@ -44,9 +44,6 @@
       "@gethen/benchmark": [
         "packages/benchmark/src/index.ts"
       ],
-      "@gethen/dsh/panel": [
-        "packages/dsh/src/panel.ts"
-      ],
       "@gethen/evolution": [
         "packages/evolution/src/index.ts"
       ],

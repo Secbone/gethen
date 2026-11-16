@@ -1,30 +1,40 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import {
-  apply,
-  type DshContext,
-  type DshToolDefinition,
-  type GethenService,
-  workerFromEnv,
-} from "./index";
+import { MasterService } from "@gethen/master";
+import { afterEach, describe, expect, it } from "vitest";
+import { apply, type DshContext, type DshToolDefinition } from "./index";
 
-// The plugin reads GETHEN_* at apply time. A developer shell (or a DSH profile)
-// that exports GETHEN_WORKER or GETHEN_BENCH_PLAN would otherwise spawn a real
-// engine or evaluator inside these unit tests.
-const savedEnv: Record<string, string> = {};
+interface RunResult {
+  stored: string;
+  outcome: string;
+  ticket: string;
+  report: string;
+  receipt: number;
+}
 
-beforeAll(() => {
-  for (const key of Object.keys(process.env)) {
-    if (!key.startsWith("GETHEN_")) continue;
-    savedEnv[key] = process.env[key] ?? "";
-    delete process.env[key];
-  }
-});
+interface StatusResult {
+  tickets: number;
+  open: number;
+  receipts: number;
+  running: number;
+}
 
-afterAll(() => {
-  for (const [key, value] of Object.entries(savedEnv)) process.env[key] = value;
+interface OverviewResult {
+  tickets: Array<{
+    id: string;
+    stage: string;
+    outcome: string;
+    latestReport: string;
+    assignments: number;
+  }>;
+}
+
+/** Cleanups registered through the fake `ctx.effect`, run after every test. */
+const cleanups: Array<() => void> = [];
+
+afterEach(() => {
+  for (const cleanup of cleanups.splice(0)) cleanup();
 });
 
 function context() {
@@ -41,8 +51,17 @@ function context() {
         return () => {};
       },
     },
+    effect(setup) {
+      const cleanup = setup();
+      if (typeof cleanup === "function") cleanups.push(cleanup);
+      return () => {};
+    },
   };
   return { ctx, services, tools };
+}
+
+function stateDir(): string {
+  return mkdtempSync(join(tmpdir(), "gethen-dsh-"));
 }
 
 function tool(tools: DshToolDefinition[], name: string): DshToolDefinition {
@@ -51,52 +70,57 @@ function tool(tools: DshToolDefinition[], name: string): DshToolDefinition {
   return found;
 }
 
+function serviceOf(services: Map<string, unknown>): MasterService {
+  const service = services.get("gethen");
+  if (!(service instanceof MasterService)) throw new Error("gethen service is not a MasterService");
+  return service;
+}
+
 describe("Gethen DSH plugin", () => {
-  it("provides the control-plane service and its tools", async () => {
+  it("provides the master service and registers the three tools", () => {
     const { ctx, services, tools } = context();
-    apply(ctx, { dir: mkdtempSync(join(tmpdir(), "gethen-dsh-")) });
-    expect(services.get("gethen")).toMatchObject({ runtime: expect.anything() });
+    apply(ctx, { dir: stateDir() });
+    serviceOf(services);
+    expect(cleanups).toHaveLength(1);
     expect(tools.map((entry) => entry.name)).toEqual([
       "gethen_status",
-      "gethen_receive",
-      "gethen_dispatch",
-      "gethen_dream",
-      "gethen_evolve",
-      "gethen_channel",
-      "gethen_overview",
-      "gethen_poll",
       "gethen_run",
+      "gethen_overview",
     ]);
-    await expect(tool(tools, "gethen_status").execute({}, {})).resolves.toEqual({
-      tickets: 0,
-      threads: 0,
-      decisions: 0,
-      router: "",
-    });
   });
 
-  it("selects the configured heterogeneous worker", () => {
-    expect(workerFromEnv({})).toBeUndefined();
-    expect(workerFromEnv({ GETHEN_WORKER: "pi" })?.id).toBe("pi");
-    expect(workerFromEnv({ GETHEN_WORKER: "opencode" })?.id).toBe("opencode");
-    expect(() => workerFromEnv({ GETHEN_WORKER: "codex" })).toThrow("unknown worker: codex");
-  });
-
-  it("runs one request through the tool surface and records a receipt", async () => {
+  it("runs one local request into an accepted ticket with a ready report", async () => {
     const { ctx, services, tools } = context();
-    apply(ctx, { dir: mkdtempSync(join(tmpdir(), "gethen-dsh-")) });
+    apply(ctx, { dir: stateDir() });
     const result = (await tool(tools, "gethen_run").execute(
       { text: "fix the failing test" },
       {},
-    )) as {
-      outcome: string;
-      ticket: string;
-      receipt: { outcome: string; report: { kind: string } };
-    };
+    )) as RunResult;
+    expect(result.stored).toBe("stored");
     expect(result.outcome).toBe("accept");
     expect(result.ticket).toBeTruthy();
-    expect(result.receipt).toMatchObject({ outcome: "completed", report: { kind: "ready" } });
-    const service = services.get("gethen") as GethenService;
-    expect(service.repos.tickets.list()).toHaveLength(1);
+    expect(result.report).toBe("ready");
+    expect(result.receipt).toBe(1);
+    const service = serviceOf(services);
+    expect(service.store.tickets.list()).toHaveLength(1);
+    expect(service.store.listReceipts()).toHaveLength(1);
+  });
+
+  it("reports status counts and stages the ticket for review", async () => {
+    const { ctx, tools } = context();
+    apply(ctx, { dir: stateDir() });
+    await tool(tools, "gethen_run").execute({ text: "fix the failing test" }, {});
+    await expect(tool(tools, "gethen_status").execute({}, {})).resolves.toEqual({
+      tickets: 1,
+      open: 1,
+      receipts: 1,
+      running: 0,
+    } satisfies StatusResult);
+    const overview = (await tool(tools, "gethen_overview").execute({}, {})) as OverviewResult;
+    expect(overview.tickets).toHaveLength(1);
+    const ticket = overview.tickets[0];
+    expect(ticket?.latestReport).toBe("ready");
+    expect(ticket?.assignments).toBe(1);
+    expect(ticket?.stage).toBe("person/review");
   });
 });

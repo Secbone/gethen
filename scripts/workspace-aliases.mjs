@@ -18,7 +18,6 @@ export const workspaceAliases = {
   "@gethen/dsh-client": resolve("packages/dsh-client/index.js"),
   "@gethen/evaluation": resolve("packages/evaluation/src/index.ts"),
   "@gethen/benchmark": resolve("packages/benchmark/src/index.ts"),
-  "@gethen/dsh/panel": resolve("packages/dsh/src/panel.ts"),
   "@gethen/evolution": resolve("packages/evolution/src/index.ts"),
   "@gethen/harnesses": resolve("packages/harnesses/src/index.ts"),
   "@gethen/workspace": resolve("packages/workspace/src/index.ts"),
