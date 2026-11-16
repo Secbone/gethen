@@ -71,6 +71,9 @@
       "@gethen/kernel": [
         "packages/kernel/src/index.ts"
       ],
+      "@gethen/master": [
+        "packages/master/src/index.ts"
+      ],
       "@gethen/router": [
         "packages/router/src/index.ts"
       ],

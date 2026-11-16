@@ -27,6 +27,7 @@ export const workspaceAliases = {
   "@gethen/domain": resolve("packages/domain/src/index.ts"),
   "@gethen/evolve": resolve("packages/evolve/src/index.ts"),
   "@gethen/kernel": resolve("packages/kernel/src/index.ts"),
+  "@gethen/master": resolve("packages/master/src/index.ts"),
   "@gethen/router": resolve("packages/router/src/index.ts"),
   "@gethen/worker": resolve("packages/worker/src/index.ts"),
   "@gethen/panel": resolve("packages/panel/src/index.ts"),

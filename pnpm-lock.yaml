@@ -154,6 +154,8 @@ importers:
         specifier: workspace:*
         version: link:../core
 
+  packages/master: {}
+
   packages/observability:
     dependencies:
       '@gethen/core':

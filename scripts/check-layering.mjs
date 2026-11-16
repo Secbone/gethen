@@ -10,6 +10,7 @@ export const ALLOWED_WORKSPACE_DEPS = {
   "@gethen/core": [],
   "@gethen/storage-file": [],
   "@gethen/domain": [],
+  "@gethen/master": [],
   "@gethen/router": ["@gethen/worker-bridge"],
   "@gethen/worker-bridge": [],
   "@gethen/dsh-client": [],
