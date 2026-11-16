@@ -186,3 +186,27 @@ Environment=GETHEN_DSH=/usr/local/bin/dsh
 - [refactor-plan-gethen.md](../refactor-plan-gethen.md)（P0–P3 历史）
 - DSH webServer `registerUpgrade`；GitHub Actions self-hosted runners；Buildkite agent；
   Temporal durable execution；multica `dsh-runtime` 协议（本地源码）
+
+## 进展快照（2026-11-16 晚）
+
+| 阶段 | 状态 | 产出 |
+|---|---|---|
+| R0 边界 | ✅ | CONTROL_PLANE 12 包禁止 DSH import（含回归测试） |
+| R1 Master 独立 | ✅ | `gethen serve`（HTTP + `/gethen/worker` upgrade + token + WS LaunchPort） |
+| R2 WS 协议 | ✅ | `@gethen/worker-protocol`、`@gethen/transport-ws`、`@gethen/bridge-ws` |
+| R3 Worker | ✅* | `@gethen/worker-agent`、`@gethen/sdk-driver`、`@gethen/executor-sdk`、`gethen worker` |
+| R4 Fleet/调度 | ✅ | `@gethen/fleet`、`router.scheduleTask`（REUSE/START/QUEUE/PARK） |
+| R5 收尾 | 🚧 | 下行 error 帧、真实 SDK e2e、观察/文档、remote 去留 |
+
+\* R3 的真实模型 e2e 正在跑（opt-in `GETHEN_E2E=1`）；approval/question 已映射到升级语义。
+
+验证：
+
+```bash
+pnpm verify:ws        # 真实 WS + FakeExecutor：dispatch → report → receipt
+GETHEN_E2E=1 node scripts/e2e-sdk.mjs   # 真实 dsh --profile sdk + 模型
+```
+
+已知缺口：engine 的 assignment workspace 由 launch 边界补齐（应回到 master）；
+CLI serve 的升级默认 parked（后续加 `--escalation`）；worker-agent 重连定时器 unref，
+`gethen worker` 用 ref 的 interval 保活。

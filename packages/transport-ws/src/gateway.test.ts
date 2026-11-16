@@ -7,7 +7,6 @@ import {
   type HeartbeatFrame,
   type HelloFrame,
   parseDownstreamFrame,
-  parseUpstreamFrame,
   type UpFrame,
 } from "@gethen/worker-protocol";
 import { afterEach, describe, expect, it } from "vitest";
@@ -196,7 +195,7 @@ interface HandshakeOptions extends SocketOptions {
 async function handshake(
   harness: Harness,
   options: HandshakeOptions = {},
-): Promise<{ ws: WebSocket; helloOk: DownFrame | UpFrame }> {
+): Promise<{ ws: WebSocket; helloOk: DownFrame }> {
   const authorization = `Bearer ${options.token ?? TOKEN_1}`;
   const ws = await openSocket(harness, authorization, { autoPong: options.autoPong });
   const helloOk = nextFrame(ws, (frame) => frame.type === "hello_ok");

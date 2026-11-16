@@ -280,6 +280,18 @@ function cancelFrame(reason?: string): CancelFrame {
   };
 }
 
+function downstreamError(
+  overrides: Partial<Extract<DownFrame, { type: "error" }>> = {},
+): DownFrame {
+  return {
+    v: PROTOCOL_VERSION,
+    type: "error",
+    code: "assignment_failed",
+    message: "executor crashed",
+    ...overrides,
+  };
+}
+
 afterEach(async () => {
   for (const agent of agents.splice(0)) await agent.close();
   for (const master of masters.splice(0)) await master.close();
@@ -552,6 +564,67 @@ describe("worker agent", () => {
     master.sendRaw("{not json");
     const error = await master.waitForType("error");
     expect(error.code).toBe("invalid_frame");
+  });
+
+  it("logs an assignment-scoped downstream error without dropping the connection", async () => {
+    const master = await startMaster();
+    const logs: string[] = [];
+    const agent = startAgent(master, {
+      logger: { error: (message) => logs.push(message) },
+    });
+    await master.waitForType("hello");
+    await agent.whenConnected();
+
+    master.send(
+      downstreamError({
+        code: "ASSIGNMENT_FAILED",
+        message: "executor crashed",
+        assignmentId: ASSIGNMENT_ID,
+      }),
+    );
+
+    await waitUntil(() => logs.length === 1);
+    expect(logs[0]).toContain("ASSIGNMENT_FAILED");
+    expect(logs[0]).toContain(ASSIGNMENT_ID);
+    await delay(40);
+    expect(agent.state).toBe("online");
+    expect(master.connectionCount).toBe(1);
+  });
+
+  it("reconnects after a protocol-level downstream error", async () => {
+    const master = await startMaster();
+    const logs: string[] = [];
+    const agent = startAgent(master, {
+      logger: { error: (message) => logs.push(message) },
+    });
+    await master.waitForType("hello");
+    await agent.whenConnected();
+
+    master.send(downstreamError({ code: "invalid_frame", message: "frame is not valid JSON" }));
+
+    await master.waitForCount("hello", 2);
+    await agent.whenConnected();
+    await waitUntil(() => logs.some((line) => line.includes("invalid_frame")));
+    expect(master.connectionCount).toBeGreaterThanOrEqual(2);
+    expect(agent.state).toBe("online");
+  });
+
+  it("handles a downstream error during the handshake and retries", async () => {
+    const master = await startMaster({ helloOk: false });
+    const logs: string[] = [];
+    startAgent(master, { logger: { error: (message) => logs.push(message) } });
+    await master.waitForType("hello");
+
+    master.send(
+      downstreamError({
+        code: "hello_required",
+        message: 'the first frame must be "hello"',
+      }),
+    );
+
+    await master.waitForCount("hello", 2);
+    await waitUntil(() => logs.some((line) => line.includes("hello_required")));
+    expect(master.connectionCount).toBeGreaterThanOrEqual(2);
   });
 
   it("resolves whenConnected on connect and rejects it after an early close", async () => {

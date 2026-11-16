@@ -377,7 +377,8 @@ class WorkerAgentImpl implements WorkerAgent {
    * version mismatch, wrong worker); close it and let the reconnect re-hello.
    */
   private handleDownstreamError(socket: Socket, frame: ErrorFrame): void {
-    const scope = frame.assignmentId === undefined ? "connection" : `assignment ${frame.assignmentId}`;
+    const scope =
+      frame.assignmentId === undefined ? "connection" : `assignment ${frame.assignmentId}`;
     this.logError(`master error on ${scope} (${frame.code}): ${frame.message}`);
     if (frame.assignmentId !== undefined) return;
     if (!PROTOCOL_LEVEL_ERROR_CODES.has(frame.code)) return;
