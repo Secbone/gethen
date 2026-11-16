@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { type Skill, type SkillDraft, type SkillRepository, validateSkill } from "@mentat/skills";
-import { acquireFileLock, atomicJson } from "@mentat/storage-file";
+import { type Skill, type SkillDraft, type SkillRepository, validateSkill } from "@gethen/skills";
+import { acquireFileLock, atomicJson } from "@gethen/storage-file";
 
 /** Atomic snapshots and optimistic per-skill versions; lock contention fails without replay. */
 export class FileSkillRepository implements SkillRepository {

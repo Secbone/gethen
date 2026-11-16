@@ -2,12 +2,12 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { createDefaultRegistry } from "@mentat/harnesses";
-import { createAssistantHost } from "@mentat/host";
-import { createMemoryAccess } from "@mentat/memory";
-import { FileMemoryRepository } from "@mentat/memory-file";
-import { readTrajectory, resolveEventData } from "@mentat/observability";
-import type { TaskInput } from "@mentat/session";
+import { createDefaultRegistry } from "@gethen/harnesses";
+import { createAssistantHost } from "@gethen/host";
+import { createMemoryAccess } from "@gethen/memory";
+import { FileMemoryRepository } from "@gethen/memory-file";
+import { readTrajectory, resolveEventData } from "@gethen/observability";
+import type { TaskInput } from "@gethen/session";
 import { benchmarkObservations } from "../packages/cli/src/lib/benchmark-observations";
 
 const destination = process.argv[2];

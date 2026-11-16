@@ -4,7 +4,7 @@ import {
   createArtifact,
   createArtifactRegistry,
   type JsonValue,
-} from "@mentat/core";
+} from "@gethen/core";
 import { type EvalTask, FunctionEvaluator } from "./evaluator";
 import { type LoopResult, SelfIterationLoop } from "./loop";
 import { type ProposeStep, ScriptedProposer } from "./proposer";
@@ -47,7 +47,7 @@ export function readKnobTask(): EvalTask {
 /**
  * Deterministic end-to-end demo of the loop: start at knob=1, try the given
  * values in order, accept improvements and roll back regressions. Used by the
- * CLI (`mentat loop demo`) and useful as a smoke test for the loop wiring.
+ * CLI (`gethen loop demo`) and useful as a smoke test for the loop wiring.
  */
 export async function runDemoLoop(values: number[] = [2, 0, 3]): Promise<LoopResult> {
   const root: Candidate = { id: "root", version: "root", artifacts: [knobArtifact(1)] };

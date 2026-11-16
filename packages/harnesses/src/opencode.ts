@@ -1,5 +1,5 @@
-import type { HarnessAdapter } from "@mentat/core";
-import { type AcpAdapterOptions, createAcpAdapter } from "@mentat/transport-acp";
+import type { HarnessAdapter } from "@gethen/core";
+import { type AcpAdapterOptions, createAcpAdapter } from "@gethen/transport-acp";
 import { prepareOpenCodeMcp } from "./opencode-mcp";
 import { opencodeFilePolicy } from "./opencode-policy";
 

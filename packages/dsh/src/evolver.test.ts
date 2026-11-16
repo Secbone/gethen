@@ -1,12 +1,12 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Signal } from "@mentat/core";
-import type { PackEvaluator } from "@mentat/evolve";
-import { defineCapabilityPack, packRef } from "@mentat/pack";
+import type { Signal } from "@gethen/core";
+import type { PackEvaluator } from "@gethen/evolve";
+import { defineCapabilityPack, packRef } from "@gethen/pack";
 import { describe, expect, it } from "vitest";
 import type { RuntimeReceipt } from "./runtime";
-import { createMentatService } from "./service";
+import { createGethenService } from "./service";
 
 function evaluator(): PackEvaluator {
   return {
@@ -43,10 +43,10 @@ function receipt(
   };
 }
 
-describe("MentatEvolver", () => {
+describe("GethenEvolver", () => {
   it("turns failed receipts into one deduplicated Dream observation", async () => {
-    const service = createMentatService({
-      dir: mkdtempSync(join(tmpdir(), "mentat-evolver-")),
+    const service = createGethenService({
+      dir: mkdtempSync(join(tmpdir(), "gethen-evolver-")),
       evaluator: evaluator(),
     });
     service.receipts.append(receipt("a1", "failed", "retry once before giving up"));
@@ -66,8 +66,8 @@ describe("MentatEvolver", () => {
   });
 
   it("does not re-learn observations already named by an archived candidate", async () => {
-    const service = createMentatService({
-      dir: mkdtempSync(join(tmpdir(), "mentat-evolver-")),
+    const service = createGethenService({
+      dir: mkdtempSync(join(tmpdir(), "gethen-evolver-")),
       evaluator: evaluator(),
     });
     service.receipts.append(receipt("a1", "blocked", "worker timed out"));
@@ -81,8 +81,8 @@ describe("MentatEvolver", () => {
   });
 
   it("uses only the newest observations when capped", async () => {
-    const service = createMentatService({
-      dir: mkdtempSync(join(tmpdir(), "mentat-evolver-")),
+    const service = createGethenService({
+      dir: mkdtempSync(join(tmpdir(), "gethen-evolver-")),
       evaluator: evaluator(),
       maxObservations: 1,
     });

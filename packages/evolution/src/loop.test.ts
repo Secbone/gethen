@@ -1,4 +1,4 @@
-import { MemoryTracer } from "@mentat/core";
+import { MemoryTracer } from "@gethen/core";
 import { describe, expect, it } from "vitest";
 import { Archive } from "./archive";
 import { knobArtifact as knob, knobRegistry } from "./demo";

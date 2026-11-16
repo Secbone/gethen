@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Signal } from "@mentat/core";
-import type { Candidate, Evaluator, Gate, GateResult } from "@mentat/evolution";
+import type { Signal } from "@gethen/core";
+import type { Candidate, Evaluator, Gate, GateResult } from "@gethen/evolution";
 import { type CommandResult, runCommand } from "./command-gate";
 
 export interface ContainerSpec {
@@ -41,9 +41,9 @@ export class ContainerRunner {
   constructor(private readonly docker = "docker") {}
 
   async run(spec: ContainerSpec): Promise<CommandResult> {
-    const dir = mkdtempSync(join(tmpdir(), "mentat-container-"));
+    const dir = mkdtempSync(join(tmpdir(), "gethen-container-"));
     const cidFile = join(dir, "cid"),
-      containerName = `mentat-${randomUUID()}`;
+      containerName = `gethen-${randomUUID()}`;
     let result: CommandResult;
     try {
       result = await runCommand({

@@ -17,8 +17,8 @@ import {
   type TrialResult,
   validatePlan,
   validateRun,
-} from "@mentat/benchmark";
-import { atomicJson, withFileLock } from "@mentat/storage-file";
+} from "@gethen/benchmark";
+import { atomicJson, withFileLock } from "@gethen/storage-file";
 import { defaultResultAdapters, type ResultAdapterRegistry } from "./adapters";
 import { sha256 } from "./digest";
 import { renderReport } from "./report";

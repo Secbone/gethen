@@ -17,7 +17,7 @@ manifest = json.loads((args.run / "manifest.json").read_text())
 assert manifest["scope"] == "fixed-prior-error50-diagnostic"
 plan = manifest["selection"]["plan"]
 rows = [json.loads(line) for line in (args.run / "results.jsonl").read_text().splitlines()]
-assert manifest["agents"] == ["mentat-episodic"]
+assert manifest["agents"] == ["gethen-episodic"]
 assert len(rows) == 50 and len({r["question_id"] for r in rows}) == 50
 assert {r["question_id"] for r in rows} == {r["questionId"] for r in plan["items"]}
 assert all(not r["priorCorrect"] for r in plan["items"])

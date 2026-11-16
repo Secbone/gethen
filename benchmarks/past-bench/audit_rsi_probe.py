@@ -9,7 +9,7 @@ import sys
 
 def audit(run):
     root = Path(__file__).resolve().parents[2]
-    upstream = root / ".mentat/upstream/past-bench"
+    upstream = root / ".gethen/upstream/past-bench"
     plan = json.loads((run / "plan.json").read_text())
     sys.path.insert(0, str(upstream / "src"))
     from past_bench.models.task import TaskDefinition
@@ -19,8 +19,8 @@ def audit(run):
     source = json.loads((run / "subject-source.json").read_text())
     sha = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
     corrected = "corrective1" in plan["protocol"]
-    subject_path = root / (".mentat/past-rsi-turn-corrected.ts" if corrected else "scripts/past-rsi-turn.ts")
-    runner_path = root / (".mentat/past-rsi-corrected.py" if corrected else "benchmarks/past-bench/rsi_probe.py")
+    subject_path = root / (".gethen/past-rsi-turn-corrected.ts" if corrected else "scripts/past-rsi-turn.ts")
+    runner_path = root / (".gethen/past-rsi-corrected.py" if corrected else "benchmarks/past-bench/rsi_probe.py")
     if sha(subject_path) != plan["subjectSha256"] or sha(runner_path) != plan["runnerSha256"]:
         errors.append("running subject/runner source digest changed")
     if sha(run / "subject-source.json") != plan["subjectArchiveSha256"]:

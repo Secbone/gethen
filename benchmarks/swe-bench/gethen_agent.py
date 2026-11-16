@@ -1,4 +1,4 @@
-"""Harbor adapter: Mentat host on the controller, coding tools only inside the task sandbox.
+"""Harbor adapter: Gethen host on the controller, coding tools only inside the task sandbox.
 
 Never reads the task's solution, verifier, result.json or evaluation feedback.
 The controller filesystem is not exposed as a model tool.
@@ -32,7 +32,7 @@ TOOLS = [{
 }]
 
 
-class MentatAgent(BaseAgent):
+class GethenAgent(BaseAgent):
     def __init__(self, *args, timeout_ms=600000, max_steps=50, **kwargs):
         super().__init__(*args, **kwargs)
         self.timeout_ms = int(timeout_ms)
@@ -42,7 +42,7 @@ class MentatAgent(BaseAgent):
 
     @staticmethod
     def name():
-        return "mentat"
+        return "gethen"
 
     def version(self):
         return "coding-bridge-v2"
@@ -148,7 +148,7 @@ raise SystemExit(1 if any(row['reachable'] for row in results) else 0)
                             await process.wait()
                         raise
                 if process.returncode != 0:
-                    raise RuntimeError(f"Mentat subject exited {process.returncode}; see subject.stderr.log")
+                    raise RuntimeError(f"Gethen subject exited {process.returncode}; see subject.stderr.log")
             finally:
                 # Capture partial changes even if a model timeout prevented a final answer.
                 try:

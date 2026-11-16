@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { lstatSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import type { ExecutionPolicy, JsonValue, TaskAcceptance } from "@mentat/core";
+import type { ExecutionPolicy, JsonValue, TaskAcceptance } from "@gethen/core";
 import { Ajv2020 } from "ajv/dist/2020.js";
 import { runCommand } from "./command-gate";
 

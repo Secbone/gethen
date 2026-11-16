@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
-import type { JsonValue } from "@mentat/core";
-import { atomicJson, withFileLock } from "@mentat/storage-file";
+import type { JsonValue } from "@gethen/core";
+import { atomicJson, withFileLock } from "@gethen/storage-file";
 
 export type EffectStatus = "waiting" | "running" | "done" | "failed";
 

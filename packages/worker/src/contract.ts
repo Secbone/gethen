@@ -1,6 +1,6 @@
-import type { JsonValue } from "@mentat/core";
-import type { ReportKind } from "@mentat/domain";
-import type { CapabilityPack } from "@mentat/pack";
+import type { JsonValue } from "@gethen/core";
+import type { ReportKind } from "@gethen/domain";
+import type { CapabilityPack } from "@gethen/pack";
 
 /** What a Worker can accept from the control plane. */
 export interface WorkerCapabilities {

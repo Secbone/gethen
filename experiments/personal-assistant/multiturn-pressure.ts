@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildTurnContext, InMemoryMemoryStore, type MemoryEntry } from "@mentat/memory";
+import { buildTurnContext, InMemoryMemoryStore, type MemoryEntry } from "@gethen/memory";
 
 /** Offline counterfactual, never changes the experiment's live memories or calls a model. */
 export function pressureProbe(profile: MemoryEntry, maxChars = 6000) {
@@ -43,7 +43,7 @@ export function pressureProbe(profile: MemoryEntry, maxChars = 6000) {
   };
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const root = resolve(process.argv[2] ?? ".mentat/experiments/multiturn-20261015-v2");
+  const root = resolve(process.argv[2] ?? ".gethen/experiments/multiturn-20261015-v2");
   const rows = readFileSync(join(root, "results.jsonl"), "utf8")
     .split("\n")
     .filter(Boolean)

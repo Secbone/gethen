@@ -1,4 +1,4 @@
-import type { Disposable, MaybePromise } from "@mentat/core";
+import type { Disposable, MaybePromise } from "@gethen/core";
 
 type Listener = (...args: unknown[]) => void;
 

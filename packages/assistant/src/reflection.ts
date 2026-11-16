@@ -1,6 +1,6 @@
-import { extractJson } from "@mentat/core";
-import type { MemoryEntry, MemoryEvidenceSource, MemoryKind } from "@mentat/memory";
-import type { ExperienceRecord } from "@mentat/session";
+import { extractJson } from "@gethen/core";
+import type { MemoryEntry, MemoryEvidenceSource, MemoryKind } from "@gethen/memory";
+import type { ExperienceRecord } from "@gethen/session";
 import {
   buildReflectionBatch,
   type ReflectionBatch,

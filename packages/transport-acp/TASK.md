@@ -1,4 +1,4 @@
-# Task: implement the ACP transport for Mentat
+# Task: implement the ACP transport for Gethen
 
 Implement `createAcpAdapter` in `packages/transport-acp/src/adapter.ts` (re-exported
 from `src/index.ts`) so that the frozen contract test
@@ -15,7 +15,7 @@ export function createAcpAdapter(options: {
 }): HarnessAdapter;
 ```
 
-`HarnessAdapter` is `@mentat/core`'s interface: `{ id, label?, capabilities(), createSession(options, deps?) }`.
+`HarnessAdapter` is `@gethen/core`'s interface: `{ id, label?, capabilities(), createSession(options, deps?) }`.
 `createSession` returns a `SessionHandle`: `{ id, send(input, options?), interrupt(), subscribe(listener), dispose() }`.
 Emit the normalized `AgentEvent`s (`run.started`, `message.delta`, `message.completed`, `run.settled`).
 

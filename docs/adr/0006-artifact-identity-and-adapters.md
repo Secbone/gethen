@@ -4,7 +4,7 @@ Status: accepted (2026-10-22).
 
 ## Context
 
-`@mentat/core` already declared `IterableArtifact` (`kind`, `id`, `version`,
+`@gethen/core` already declared `IterableArtifact` (`kind`, `id`, `version`,
 `form`, `apply`, `snapshot`, `evalSpec`). In practice it could not carry the
 "everything is iterable" goal:
 

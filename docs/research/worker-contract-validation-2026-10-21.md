@@ -29,12 +29,12 @@
 
 本地证据：
 
-- `.mentat/worker-validation-v1/verification.json`：原生权限拒绝、模型确认、验收和账目。
-- `.mentat/worker-validation-v1/control/`：保留原字节的轨迹、输入/输出摘要、验收程序输出与目录审计。
-- `.mentat/worker-rejection-v1/verification.json`：正常执行与独立拒绝并存的证据。
-- `.mentat/worker-rejection-v1/control/`：第二次控制目录归档。
+- `.gethen/worker-validation-v1/verification.json`：原生权限拒绝、模型确认、验收和账目。
+- `.gethen/worker-validation-v1/control/`：保留原字节的轨迹、输入/输出摘要、验收程序输出与目录审计。
+- `.gethen/worker-rejection-v1/verification.json`：正常执行与独立拒绝并存的证据。
+- `.gethen/worker-rejection-v1/control/`：第二次控制目录归档。
 
-归档文件中的绝对路径仍指向原始临时 control 目录，不重写原始证据。`.mentat` 不进入代码提交。
+归档文件中的绝对路径仍指向原始临时 control 目录，不重写原始证据。`.gethen` 不进入代码提交。
 
 ## 回归与剩余边界
 

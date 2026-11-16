@@ -1,4 +1,4 @@
-import type { SourceKind } from "@mentat/domain";
+import type { SourceKind } from "@gethen/domain";
 import { defaultTimerScheduler, type TimerScheduler } from "./scheduler";
 
 export interface PollTarget {

@@ -6,7 +6,7 @@ from client import ModelClient
 from upstream import load_function
 
 ROOT=Path(__file__).resolve().parents[2]
-prompt,source_hash=load_function(ROOT/".mentat/upstream/longmemeval/src/evaluation/evaluate_qa.py","get_anscheck_prompt")
+prompt,source_hash=load_function(ROOT/".gethen/upstream/longmemeval/src/evaluation/evaluate_qa.py","get_anscheck_prompt")
 fixtures=[]
 
 
@@ -35,11 +35,11 @@ for index,(answer,expected) in enumerate([
 def evaluate(fixture):
     text,raw=ModelClient().complete(prompt(fixture["type"],fixture["question"],fixture["reference"],fixture["hypothesis"],abstention=fixture.get("abstention",False)))
     label="yes" in text.lower()
-    return {**fixture,"judgeResponse":text,"label":label,"passed":label==fixture["expected"],"evidence":raw["mentat"]}
+    return {**fixture,"judgeResponse":text,"label":label,"passed":label==fixture["expected"],"evidence":raw["gethen"]}
 
 
 if __name__=="__main__":
-    out=ROOT/".mentat/public-evaluations/judge-calibration-v1"
+    out=ROOT/".gethen/public-evaluations/judge-calibration-v1"
     out.mkdir()
     (out/"fixtures.json").write_text(json.dumps(fixtures,indent=2)+"\n")
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:

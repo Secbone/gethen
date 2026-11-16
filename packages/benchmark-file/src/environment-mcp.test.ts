@@ -9,7 +9,7 @@ import { expect, it } from "vitest";
 import { environmentMcpSpec } from "./environment-mcp";
 
 it("executes only upstream-declared tools over an authenticated local socket", async () => {
-  const root = mkdtempSync(join(tmpdir(), "mentat-upstream-tools-"));
+  const root = mkdtempSync(join(tmpdir(), "gethen-upstream-tools-"));
   const socketPath = join(root, "env.sock"),
     toolsPath = join(root, "tools.json"),
     token = randomUUID();
@@ -76,7 +76,7 @@ it("executes only upstream-declared tools over an authenticated local socket", a
         new StdioClientTransport({
           command: spec.command,
           args: spec.args,
-          env: { ...process.env, ...spec.env, MENTAT_BENCH_TOKEN: "wrong-token" } as Record<
+          env: { ...process.env, ...spec.env, GETHEN_BENCH_TOKEN: "wrong-token" } as Record<
             string,
             string
           >,

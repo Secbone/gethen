@@ -1,7 +1,7 @@
 import { appendFileSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
-import { assert, type BenchmarkRun, canonical, object, type RunPlan } from "@mentat/benchmark";
-import { runCommand } from "@mentat/evaluation";
+import { assert, type BenchmarkRun, canonical, object, type RunPlan } from "@gethen/benchmark";
+import { runCommand } from "@gethen/evaluation";
 import { defaultResultAdapters } from "./adapters";
 import { sha256 } from "./digest";
 import { createRunDirectory, makeRun, readResultInput, saveRun } from "./storage";

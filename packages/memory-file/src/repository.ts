@@ -1,4 +1,4 @@
-import type { MemoryRepository, WriteRequest } from "@mentat/memory";
+import type { MemoryRepository, WriteRequest } from "@gethen/memory";
 import { commitMemory, memoryRevision, readMemory } from "./transaction.mjs";
 export class FileMemoryRepository implements MemoryRepository {
   constructor(readonly path: string) {}

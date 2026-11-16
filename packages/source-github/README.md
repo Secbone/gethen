@@ -1,6 +1,6 @@
-# @mentat/source-github
+# @gethen/source-github
 
-GitHub repository events as a Mentat `SourceKind`.
+GitHub repository events as a Gethen `SourceKind`.
 
 - `GitHubSource.poll()` reads repository events, maps Issue, PR, review,
   comment and CI events to `Trigger`s, and persists a `since` read position

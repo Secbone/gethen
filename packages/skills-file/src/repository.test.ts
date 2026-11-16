@@ -13,7 +13,7 @@ const draft = {
   scope: "user-a",
 };
 it("persists scoped procedures and requires an exact current version before replacement", () => {
-  const path = join(mkdtempSync(join(tmpdir(), "mentat-skills-")), "skills.json");
+  const path = join(mkdtempSync(join(tmpdir(), "gethen-skills-")), "skills.json");
   const first = new FileSkillRepository(path);
   expect(first.save(draft, 0)).toMatchObject({ version: 1, origin: "agent-procedure" });
   const second = new FileSkillRepository(path);
@@ -28,7 +28,7 @@ it("persists scoped procedures and requires an exact current version before repl
   expect(() => first.save({ ...draft, name: "../escape" }, 0)).toThrow("invalid skill name");
 });
 it("fails closed on corruption instead of replacing procedural evidence", () => {
-  const path = join(mkdtempSync(join(tmpdir(), "mentat-skills-corrupt-")), "skills.json");
+  const path = join(mkdtempSync(join(tmpdir(), "gethen-skills-corrupt-")), "skills.json");
   writeFileSync(path, '{"schemaVersion":1,"entries":[{"name":"corrupt"}]}');
   const repository = new FileSkillRepository(path);
   expect(() => repository.list()).toThrow();
@@ -36,7 +36,7 @@ it("fails closed on corruption instead of replacing procedural evidence", () => 
 });
 
 it("keeps agent revisions as drafts and requires host-owned evaluation evidence to publish", () => {
-  const path = join(mkdtempSync(join(tmpdir(), "mentat-skills-publish-")), "skills.json");
+  const path = join(mkdtempSync(join(tmpdir(), "gethen-skills-publish-")), "skills.json");
   const repo = new FileSkillRepository(path);
   expect(repo.save(draft, 0).status).toBe("draft");
   expect(() =>

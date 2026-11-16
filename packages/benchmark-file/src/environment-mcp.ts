@@ -16,9 +16,9 @@ export function environmentMcpSpec(options: {
     command: process.execPath,
     args: [fileURLToPath(new URL("./environment-server.mjs", import.meta.url))],
     env: {
-      MENTAT_BENCH_SOCKET: options.socketPath,
-      MENTAT_BENCH_TOOLS: options.toolsPath,
-      MENTAT_BENCH_TOKEN: options.token,
+      GETHEN_BENCH_SOCKET: options.socketPath,
+      GETHEN_BENCH_TOOLS: options.toolsPath,
+      GETHEN_BENCH_TOKEN: options.token,
     },
   };
 }

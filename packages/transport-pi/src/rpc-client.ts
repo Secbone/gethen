@@ -99,7 +99,7 @@ export class RpcClient {
   }
 
   request(type: string, payload: Record<string, unknown> = {}): Promise<unknown> {
-    const id = `mentat-${++this.nextId}`;
+    const id = `gethen-${++this.nextId}`;
     return new Promise<unknown>((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
       this.write({ id, type, ...payload });

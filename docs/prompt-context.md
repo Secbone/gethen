@@ -2,7 +2,7 @@
 
 # Prompt 与上下文管理
 
-`@mentat/assistant` 管理个人助理策略与每轮记忆快照，harness 负责模型调用、工具循环和会话历史。策略位于 `packages/assistant/src/prompt.ts`，当前版本为 `personal-assistant-v12`。修改行为规则时升级版本，并复测既有约束案例。下文带日期的实验记录保留各自版本的历史事实。
+`@gethen/assistant` 管理个人助理策略与每轮记忆快照，harness 负责模型调用、工具循环和会话历史。策略位于 `packages/assistant/src/prompt.ts`，当前版本为 `personal-assistant-v12`。修改行为规则时升级版本，并复测既有约束案例。下文带日期的实验记录保留各自版本的历史事实。
 
 ## 当前上下文与通用性边界（2026-10-20）
 
@@ -18,7 +18,7 @@ v10 的 70.295 保留为此前固定开发题结果，不沿用为 v11 或 v12 �
 
 ## 召回证据与归因
 
-`@mentat/observability` 的 `recallAttribution(dir, { turnId? })` 输出独立的 v1 证据报告。`memoryAttribution` 为兼容保留旧的选择/API 调用计数，其中 `injections` 是 `context.selection` 次数，不证明非空内容实际进入模型；新的投影和诊断读取 `recall`，不能将两者相加。
+`@gethen/observability` 的 `recallAttribution(dir, { turnId? })` 输出独立的 v1 证据报告。`memoryAttribution` 为兼容保留旧的选择/API 调用计数，其中 `injections` 是 `context.selection` 次数，不证明非空内容实际进入模型；新的投影和诊断读取 `recall`，不能将两者相加。
 
 宿主记录 `recall.start / selection / error / blocked`。选择元数据包含来源种类、原始条目/消息指针、可获得的 scope、角色、生效状态、版本、复用范围、原文摘要哈希及预算遗漏。用户角色不等于已确认偏好，候选保持候选；缺少版本或遗漏 ID 时保留未知。哈希针对日志可见的脱敏表示，不证明未捕获的原始字节。该元数据不加入模型输入。
 
@@ -102,13 +102,13 @@ ACP现在以 `tool.update` 保存晚到参数、状态和内容更新；经验�
 
 2026-10-15 修复验证覆盖真实MCP子进程的候选隔离与冲突拒绝、用户确认的持久化及消息来源、候选不能覆盖有效规则、跨作用域稳定键隔离、离线演化状态边界、约束优先级与预算边界，以及预算不足时CLI不调用harness的 `send`。这是机制验证；未重跑DeepSeek或Pi真实模型的场景质量评测。
 
-离线回放旧实验的4份冻结记忆库，小库和两种普通增长库均完整注入11点规则；同优先级拥挤库因必选集合放不下而中止。该库含大量误标为约束的无关条目，因此中止也体现当前保守策略的可用性代价，不代表已经解决约束相关性判断。回放记录位于 `.mentat/experiments/memory-fixes-1792029834982/context-replay.json`，原始实验数据未修改。
+离线回放旧实验的4份冻结记忆库，小库和两种普通增长库均完整注入11点规则；同优先级拥挤库因必选集合放不下而中止。该库含大量误标为约束的无关条目，因此中止也体现当前保守策略的可用性代价，不代表已经解决约束相关性判断。回放记录位于 `.gethen/experiments/memory-fixes-1792029834982/context-replay.json`，原始实验数据未修改。
 
 2026-10-14 验证：108 项测试通过，1 项默认 Docker 集成测试跳过；实验脚本独立 TypeScript 检查通过。使用 OpenCode ACP / `opencode-go/deepseek-v4.1-flash` 做了两轮各两次模型调用：两次约束探针均识别 11:15 已超过 11:00，并引用第20–48天有效范围。它验证了固定记忆的上下文提供与使用，不代表自动偏好更新或全套实验已经通过。
 
 首次完整反思提取到了用户偏好，但也把模拟任务的“仅草稿、不执行”限制泛化成项目规则，因此补充了保留原适用范围、禁止将单次模拟指令长期化的策略。修订后回放相同历史交互，得到两条带合法来源ID的记忆：用户身份，以及“区分必须/可延期、留缓冲”的明确偏好，没有再次保存该单次限制。此次回放不重新生成历史答复；这是一次语义抽查，来源ID校验本身不能保证所有未来提炼正确。
 
-最终运行产物保存在 `.mentat/experiments/personal-assistant/context-smoke-1791955977040/`（`probe.json`、`reflection.json`、`experience/`、`native.jsonl`），首轮保留在 `context-smoke-1791955859228/`。可通过 `node --import tsx experiments/personal-assistant/context-smoke.ts` 重跑，每次新建目录，不覆盖历史证据。该脚本依赖本机 OpenCode 授权和之前实验的冻结记忆快照；本轮 ACP 通过原生配置禁止工具，不能当作 Pi 实际模型运行验证。
+最终运行产物保存在 `.gethen/experiments/personal-assistant/context-smoke-1791955977040/`（`probe.json`、`reflection.json`、`experience/`、`native.jsonl`），首轮保留在 `context-smoke-1791955859228/`。可通过 `node --import tsx experiments/personal-assistant/context-smoke.ts` 重跑，每次新建目录，不覆盖历史证据。该脚本依赖本机 OpenCode 授权和之前实验的冻结记忆快照；本轮 ACP 通过原生配置禁止工具，不能当作 Pi 实际模型运行验证。
 
 模型实验应固定记忆与工具权限，对比原策略、动态上下文、自有策略加动态上下文。原有个人助理实验数据不重写，新运行另存，区别存储正确、上下文提供正确与答复遵循正确。
 

@@ -1,5 +1,5 @@
-import type { Signal } from "@mentat/core";
-import { type CapabilityPack, packRef } from "@mentat/pack";
+import type { Signal } from "@gethen/core";
+import { type CapabilityPack, packRef } from "@gethen/pack";
 import { PackArchive } from "./archive";
 import { improvementGate } from "./gate";
 import type {

@@ -10,8 +10,8 @@ import type {
   Tracer,
   Usage,
   UserInput,
-} from "@mentat/core";
-import { correctiveInstruction, finalAnswerIssue } from "@mentat/core";
+} from "@gethen/core";
+import { correctiveInstruction, finalAnswerIssue } from "@gethen/core";
 import { type Diagnostic, observe } from "./trajectory";
 
 export interface TurnResult {
@@ -106,7 +106,7 @@ export async function runTurn(
   let timer: ReturnType<typeof setTimeout> | undefined;
   let unsubscribe = () => {};
   let complete = false;
-  const trace = (type: string, data: Record<string, import("@mentat/core").JsonValue>) =>
+  const trace = (type: string, data: Record<string, import("@gethen/core").JsonValue>) =>
     observe(
       options.tracer,
       type,
@@ -140,7 +140,7 @@ export async function runTurn(
         events.push(terminal);
         trace(
           "agent.event",
-          terminal as unknown as Record<string, import("@mentat/core").JsonValue>,
+          terminal as unknown as Record<string, import("@gethen/core").JsonValue>,
         );
         try {
           options.onEvent?.(terminal);
@@ -186,7 +186,7 @@ export async function runTurn(
     });
   };
   try {
-    trace("turn.start", { input: input as unknown as import("@mentat/core").JsonValue });
+    trace("turn.start", { input: input as unknown as import("@gethen/core").JsonValue });
     unsubscribe = session.subscribe((event) => {
       if (complete) return;
       if (event.sessionId !== session.id) {
@@ -239,7 +239,7 @@ export async function runTurn(
         }
       }
       events.push(structuredClone(event));
-      trace("agent.event", event as unknown as Record<string, import("@mentat/core").JsonValue>);
+      trace("agent.event", event as unknown as Record<string, import("@gethen/core").JsonValue>);
       if (event.type === "message.completed") text = event.message.text;
       if (event.type === "usage") usage = event.usage;
       try {
@@ -290,7 +290,7 @@ export async function runOnce(
   observe(
     options.tracer,
     "session.create.start",
-    { harness: adapter.id, options: sessionOptions as unknown as import("@mentat/core").JsonValue },
+    { harness: adapter.id, options: sessionOptions as unknown as import("@gethen/core").JsonValue },
     options.onDiagnostic,
   );
   let session: SessionHandle;

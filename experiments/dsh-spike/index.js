@@ -1,11 +1,11 @@
-export const name = "mentat-spike";
+export const name = "gethen-spike";
 export const inject = ["tools"];
 
 export function apply(ctx) {
-  ctx.provide("mentatSpike", { ping: () => "pong" });
+  ctx.provide("gethenSpike", { ping: () => "pong" });
   ctx.tools.register({
-    name: "mentat_ping",
-    description: "Return pong from the Mentat DSH spike plugin.",
+    name: "gethen_ping",
+    description: "Return pong from the Gethen DSH spike plugin.",
     parameters: {},
     output: {
       schema: {
@@ -20,17 +20,17 @@ export function apply(ctx) {
       return { pong: true };
     },
   });
-  console.error("[mentat-spike] loaded");
+  console.error("[gethen-spike] loaded");
   setTimeout(() => {
     try {
       const names = ctx.tools.schemas().map((tool) => tool.name);
       console.error(
-        "[mentat-spike] tools",
-        names.filter((name) => name === "mentat_ping"),
+        "[gethen-spike] tools",
+        names.filter((name) => name === "gethen_ping"),
       );
-      console.error("[mentat-spike] service", ctx.get("mentatSpike")?.ping?.());
+      console.error("[gethen-spike] service", ctx.get("gethenSpike")?.ping?.());
     } catch (error) {
-      console.error("[mentat-spike] probe failed", error);
+      console.error("[gethen-spike] probe failed", error);
     }
   }, 50);
 }

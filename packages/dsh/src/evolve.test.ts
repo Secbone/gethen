@@ -1,10 +1,10 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Signal } from "@mentat/core";
-import type { PackEvaluator } from "@mentat/evolve";
+import type { Signal } from "@gethen/core";
+import type { PackEvaluator } from "@gethen/evolve";
 import { describe, expect, it } from "vitest";
-import { createMentatService } from "./service";
+import { createGethenService } from "./service";
 
 function evaluator(): PackEvaluator {
   return {
@@ -22,8 +22,8 @@ function evaluator(): PackEvaluator {
 
 describe("Dream in the DSH service", () => {
   it("evaluates, gates and archives a candidate", async () => {
-    const service = createMentatService({
-      dir: mkdtempSync(join(tmpdir(), "mentat-dream-")),
+    const service = createGethenService({
+      dir: mkdtempSync(join(tmpdir(), "gethen-dream-")),
       evaluator: evaluator(),
     });
     const result = await service.dream?.dream(service.runtime.currentPack, [

@@ -1,4 +1,4 @@
-import type { Signal } from "@mentat/core";
+import type { Signal } from "@gethen/core";
 import { describe, expect, it } from "vitest";
 import { dominates, paretoFront, scoreOf } from "./pareto";
 

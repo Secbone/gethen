@@ -1,4 +1,4 @@
-# @mentat/panel
+# @gethen/panel
 
 Read-only overview projection shared by the CLI and the future DSH web panel.
 

@@ -7,11 +7,11 @@ import {
   createArtifactRegistry,
   type Disposable,
   type JsonValue,
-} from "@mentat/core";
-import type { Candidate } from "@mentat/evolution";
-import { InMemoryMemoryStore, type MemoryEntry } from "@mentat/memory";
+} from "@gethen/core";
+import type { Candidate } from "@gethen/evolution";
+import { InMemoryMemoryStore, type MemoryEntry } from "@gethen/memory";
 
-export const MEMORY_SERVICE = "mentat.memory";
+export const MEMORY_SERVICE = "gethen.memory";
 
 function invalid(reason: string): never {
   throw new Error(`invalid memory artifact: ${reason}`);

@@ -1,4 +1,4 @@
-import { InMemoryRepositories } from "@mentat/domain";
+import { InMemoryRepositories } from "@gethen/domain";
 import { describe, expect, it } from "vitest";
 import { buildOverview, renderOverviewText } from "./overview";
 

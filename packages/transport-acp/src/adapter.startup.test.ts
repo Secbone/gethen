@@ -6,7 +6,7 @@ import { expect, it } from "vitest";
 import { createAcpAdapter } from "./adapter";
 
 it("requires a fresh matching catalog receipt, rejecting stale receipts before inference", async () => {
-  const receiptPath = join(mkdtempSync(join(tmpdir(), "mentat-ready-")), "ready.jsonl");
+  const receiptPath = join(mkdtempSync(join(tmpdir(), "gethen-ready-")), "ready.jsonl");
   const token = "contract-nonce";
   writeFileSync(
     receiptPath,
@@ -78,7 +78,7 @@ it("bounds opt-in startup settling and reports it without pretending tools are r
 });
 
 it("requires every declared server catalog, not just memory readiness", async () => {
-  const root = mkdtempSync(join(tmpdir(), "mentat-all-ready-"));
+  const root = mkdtempSync(join(tmpdir(), "gethen-all-ready-"));
   const receiptPath = join(root, "memory.jsonl");
   const adapter = createAcpAdapter({
     binary: process.execPath,

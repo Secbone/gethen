@@ -1,5 +1,5 @@
 {
-  "name": "@mentat/pack",
+  "name": "@gethen/pack",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -12,7 +12,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@mentat/core": "workspace:*"
+    "@gethen/core": "workspace:*"
   },
-  "description": "Versioned Capability Pack contract for Mentat Workers"
+  "description": "Versioned Capability Pack contract for Gethen Workers"
 }

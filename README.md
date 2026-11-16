@@ -1,6 +1,6 @@
-# Mentat
+# Gethen
 
-Mentat 是一个自迭代 agent 框架试验台。它通过 Pi / OpenCode 等引擎执行任务，管理上下文、记忆、流程知识和执行轨迹，并通过提案、门控、评测、选择和归档验证修改。
+Gethen 是一个自迭代 agent 框架试验台。它通过 Pi / OpenCode 等引擎执行任务，管理上下文、记忆、流程知识和执行轨迹，并通过提案、门控、评测、选择和归档验证修改。
 
 ## 安装与快速开始
 
@@ -31,7 +31,7 @@ pnpm dev chat --harness opencode --model opencode-go/deepseek-v4.1-flash \
   --cwd /absolute/path/to/project --permission ask --timeout-ms 600000
 ```
 
-`pnpm dev` 从仓库运行 CLI；在其他目录可使用 `/absolute/path/to/mentat/mentat` 启动器，不要求安装全局 `mentat` 命令。显式指定 `--cwd` 决定任务目录和默认记忆、经验、轨迹位置。
+`pnpm dev` 从仓库运行 CLI；在其他目录可使用 `/absolute/path/to/gethen/gethen` 启动器，不要求安装全局 `gethen` 命令。显式指定 `--cwd` 决定任务目录和默认记忆、经验、轨迹位置。
 
 ## 使用说明
 

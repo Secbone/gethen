@@ -1,6 +1,6 @@
 import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import type { JsonValue, Tracer } from "@mentat/core";
+import type { JsonValue, Tracer } from "@gethen/core";
 
 /** Append-only JSONL tracer. Every emit becomes one line, fsync-free. */
 export class JsonlTracer implements Tracer {

@@ -1,4 +1,4 @@
-import { type CapabilityPack, defineCapabilityPack } from "@mentat/pack";
+import { type CapabilityPack, defineCapabilityPack } from "@gethen/pack";
 import type { Observation, PackProposer } from "./types";
 
 export interface RulePackProposerOptions {

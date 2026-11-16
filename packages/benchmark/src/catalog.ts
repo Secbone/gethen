@@ -28,8 +28,8 @@ export const BENCHMARK_CATALOG: readonly BenchmarkCatalogEntry[] = [
       "Pin V2 separately from 731-task v1; reduced-budget reset samples do not establish RSI or a leaderboard score",
   },
   {
-    id: "mentat-longitudinal",
-    name: "Mentat longitudinal",
+    id: "gethen-longitudinal",
+    name: "Gethen longitudinal",
     priority: "core",
     dimensions: ["personalization", "adaptation", "transfer", "interaction"],
     source: "experiments/personal-assistant",
@@ -195,7 +195,7 @@ export const FRAMEWORK_CATALOG = [
   {
     id: "past-bench",
     source: "https://github.com/Gen-Verse/PAST-Bench",
-    role: "Longitudinal family/anchor/control methodology; requires a Mentat upstream agent adapter",
+    role: "Longitudinal family/anchor/control methodology; requires a Gethen upstream agent adapter",
   },
   {
     id: "lifelongagentbench",

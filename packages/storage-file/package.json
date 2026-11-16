@@ -1,5 +1,5 @@
 {
-  "name": "@mentat/storage-file",
+  "name": "@gethen/storage-file",
   "version": "0.0.1",
   "private": true,
   "type": "module",

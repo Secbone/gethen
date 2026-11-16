@@ -3,14 +3,14 @@ import { createHash } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ASSISTANT_PROMPT_VERSION } from "@mentat/assistant";
-import { createFakeAdapter } from "@mentat/core";
-import { createAssistantHost } from "@mentat/host";
-import type { MemoryEntry } from "@mentat/memory";
-import { FileMemoryRepository } from "@mentat/memory-file";
-import { inspectTrajectory, readTrajectory, resolveEventData } from "@mentat/observability";
-import type { ExperienceRecord, TaskInput } from "@mentat/session";
-import { createAcpAdapter } from "@mentat/transport-acp";
+import { ASSISTANT_PROMPT_VERSION } from "@gethen/assistant";
+import { createFakeAdapter } from "@gethen/core";
+import { createAssistantHost } from "@gethen/host";
+import type { MemoryEntry } from "@gethen/memory";
+import { FileMemoryRepository } from "@gethen/memory-file";
+import { inspectTrajectory, readTrajectory, resolveEventData } from "@gethen/observability";
+import type { ExperienceRecord, TaskInput } from "@gethen/session";
+import { createAcpAdapter } from "@gethen/transport-acp";
 import { explicitRules } from "./explicit-rules";
 
 export interface Check {
@@ -147,9 +147,9 @@ export async function runMultiturn() {
     readFileSync(fileURLToPath(new URL("./multiturn-cases.json", import.meta.url)), "utf8"),
   ) as Cases;
   const fake = process.argv.includes("--fake");
-  const out = resolve(arg("--out") ?? `.mentat/experiments/multiturn-${Date.now()}`);
+  const out = resolve(arg("--out") ?? `.gethen/experiments/multiturn-${Date.now()}`);
   mkdirSync(out, { recursive: true });
-  const model = process.env.MENTAT_SMOKE_MODEL ?? "opencode-go/deepseek-v4.1-flash";
+  const model = process.env.GETHEN_SMOKE_MODEL ?? "opencode-go/deepseek-v4.1-flash";
   const rows: TaskRow[] = existsSync(join(out, "results.jsonl"))
     ? readFileSync(join(out, "results.jsonl"), "utf8")
         .split("\n")

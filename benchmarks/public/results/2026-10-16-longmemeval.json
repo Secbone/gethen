@@ -25,7 +25,7 @@
       "OpenCode ACP serializes role messages; no exact sampling or max_tokens control",
       "DeepSeek replaces the published fixed GPT-4o judge; do not directly subtract published scores"
     ],
-    "agents": ["mentat-episodic", "longmemeval-flat-bm25"],
+    "agents": ["gethen-episodic", "longmemeval-flat-bm25"],
     "planned": [
       {
         "question_id": "e47becba",
@@ -2051,7 +2051,7 @@
   "judgeOnlyRecoveries": 8,
   "provenPreInferenceReaderRecoveries": 5,
   "summary": {
-    "mentat-episodic": {
+    "gethen-episodic": {
       "completed": 500,
       "correct": 229,
       "accuracy": 0.458,
@@ -2551,7 +2551,7 @@
         }
       },
       {
-        "id": "mentat-episodic",
+        "id": "gethen-episodic",
         "revision": "6d97cfbeaf3656ff76d524b6492a164b9ecc58d3",
         "codeSha256": "4e12790c8ab6b786148350fe8f4e1d1269b48248171a14f0168d6c602bd250c2",
         "harness": "opencode-acp",
@@ -2572,7 +2572,7 @@
     "interpretation": "Controlled cross-subject difference. Method configurations are declared experimental variables; this is not a project-version regression or proof of architectural causality."
   },
   "toolAudit": {
-    "transport": "/Users/soar/Code/mentat/.mentat/public-evaluations/transport-v1",
+    "transport": "/Users/soar/Code/gethen/.gethen/public-evaluations/transport-v1",
     "counts": {
       "requests": 2052,
       "traces": 2052,
@@ -2588,23 +2588,23 @@
   },
   "sourceArtifacts": [
     {
-      "path": ".mentat/public-evaluations/longmemeval-s-full-v1/manifest.json",
+      "path": ".gethen/public-evaluations/longmemeval-s-full-v1/manifest.json",
       "sha256": "c8a9906d9bea4468744e4b629cfc74f8ecf11276415e28a48f17ed1c63beca60"
     },
     {
-      "path": ".mentat/public-evaluations/longmemeval-s-full-v1/results.jsonl",
+      "path": ".gethen/public-evaluations/longmemeval-s-full-v1/results.jsonl",
       "sha256": "68e94c8c5565959412f1e64dc3873ef9bf0e365957166873d41fe886a1ea6e8b"
     },
     {
-      "path": ".mentat/public-evaluations/longmemeval-s-judge-recovery-v1/recoveries.json",
+      "path": ".gethen/public-evaluations/longmemeval-s-judge-recovery-v1/recoveries.json",
       "sha256": "684bea8441c76dd9227739ea1b2420fdf14307b809181ebc81e93d231fdbf202"
     },
     {
-      "path": ".mentat/public-evaluations/longmemeval-s-reader-recovery-v1/recoveries.json",
+      "path": ".gethen/public-evaluations/longmemeval-s-reader-recovery-v1/recoveries.json",
       "sha256": "b73dee6c3cf8171e48a0fa9954abbe8aa83f8a6fd47e9b0cede265c71111dfad"
     },
     {
-      "path": ".mentat/public-evaluations/longmemeval-tools-audit-recovered-v1.json",
+      "path": ".gethen/public-evaluations/longmemeval-tools-audit-recovered-v1.json",
       "sha256": "c83046ea34a3b19cddd8f91cb4e1c0244b682f604fb0d49dbdb13928bce00e0a"
     }
   ],

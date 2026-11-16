@@ -49,14 +49,14 @@
 真实实验的报告和完整轨迹保存在本地忽略目录：
 
 ```text
-.mentat/experiments/refactor-validation/real-three-turns/report.json
-.mentat/experiments/refactor-validation/real-three-turns/trace/
-.mentat/experiments/refactor-validation/real-final/report.json
-.mentat/experiments/refactor-validation/real-final/trace/
-.mentat/experiments/refactor-validation/fake/report.json
+.gethen/experiments/refactor-validation/real-three-turns/report.json
+.gethen/experiments/refactor-validation/real-three-turns/trace/
+.gethen/experiments/refactor-validation/real-final/report.json
+.gethen/experiments/refactor-validation/real-final/trace/
+.gethen/experiments/refactor-validation/fake/report.json
 ```
 
-可运行`pnpm dev trace .mentat/experiments/refactor-validation/real-final/trace --all`检查记录。
+可运行`pnpm dev trace .gethen/experiments/refactor-validation/real-final/trace --all`检查记录。
 
 ## 范围限制
 

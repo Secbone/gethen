@@ -8,8 +8,8 @@ import {
   writeSync,
 } from "node:fs";
 import { join } from "node:path";
-import type { IterationReceipt } from "@mentat/evolution";
-import { withFileLock } from "@mentat/storage-file";
+import type { IterationReceipt } from "@gethen/evolution";
+import { withFileLock } from "@gethen/storage-file";
 
 /**
  * Append-only evidence log for loop iterations. Receipts are the source of

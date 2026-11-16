@@ -8,5 +8,5 @@
   "filesystem_allowlist_passed": true,
   "native_denial_trace_must_be_verified_separately": true,
   "is_os_sandbox": false,
-  "control_directory": "/Users/soar/Projects/pcp-match/analysis/product-page-attributes-v1/mentat-workers-pilot-v1/guard-probe-v2/control"
+  "control_directory": "/Users/soar/Projects/pcp-match/analysis/product-page-attributes-v1/gethen-workers-pilot-v1/guard-probe-v2/control"
 }

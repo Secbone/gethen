@@ -44,7 +44,7 @@
   "limits": "Small independent synthetic integration check; no official benchmark score, RSI gain or general reliability claim.",
   "model": "opencode-go/deepseek-v4.1-flash",
   "costUsd": 0.005390298,
-  "runDirectory": ".mentat/public-evaluations/procedure-grounding-20261019-v2",
+  "runDirectory": ".gethen/public-evaluations/procedure-grounding-20261019-v2",
   "plan": {
     "protocol": "synthetic-procedure-grounding-v2",
     "model": "opencode-go/deepseek-v4.1-flash",

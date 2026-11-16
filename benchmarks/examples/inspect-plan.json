@@ -36,7 +36,7 @@
     "turnTimeoutMs": 10000
   },
   "subject": {
-    "id": "mentat",
+    "id": "gethen",
     "revision": "fixture-1",
     "codeSha256": "0000000000000000000000000000000000000000000000000000000000000000",
     "harness": "fake",

@@ -1,5 +1,5 @@
 {
-  "name": "@mentat/benchmark-file",
+  "name": "@gethen/benchmark-file",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -13,9 +13,9 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",
-    "@mentat/benchmark": "workspace:*",
-    "@mentat/evaluation": "workspace:*",
-    "@mentat/storage-file": "workspace:*"
+    "@gethen/benchmark": "workspace:*",
+    "@gethen/evaluation": "workspace:*",
+    "@gethen/storage-file": "workspace:*"
   },
   "description": "Benchmark result adapters, immutable file storage, external execution and reports"
 }

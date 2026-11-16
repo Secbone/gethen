@@ -14,7 +14,7 @@ pnpm test:benchmarks
 pnpm bench:smoke
 ```
 
-冒烟目录位于 `.mentat/benchmarks/`，包括完整 host 轨迹、记忆前后快照、逐样本结果、报告、比较和趋势 CSV；不提交生成的运行材料。付费模型、外部框架和公开数据下载不在冒烟中执行。
+冒烟目录位于 `.gethen/benchmarks/`，包括完整 host 轨迹、记忆前后快照、逐样本结果、报告、比较和趋势 CSV；不提交生成的运行材料。付费模型、外部框架和公开数据下载不在冒烟中执行。
 
 `pilots/2026-10-16/` 保存首次真实模型试点的冻结纵向输入、计划、精简结果和非盲复核记录；公开原始语料与完整运行材料仍保存在本机忽略目录。生成与分析脚本分别为 `scripts/prepare-unified-pilot.py`、`scripts/analyze-unified-pilot.py`。协议、边界与结论见[统一评测报告](../docs/research/unified-evaluation-2026-10-16.md)。
 
@@ -30,4 +30,4 @@ pnpm bench:smoke
 | `scripts/` | 薄入口与公开评测运行器（`public-*.ts`、`past-bench-agent.ts`、`*.py`）；由根 `tsconfig` 纳入类型检查 |
 | `experiments/` | 学习实验（个人助理连续任务），带独立 tsconfig |
 
-Python 依赖见 `benchmarks/requirements.txt`（venv 固定为 `.mentat/venvs/public`）。生成的运行材料写入忽略目录 `.mentat/`，不提交。
+Python 依赖见 `benchmarks/requirements.txt`（venv 固定为 `.gethen/venvs/public`）。生成的运行材料写入忽略目录 `.gethen/`，不提交。

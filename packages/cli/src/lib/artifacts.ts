@@ -1,5 +1,5 @@
-import { type ArtifactRegistry, createArtifactRegistry } from "@mentat/core";
-import { memoryAdapter } from "@mentat/memory-evolution";
+import { type ArtifactRegistry, createArtifactRegistry } from "@gethen/core";
+import { memoryAdapter } from "@gethen/memory-evolution";
 
 /**
  * Adapters available to the data evolution paths. Code workspaces attach their

@@ -7,7 +7,7 @@ import { FileTrajectoryStore } from "./trajectory";
 
 describe("memoryAttribution", () => {
   it("aggregates injections, reads, writes, reflections and history retrieval", async () => {
-    const root = mkdtempSync(join(tmpdir(), "mentat-attr-"));
+    const root = mkdtempSync(join(tmpdir(), "gethen-attr-"));
     const store = new FileTrajectoryStore(join(root, "trace"));
     store.emit("context.selection", {
       selectedIds: ["a", "b"],

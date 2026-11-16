@@ -1,18 +1,18 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createFakeAdapter, renderTurnInput, type UserInput } from "@mentat/core";
-import { createAssistantHost } from "@mentat/host";
+import { createFakeAdapter, renderTurnInput, type UserInput } from "@gethen/core";
+import { createAssistantHost } from "@gethen/host";
 import {
   ExperienceStore,
   projectExperience,
   readTrajectory,
   resolveEventData,
-} from "@mentat/observability";
+} from "@gethen/observability";
 import { expect, it } from "vitest";
 
 it("preserves sources across dispatch, durable projection, reflection, dedup and rejection", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "mentat-host-sources-"));
+  const dir = mkdtempSync(join(tmpdir(), "gethen-host-sources-"));
   const sends: UserInput[] = [];
   let badPolicy = false;
   const reflectionAdapter = createFakeAdapter({

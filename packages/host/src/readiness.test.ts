@@ -1,5 +1,5 @@
-import type { AgentEvent } from "@mentat/core";
-import type { TurnResult } from "@mentat/session";
+import type { AgentEvent } from "@gethen/core";
+import type { TurnResult } from "@gethen/session";
 import { describe, expect, it } from "vitest";
 import { verifyReadiness } from "./readiness";
 

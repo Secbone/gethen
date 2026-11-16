@@ -3,7 +3,7 @@ import { mkdtempSync, readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { readRun } from "@mentat/benchmark-file";
+import { readRun } from "@gethen/benchmark-file";
 import { describe, expect, it } from "vitest";
 
 const exec = promisify(execFile);
@@ -22,7 +22,7 @@ describe("benchmark CLI and real host assembly", () => {
     expect(catalog.adapters).toHaveLength(3);
   }, 30_000);
   it("runs fresh host sessions, saves typed constraints and isolates reset/persistent states", async () => {
-    const out = join(mkdtempSync(join(tmpdir(), "mentat-bench-cli-")), "run");
+    const out = join(mkdtempSync(join(tmpdir(), "gethen-bench-cli-")), "run");
     await cli([
       "run",
       "--plan",
@@ -67,7 +67,7 @@ describe("benchmark CLI and real host assembly", () => {
     ).rejects.toThrow();
   }, 30_000);
   it("imports both upstream contracts, reports coverage and refuses cross-benchmark comparison", async () => {
-    const root = mkdtempSync(join(tmpdir(), "mentat-bench-import-"));
+    const root = mkdtempSync(join(tmpdir(), "gethen-bench-import-"));
     for (const [adapter, name, input] of [
       ["harbor-trials-v1", "harbor", "harbor-trials"],
       ["inspect-json-v1", "inspect", "inspect-log"],

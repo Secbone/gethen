@@ -9,7 +9,7 @@ function queue() {
   let now = new Date("2026-11-05T00:00:00.000Z");
   let id = 0;
   const q = new EffectQueue({
-    path: join(mkdtempSync(join(tmpdir(), "mentat-effects-")), "effects.json"),
+    path: join(mkdtempSync(join(tmpdir(), "gethen-effects-")), "effects.json"),
     now: () => now,
     id: () => `e${++id}`,
     baseDelayMs: 100,
@@ -98,7 +98,7 @@ describe("Outbox", () => {
           return "sent";
         },
       },
-      { path: join(mkdtempSync(join(tmpdir(), "mentat-outbox-")), "outbox.json") },
+      { path: join(mkdtempSync(join(tmpdir(), "gethen-outbox-")), "outbox.json") },
     );
     const receipt = outbox.send({
       ticket: "t1",
@@ -121,7 +121,7 @@ describe("Outbox", () => {
           return "gone";
         },
       },
-      { path: join(mkdtempSync(join(tmpdir(), "mentat-outbox-")), "outbox.json") },
+      { path: join(mkdtempSync(join(tmpdir(), "gethen-outbox-")), "outbox.json") },
     );
     outbox.send({ channel: "github:gone", purpose: "result", text: "x" });
     await q.runDue();

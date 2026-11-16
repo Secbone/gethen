@@ -1,4 +1,4 @@
-import type { RunCompletion, RunTermination } from "@mentat/core";
+import type { RunCompletion, RunTermination } from "@gethen/core";
 
 /** Extract known text without pretending images, diffs or unknown content are empty text. */
 export function readContent(content: unknown): {

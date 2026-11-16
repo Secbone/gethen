@@ -6,7 +6,7 @@ import {
   readTrajectory,
   recallAttribution,
   resolveEventData,
-} from "@mentat/observability";
+} from "@gethen/observability";
 
 export function benchmarkObservations(dir: string | undefined) {
   const sessionIds = new Set<string>(),

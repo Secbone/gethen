@@ -12,18 +12,18 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
-import type { JsonValue } from "@mentat/core";
+import type { JsonValue } from "@gethen/core";
 import {
   type ExperienceBase,
   normalizeTaskInput,
   SessionRecorder,
   type TrajectoryEvent,
   type TrajectoryStore,
-} from "@mentat/session";
+} from "@gethen/session";
 
-export { redact } from "@mentat/core";
+export { redact } from "@gethen/core";
 
-import { redact } from "@mentat/core";
+import { redact } from "@gethen/core";
 import { auditAcpCapture } from "./capture-audit";
 export interface TrajectoryOptions {
   maxBytes?: number;
@@ -259,7 +259,7 @@ export function projectExperience(dir: string, base: ExperienceBase, turnId: str
   const events = readTrajectory(dir);
   const source = events.find((event) => event.type === "task.input" && event.turnId === turnId);
   const data = source
-    ? (resolveEventData(dir, source) as { input?: import("@mentat/session").TaskInput })
+    ? (resolveEventData(dir, source) as { input?: import("@gethen/session").TaskInput })
     : undefined;
   const input = data?.input ? normalizeTaskInput(data.input) : base.input;
   const recorder = new SessionRecorder({
@@ -272,12 +272,12 @@ export function projectExperience(dir: string, base: ExperienceBase, turnId: str
   const savedData = saved ? (resolveEventData(dir, saved) as { evidenceId?: string }) : undefined;
   for (const event of events)
     if (event.type === "agent.event" && event.turnId === turnId)
-      recorder.handle(resolveEventData(dir, event) as unknown as import("@mentat/core").AgentEvent);
+      recorder.handle(resolveEventData(dir, event) as unknown as import("@gethen/core").AgentEvent);
   const acceptanceEvent = events.findLast(
     (event) => event.type === "task.acceptance" && event.turnId === turnId,
   );
   const acceptance = acceptanceEvent
-    ? (resolveEventData(dir, acceptanceEvent) as unknown as import("@mentat/core").TaskAcceptance)
+    ? (resolveEventData(dir, acceptanceEvent) as unknown as import("@gethen/core").TaskAcceptance)
     : undefined;
   return {
     ...recorder.snapshot(),

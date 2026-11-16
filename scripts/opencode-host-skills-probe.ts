@@ -3,10 +3,10 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { createDefaultRegistry } from "@mentat/harnesses";
-import { createAssistantHost } from "@mentat/host";
-import { projectExperience, readTrajectory, resolveEventData } from "@mentat/observability";
-import { FileSkillRepository } from "@mentat/skills-file";
+import { createDefaultRegistry } from "@gethen/harnesses";
+import { createAssistantHost } from "@gethen/host";
+import { projectExperience, readTrajectory, resolveEventData } from "@gethen/observability";
+import { FileSkillRepository } from "@gethen/skills-file";
 import { benchmarkObservations } from "../packages/cli/src/lib/benchmark-observations";
 
 const destination = process.argv[2];

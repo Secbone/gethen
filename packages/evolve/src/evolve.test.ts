@@ -1,8 +1,8 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Signal } from "@mentat/core";
-import { defineCapabilityPack } from "@mentat/pack";
+import type { Signal } from "@gethen/core";
+import { defineCapabilityPack } from "@gethen/pack";
 import { describe, expect, it } from "vitest";
 import { PackArchive } from "./archive";
 import { functionGate, improvementGate } from "./gate";
@@ -98,7 +98,7 @@ describe("EvolutionLoop", () => {
 
 describe("PackArchive", () => {
   it("persists candidates across instances", async () => {
-    const path = join(mkdtempSync(join(tmpdir(), "mentat-pack-archive-")), "archive.json");
+    const path = join(mkdtempSync(join(tmpdir(), "gethen-pack-archive-")), "archive.json");
     const loop = new EvolutionLoop({
       proposer: new RulePackProposer(),
       evaluator: evaluator(0.8),
@@ -125,10 +125,10 @@ describe("DreamService", () => {
 
 describe("Dream effects", () => {
   it("runs one Dream pass through the durable queue", async () => {
-    const { EffectQueue } = await import("@mentat/effects");
+    const { EffectQueue } = await import("@gethen/effects");
     const { enqueueDream, registerDream } = await import("./queue");
     const queue = new EffectQueue({
-      path: join(mkdtempSync(join(tmpdir(), "mentat-dream-queue-")), "effects.json"),
+      path: join(mkdtempSync(join(tmpdir(), "gethen-dream-queue-")), "effects.json"),
       now: () => new Date("2026-11-06T00:00:00.000Z"),
     });
     const loop = new EvolutionLoop({

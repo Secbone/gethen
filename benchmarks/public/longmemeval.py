@@ -1,4 +1,4 @@
-"""Full cleaned-S evaluation, native Mentat history and unchanged upstream BM25.
+"""Full cleaned-S evaluation, native Gethen history and unchanged upstream BM25.
 
 Uses the pinned upstream reader/scoring functions. The judge and transport are
 DeepSeek/OpenCode variants, so published scores using other judges are contextual.
@@ -22,8 +22,8 @@ from resources import require_disk
 from upstream import load_function
 
 ROOT = Path(__file__).resolve().parents[2]
-UPSTREAM = ROOT / ".mentat/upstream/longmemeval"
-DATA = ROOT / ".mentat/benchmark-data/longmemeval-cleaned/s-cleaned.json"
+UPSTREAM = ROOT / ".gethen/upstream/longmemeval"
+DATA = ROOT / ".gethen/benchmark-data/longmemeval-cleaned/s-cleaned.json"
 DATA_SHA = "d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442"
 
 
@@ -47,7 +47,7 @@ def sanitize(entry):
 def verification(response):
     if "observations" in response:
         return response["observations"], str(Path(response["evidenceDir"]).parent.parent / "response.json")
-    path = Path(response["mentat"]["evidenceDir"]).parent
+    path = Path(response["gethen"]["evidenceDir"]).parent
     return json.loads((path/"verification.json").read_text()), str(path/"response.json")
 
 
@@ -58,7 +58,7 @@ def main():
     parser.add_argument("--workers",type=int,default=4)
     parser.add_argument("--base",default="http://127.0.0.1:8941")
     parser.add_argument("--selection",type=Path,help="Frozen prior-error diagnostic cohort; not a representative sample")
-    parser.add_argument("--agents",nargs="+",choices=["mentat-episodic","longmemeval-flat-bm25"],default=["mentat-episodic","longmemeval-flat-bm25"])
+    parser.add_argument("--agents",nargs="+",choices=["gethen-episodic","longmemeval-flat-bm25"],default=["gethen-episodic","longmemeval-flat-bm25"])
     args=parser.parse_args()
     if args.limit<0 or args.workers<1 or args.workers>8:
         raise ValueError("invalid limit/concurrency")
@@ -132,7 +132,7 @@ def main():
             started=time.monotonic()
             result={"question_id":entry["question_id"],"question_type":entry["question_type"],"agent":agent,"status":"error","correct":None,"evidence":[],"costUsd":None}
             try:
-                if agent=="mentat-episodic":
+                if agent=="gethen-episodic":
                     response=client.subject(history,f"Current Date: {entry['question_date']}\nQuestion: {entry['question']}\nAnswer based on relevant historical observations.")
                     hypothesis=response["text"]
                 else:

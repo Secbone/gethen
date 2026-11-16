@@ -66,11 +66,11 @@ class ResultBoundaryTest(unittest.TestCase):
     def test_cached_images_keep_reserves_and_check_selected_vm(self):
         disk = SimpleNamespace(free=35 * 1024**3)
         report = SimpleNamespace(stdout="Filesystem Size Used Available Capacity Mounted\n/dev/vdb 12000000 3000000 9000000 25% /var/lib/docker\n")
-        with patch("probe.shutil.disk_usage", return_value=disk), patch("probe.subprocess.run", return_value=report) as run, patch.dict("os.environ", {"COLIMA_PROFILE": "mentat-nodebb"}):
+        with patch("probe.shutil.disk_usage", return_value=disk), patch("probe.subprocess.run", return_value=report) as run, patch.dict("os.environ", {"COLIMA_PROFILE": "gethen-nodebb"}):
             value = capacity(image_cached=True)
             self.assertEqual(value["hostReserveBytes"], 30 * 1024**3)
             self.assertEqual(value["dockerReserveBytes"], 5 * 1024**3)
-            self.assertIn("mentat-nodebb", run.call_args.args[0])
+            self.assertIn("gethen-nodebb", run.call_args.args[0])
             with self.assertRaisesRegex(RuntimeError, "headroom"):
                 capacity(image_cached=False)
 

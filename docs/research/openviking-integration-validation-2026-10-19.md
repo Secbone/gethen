@@ -2,7 +2,7 @@
 
 ## 结论
 
-**接入可行，值得保留为可选后端；当前证据不足以替换默认记忆系统。** 原生会话归档、记忆抽取、语义索引、完整消息读取、上下文装配和按题目隔离均已真实运行。固定 10 题对照中，当前 Mentat 为 **5/10**，OpenViking 完整消息装配为 **7/10**，OpenViking 加固定对话展开也是 **7/10**，但答对的题不同。
+**接入可行，值得保留为可选后端；当前证据不足以替换默认记忆系统。** 原生会话归档、记忆抽取、语义索引、完整消息读取、上下文装配和按题目隔离均已真实运行。固定 10 题对照中，当前 Gethen 为 **5/10**，OpenViking 完整消息装配为 **7/10**，OpenViking 加固定对话展开也是 **7/10**，但答对的题不同。
 
 本次是从既有 50 题中预选的 **8 道剩余错题＋2 道已答对题**，不是随机样本，也不是新的全量 LongMemEval 分数。正式运行中没有根据答案或裁判反馈调整配置。早期技术预检与默认中文 embedding 的部分失败结果另行保留，不混入英语配置结果。
 
@@ -41,17 +41,17 @@
 
 | 配置 | 检索与装配 |
 | --- | --- |
-| 当前 Mentat | 现有 BM25 分块、会话多样化及相邻消息补全，12,000 字符预算 |
+| 当前 Gethen | 现有 BM25 分块、会话多样化及相邻消息补全，12,000 字符预算 |
 | OpenViking 完整消息装配 | 每条原始消息一个资源文件；`context` 模式，`limit=20`、`max_tokens=4000`、`detail=full`，关闭 rewrite 和查询扩展，再以 12,000 字符上限注入完整消息 |
 | OpenViking 固定对话展开 | 同问题检索 top 20；前 8 个命中补前一条消息及后 6 条内最多 2 条用户回复，再补其余命中；同样限制为 12,000 字符 |
 
-OpenViking 即使请求 `full`，预算不足时仍可能返回 overview 或 URI。本原型只注入能与导入记录完整核对的 full 消息，降级条目保留在日志中，没有作为完整消息注入。因此第二列不代表 OpenViking 默认返回文本的完整评测。第三列是 Mentat 控制端的固定展开策略，不是 OpenViking 原生能力。
+OpenViking 即使请求 `full`，预算不足时仍可能返回 overview 或 URI。本原型只注入能与导入记录完整核对的 full 消息，降级条目保留在日志中，没有作为完整消息注入。因此第二列不代表 OpenViking 默认返回文本的完整评测。第三列是 Gethen 控制端的固定展开策略，不是 OpenViking 原生能力。
 
 三者还存在分块粒度、查询正文、embedding 与装配方式的差别，不能将收益单独归因于 OpenViking 框架。字符上限相同也不等于严格匹配 token：实际输入均值见下表。
 
 ## 对照结果
 
-| 指标 | 当前 Mentat | OpenViking 完整消息 | OpenViking 固定展开 |
+| 指标 | 当前 Gethen | OpenViking 完整消息 | OpenViking 固定展开 |
 | --- | ---: | ---: | ---: |
 | 完成并评分 | 10/10 | 10/10 | 10/10 |
 | 裁判判对／最终可用且判对 | 5/10 | 7/10 | 7/10 |
@@ -70,7 +70,7 @@ OpenViking 即使请求 `full`，预算不足时仍可能返回 overview 或 URI
 
 ### 逐题结果
 
-| 题目 ID | 问题 | 当前 Mentat | OV 完整消息 | OV 固定展开 |
+| 题目 ID | 问题 | 当前 Gethen | OV 完整消息 | OV 固定展开 |
 | --- | --- | --- | --- | --- |
 | `561fabcd` | 僵尸最终命名 | 错 | 对 | 对 |
 | `6e984302` | 四周前为比赛购买的物品 | 错 | 错 | 错 |
@@ -83,7 +83,7 @@ OpenViking 即使请求 `full`，预算不足时仍可能返回 overview 或 URI
 | `cc5ded98` | 原已答对的知识更新样本 | 对 | 对 | 对 |
 | `95228167` | 原已答对的偏好样本 | 对 | 对 | 对 |
 
-`*` 交通题应单列人工审计：参考为 $50。当前 Mentat 的主结论仍围绕 $30–40 或其他路线差额，但在另一处提到 $50–55，被裁判判 Yes；固定展开给出多个选项，并提到便宜火车约省 $50，也被判 Yes。完整消息回答同样给出范围和多种报价，却判 No。**保留原分，但不能把这些 Yes 解释为已经稳定、准确地绑定了用户的两项报价。** 这说明评分对表述敏感，单次小样本总分需要结合来源与结论人工核对。
+`*` 交通题应单列人工审计：参考为 $50。当前 Gethen 的主结论仍围绕 $30–40 或其他路线差额，但在另一处提到 $50–55，被裁判判 Yes；固定展开给出多个选项，并提到便宜火车约省 $50，也被判 Yes。完整消息回答同样给出范围和多种报价，却判 No。**保留原分，但不能把这些 Yes 解释为已经稳定、准确地绑定了用户的两项报价。** 这说明评分对表述敏感，单次小样本总分需要结合来源与结论人工核对。
 
 ## 能确认的收益与仍然存在的问题
 
@@ -104,7 +104,7 @@ OpenViking 即使请求 `full`，预算不足时仍可能返回 overview 或 URI
 1. **外部历史必须走明确入口。** 新增验证桥 `externalHistory=true`：要求材料存在，禁止同时传入内部历史或 corpus。Host 不再对外部材料运行一次空的内部检索，从而避免追加误导性的“没有检索到历史”政策。默认路径不变。
 2. **必须等待索引就绪。** 批量写入使用异步入队，再统一等待全部队列完成并检查错误；`write` 成功不等于已可检索。
 3. **语言、模型和输入上限需要固定。** 预检直接采用默认中文 embedding 不合适，正式英语对照改用独立本地英语模型。OpenViking 对 embedding 文本设置 256 的估计 token 上限，本地 endpoint 再按实际 tokenizer 防御性限长；完整资源原文始终保留。endpoint 的截取计数不包含上游已经发生的截取，不能据此声称所有原文均完整向量化。
-4. **保留来源与低层内容。** 模型推导出的偏好不能自动变成 Mentat 已确认规则；后续接入原生抽取时需要映射 speaker、原始引用、作用域和生命周期。本轮只把公开题目历史作为参考材料。
+4. **保留来源与低层内容。** 模型推导出的偏好不能自动变成 Gethen 已确认规则；后续接入原生抽取时需要映射 speaker、原始引用、作用域和生命周期。本轮只把公开题目历史作为参考材料。
 5. **时间元数据要区分事件、消息和导入时间。** 本原型在正文保留 ISO 历史日期；后续不能直接用资源的导入时间代替源事件时间做过滤或衰减。
 6. **保留检索诊断。** 记录命中 URI、得分、装配层级、预算、被丢弃条目、最终注入原文，以及外部读取的记录；不要只记录一个命中数量。
 
@@ -122,7 +122,7 @@ OpenViking 即使请求 `full`，预算不足时仍可能返回 overview 或 URI
 - [结果派生与核验](../../benchmarks/public/analyze_openviking_probe.py)
 - [模型桥外部历史入口](../../scripts/public-model-server.ts)
 
-本地完整证据目录：`.mentat/openviking-validation-20261019/`；正式模型轨迹：`.mentat/public-evaluations/transport-openviking-pilot10-en-20261019/`。`dependencies.txt`、`english-model.json`、`package.json` 和各次 `manifest.json` 固定依赖、模型摘要与配置。早期导入试跑 `pilot10-v1/v2` 未答题；中文配置 `pilot10-v3` 保留 5 条已评分结果及最后一条未完成评分的回答证据，不将这些部分结果充作完整对照。
+本地完整证据目录：`.gethen/openviking-validation-20261019/`；正式模型轨迹：`.gethen/public-evaluations/transport-openviking-pilot10-en-20261019/`。`dependencies.txt`、`english-model.json`、`package.json` 和各次 `manifest.json` 固定依赖、模型摘要与配置。早期导入试跑 `pilot10-v1/v2` 未答题；中文配置 `pilot10-v3` 保留 5 条已评分结果及最后一条未完成评分的回答证据，不将这些部分结果充作完整对照。
 
 验证使用的直接依赖见 [requirements](../../benchmarks/public/openviking-requirements.txt)，服务示例见 [ov.example.json](../../benchmarks/public/openviking.example.json)。需要本地 OpenCode 授权与已下载的英语 GGUF 模型；示例 API key 只是本地代理占位值。启动时用不同的空目录保存新一轮服务状态与模型轨迹，避免覆写或复用旧结果。
 
@@ -131,17 +131,17 @@ OpenViking 即使请求 `full`，预算不足时仍可能返回 overview 或 URI
 ```bash
 # 8944：原生抽取所用模型桥；8945：文本代理；8947：英语 embedding；
 # 1935：OpenViking；8946：独立的正式答题与评分模型桥。
-.mentat/venvs/public/bin/python benchmarks/public/openviking_probe.py \
-  --out .mentat/openviking-new-run \
+.gethen/venvs/public/bin/python benchmarks/public/openviking_probe.py \
+  --out .gethen/openviking-new-run \
   --viking-base http://127.0.0.1:1935 --model-base http://127.0.0.1:8946
 
-.mentat/venvs/public/bin/python benchmarks/public/audit_text_transport.py \
-  --transport .mentat/public-evaluations/transport-openviking-new \
-  --out .mentat/openviking-new-audit.json
+.gethen/venvs/public/bin/python benchmarks/public/audit_text_transport.py \
+  --transport .gethen/public-evaluations/transport-openviking-new \
+  --out .gethen/openviking-new-audit.json
 
-.mentat/venvs/public/bin/python benchmarks/public/analyze_openviking_probe.py \
-  --run .mentat/openviking-new-run --audit .mentat/openviking-new-audit.json \
-  --out .mentat/openviking-new-summary.json
+.gethen/venvs/public/bin/python benchmarks/public/analyze_openviking_probe.py \
+  --run .gethen/openviking-new-run --audit .gethen/openviking-new-audit.json \
+  --out .gethen/openviking-new-summary.json
 ```
 
 本次运行结束已停止验证专用服务，完整数据和环境保留在项目目录，便于复查。磁盘最后检查约 78 GiB 可用，高于 30 GiB 保留线；依赖下载缓存也消耗空间，不能只按工作区数据大小估算安装成本。

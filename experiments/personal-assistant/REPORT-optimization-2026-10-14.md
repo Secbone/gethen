@@ -13,7 +13,7 @@
 
 任务顺序固定散列打乱，并发2；工作目录为不带角色/组别名称的随机临时目录。每次新建独立记忆文件，评测任务生成的内容不会流入其它任务或反思训练。模型收到任务原文和规定的记忆/训练交互，未收到评分标准、未来任务答案或评估画像。三次重复是相同任务的三次生成，不是三个不同任务或用户。
 
-计划、原始答复、逐份评审、原生计费及模型核对保存在 [本次运行目录](../../.mentat/experiments/personal-assistant/optimization-validation-1791961173215/plan.json)。`results.jsonl`、`review.json`、`accounting.json`、`verification.json`、`analysis.json`分别记录答复、评审、估算计费、模型/快照验证和汇总。生产实现源码与哈希另存于`implementation-manifest.json`。
+计划、原始答复、逐份评审、原生计费及模型核对保存在 [本次运行目录](../../.gethen/experiments/personal-assistant/optimization-validation-1791961173215/plan.json)。`results.jsonl`、`review.json`、`accounting.json`、`verification.json`、`analysis.json`分别记录答复、评审、估算计费、模型/快照验证和汇总。生产实现源码与哈希另存于`implementation-manifest.json`。
 
 ## 已保存偏好与约束的使用
 
@@ -32,7 +32,7 @@
 
 旧组其余结果为11次部分遵循、5次未遵循；不是所有旧答复都无用。优化后21次通过也不意味着每份答复事实与推理全部正确。
 
-最明确的改善是家庭约束：09:00出门，60+50+25=135分钟，最早11:15回家。旧组3次都只对照店铺13:00关门判断“可以同日完成”；新组3次均使用已存的第20–48天“11:00前回家”规则，判断需拆分或改期。[旧答复](../../.mentat/experiments/personal-assistant/optimization-validation-1791961173215/household-deadline-legacy-2.json)、[新答复](../../.mentat/experiments/personal-assistant/optimization-validation-1791961173215/household-deadline-optimized-2.json)
+最明确的改善是家庭约束：09:00出门，60+50+25=135分钟，最早11:15回家。旧组3次都只对照店铺13:00关门判断“可以同日完成”；新组3次均使用已存的第20–48天“11:00前回家”规则，判断需拆分或改期。[旧答复](../../.gethen/experiments/personal-assistant/optimization-validation-1791961173215/household-deadline-legacy-2.json)、[新答复](../../.gethen/experiments/personal-assistant/optimization-validation-1791961173215/household-deadline-optimized-2.json)
 
 24个优化后任务均验证了完整冻结快照进入本轮上下文。这里的记忆库很小（4–9条），没有超过6000字符预算，不能外推到大记忆库。代买例外两组均通过，6次运行记忆前后相同，未观察到本次例外污染长期偏好。
 
@@ -48,7 +48,7 @@
 | 非空运行的来源ID检查通过 | 无非空运行 | 9/9 |
 | 后续任务完全遵循目标行为 | 2/9 | 7/9 |
 
-38条是9个独立重复运行中的总数，不是38种新能力。提取内容主要是用户身份、决策格式、最小改动、验证如实报告、排程缓冲和库存优先。8次提取的语义抽查通过，1次部分通过：工程师身份条目夹带了第2/4/6天训练日期，并把“不顺便升级依赖”扩展为“不新增/降级”。来源ID有效不能证明每个语义都准确或值得长期保留。[问题提取](../../.mentat/experiments/personal-assistant/optimization-validation-1791961173215/engineer-reflection-optimized-3.json)
+38条是9个独立重复运行中的总数，不是38种新能力。提取内容主要是用户身份、决策格式、最小改动、验证如实报告、排程缓冲和库存优先。8次提取的语义抽查通过，1次部分通过：工程师身份条目夹带了第2/4/6天训练日期，并把“不顺便升级依赖”扩展为“不新增/降级”。来源ID有效不能证明每个语义都准确或值得长期保留。[问题提取](../../.gethen/experiments/personal-assistant/optimization-validation-1791961173215/engineer-reflection-optimized-3.json)
 
 后续任务分项：
 
@@ -60,8 +60,8 @@
 
 仍有两个直接的应用断点：
 
-1. 产品经理一次答复把免责声明放在建议之前，未完全满足“先一句话建议”。[答复](../../.mentat/experiments/personal-assistant/optimization-validation-1791961173215/product-reflection-optimized-1.json)
-2. 家庭助手一次已保存并注入“已有食材不重复购买”，仍把今晚采购扩展成“本周补货”，建议6–8个鸡蛋。这里的问题是自行扩大任务范围，不是要求以后永远不能买鸡蛋。新反思在家庭库存任务上没有测出优于旧组的稳定收益。[答复及已提取记忆](../../.mentat/experiments/personal-assistant/optimization-validation-1791961173215/household-reflection-optimized-3.json)
+1. 产品经理一次答复把免责声明放在建议之前，未完全满足“先一句话建议”。[答复](../../.gethen/experiments/personal-assistant/optimization-validation-1791961173215/product-reflection-optimized-1.json)
+2. 家庭助手一次已保存并注入“已有食材不重复购买”，仍把今晚采购扩展成“本周补货”，建议6–8个鸡蛋。这里的问题是自行扩大任务范围，不是要求以后永远不能买鸡蛋。新反思在家庭库存任务上没有测出优于旧组的稳定收益。[答复及已提取记忆](../../.gethen/experiments/personal-assistant/optimization-validation-1791961173215/household-reflection-optimized-3.json)
 
 因此完整反思已从“无证据的空转”改善为可追踪的提炼，但从保存到稳定执行仍有距离。反思本轮为历史交互回放，未重新执行整个多任务学习链，也没有检验隐式习惯推断。
 

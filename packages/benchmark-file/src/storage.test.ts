@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { validatePlan } from "@mentat/benchmark";
+import { validatePlan } from "@gethen/benchmark";
 import { describe, expect, it } from "vitest";
 import { runExternal } from "./external";
 import { renderReport, trendsCsv } from "./report";
@@ -11,7 +11,7 @@ const fixture = (name: string) =>
   JSON.parse(
     readFileSync(new URL(`../../../benchmarks/examples/${name}.json`, import.meta.url), "utf8"),
   );
-const temp = () => mkdtempSync(join(tmpdir(), "mentat-benchmark-"));
+const temp = () => mkdtempSync(join(tmpdir(), "gethen-benchmark-"));
 describe("immutable benchmark records", () => {
   it("roundtrips source and result with hashes, and refuses overwrite/corruption", () => {
     const out = join(temp(), "run"),

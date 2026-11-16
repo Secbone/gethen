@@ -1,5 +1,5 @@
-import type { Signal } from "@mentat/core";
-import type { CapabilityPack } from "@mentat/pack";
+import type { Signal } from "@gethen/core";
+import type { CapabilityPack } from "@gethen/pack";
 import type { PackEvaluator } from "./types";
 
 export interface MatrixEvaluatorEntry {

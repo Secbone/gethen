@@ -9,7 +9,7 @@ import {
   type PanelRoute,
   renderPanelHtml,
 } from "./panel";
-import { createMentatService } from "./service";
+import { createGethenService } from "./service";
 
 function response() {
   let body = "";
@@ -28,8 +28,8 @@ function response() {
 
 function panel(rejection?: 401 | 403) {
   const routes = new Map<string, PanelRoute>();
-  const service = createMentatService({
-    dir: mkdtempSync(join(tmpdir(), "mentat-panel-")),
+  const service = createGethenService({
+    dir: mkdtempSync(join(tmpdir(), "gethen-panel-")),
     source: {
       id: "fake",
       label: "Fake",
@@ -39,7 +39,7 @@ function panel(rejection?: 401 | 403) {
     },
   });
   apply({
-    mentat: service,
+    gethen: service,
     webServer: {
       register(route) {
         routes.set(route.path, route);
@@ -53,16 +53,16 @@ function panel(rejection?: 401 | 403) {
   return { routes, service };
 }
 
-describe("Mentat panel", () => {
+describe("Gethen panel", () => {
   it("renders the page and overview JSON", async () => {
     const { routes } = panel();
     expect(renderPanelHtml()).toContain("Needs a person");
     const page = response();
-    await routes.get("/mentat")?.handler({} as PanelRequest, page.res);
-    expect(page.text()).toContain("Mentat");
+    await routes.get("/gethen")?.handler({} as PanelRequest, page.res);
+    expect(page.text()).toContain("Gethen");
 
     const overview = response();
-    await routes.get("/mentat/overview")?.handler({} as PanelRequest, overview.res);
+    await routes.get("/gethen/overview")?.handler({} as PanelRequest, overview.res);
     expect(overview.headers["content-type"]).toContain("application/json");
     expect(JSON.parse(overview.text())).toMatchObject({
       counts: { tickets: 0, needsPerson: 0 },
@@ -73,10 +73,10 @@ describe("Mentat panel", () => {
   it("rejects an unauthenticated panel request", async () => {
     const { routes } = panel(401);
     const page = response();
-    await routes.get("/mentat")?.handler({} as PanelRequest, page.res);
+    await routes.get("/gethen")?.handler({} as PanelRequest, page.res);
     expect(page.res.statusCode).toBe(401);
     const overview = response();
-    await routes.get("/mentat/overview")?.handler({} as PanelRequest, overview.res);
+    await routes.get("/gethen/overview")?.handler({} as PanelRequest, overview.res);
     expect(overview.res.statusCode).toBe(401);
   });
 
@@ -84,17 +84,17 @@ describe("Mentat panel", () => {
     const { routes, service } = panel();
     await service.poller?.tick();
     const overview = response();
-    await routes.get("/mentat/overview")?.handler({} as PanelRequest, overview.res);
+    await routes.get("/gethen/overview")?.handler({} as PanelRequest, overview.res);
     expect(JSON.parse(overview.text())).toMatchObject({
       source: { lastPollCount: 0, consecutiveFailures: 0 },
     });
 
     const result = response();
-    await routes.get("/mentat/poll")?.handler({ method: "POST" } as PanelRequest, result.res);
+    await routes.get("/gethen/poll")?.handler({ method: "POST" } as PanelRequest, result.res);
     expect(JSON.parse(result.text())).toEqual({ polled: 0 });
 
     const refused = response();
-    await routes.get("/mentat/poll")?.handler({ method: "GET" } as PanelRequest, refused.res);
+    await routes.get("/gethen/poll")?.handler({ method: "GET" } as PanelRequest, refused.res);
     expect(refused.res.statusCode).toBe(405);
   });
 });

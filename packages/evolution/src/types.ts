@@ -1,4 +1,4 @@
-import type { Artifact, Signal } from "@mentat/core";
+import type { Artifact, Signal } from "@gethen/core";
 
 /** A concrete framework state: a set of immutable artifacts at some version. */
 export interface Candidate {

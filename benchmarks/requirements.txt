@@ -2,8 +2,8 @@
 # Versions match what the runners record in their own output.
 #
 # Recreate the environment:
-#   python3 -m venv .mentat/venvs/public
-#   .mentat/venvs/public/bin/pip install -r benchmarks/requirements.txt
+#   python3 -m venv .gethen/venvs/public
+#   .gethen/venvs/public/bin/pip install -r benchmarks/requirements.txt
 numpy>=1.26
 rank-bm25==0.2.2
 tiktoken==0.12.0

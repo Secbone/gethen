@@ -1,5 +1,5 @@
 {
-  "name": "@mentat/workspace",
+  "name": "@gethen/workspace",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -12,9 +12,9 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@mentat/core": "workspace:*",
-    "@mentat/evolution": "workspace:*",
-    "@mentat/storage-file": "workspace:*"
+    "@gethen/core": "workspace:*",
+    "@gethen/evolution": "workspace:*",
+    "@gethen/storage-file": "workspace:*"
   },
   "description": "Versioned Git and JSON candidate workspaces"
 }

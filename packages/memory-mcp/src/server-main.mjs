@@ -5,20 +5,20 @@
 import { randomUUID } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { redact } from "@mentat/core";
-import { createMemoryAccess } from "@mentat/memory";
-import { FileMemoryRepository } from "@mentat/memory-file";
+import { redact } from "@gethen/core";
+import { createMemoryAccess } from "@gethen/memory";
+import { FileMemoryRepository } from "@gethen/memory-file";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
-const file = process.env.MENTAT_MEMORY_FILE;
-if (!file) throw new Error("MENTAT_MEMORY_FILE is required");
+const file = process.env.GETHEN_MEMORY_FILE;
+if (!file) throw new Error("GETHEN_MEMORY_FILE is required");
 let seq = 0;
 let limited = false;
 const observe = (type, data) => {
   if (limited) return;
-  const dir = process.env.MENTAT_TRACE_DIR;
+  const dir = process.env.GETHEN_TRACE_DIR;
   if (!dir) return;
   const fragments = join(dir, "fragments");
   mkdirSync(fragments, { recursive: true, mode: 0o700 });
@@ -33,20 +33,20 @@ const observe = (type, data) => {
   }
   appendFileSync(
     fragment,
-    `${JSON.stringify({ schemaVersion: 1, traceId: process.env.MENTAT_TRACE_ID, eventId: randomUUID(), sourceSeq: seq++, source: "memory-mcp", ts: Date.now(), type, data: redact(data) })}\n`,
+    `${JSON.stringify({ schemaVersion: 1, traceId: process.env.GETHEN_TRACE_ID, eventId: randomUUID(), sourceSeq: seq++, source: "memory-mcp", ts: Date.now(), type, data: redact(data) })}\n`,
     { mode: 0o600 },
   );
 };
 const access = createMemoryAccess(new FileMemoryRepository(file), {
-  scope: process.env.MENTAT_MEMORY_SCOPE,
-  sharedScopes: process.env.MENTAT_MEMORY_SHARED_SCOPES
-    ? JSON.parse(process.env.MENTAT_MEMORY_SHARED_SCOPES)
+  scope: process.env.GETHEN_MEMORY_SCOPE,
+  sharedScopes: process.env.GETHEN_MEMORY_SHARED_SCOPES
+    ? JSON.parse(process.env.GETHEN_MEMORY_SHARED_SCOPES)
     : undefined,
   observe,
   onObserverError: (error) => console.error(`memory observation failed: ${String(error)}`),
 });
-const server = new McpServer({ name: "mentat-memory", version: "0.0.1" });
-if (process.env.MENTAT_MCP_PROBE_NONCE)
+const server = new McpServer({ name: "gethen-memory", version: "0.0.1" });
+if (process.env.GETHEN_MCP_PROBE_NONCE)
   server.registerTool(
     "memory_ready",
     {
@@ -54,7 +54,7 @@ if (process.env.MENTAT_MCP_PROBE_NONCE)
         "Read-only infrastructure readiness probe. Returns an ephemeral diagnostic nonce; never reads or writes user memory.",
       inputSchema: {},
     },
-    async () => ({ content: [{ type: "text", text: process.env.MENTAT_MCP_PROBE_NONCE }] }),
+    async () => ({ content: [{ type: "text", text: process.env.GETHEN_MCP_PROBE_NONCE }] }),
   );
 
 server.registerTool(
@@ -83,7 +83,7 @@ server.registerTool(
   }),
 );
 
-if (process.env.MENTAT_MEMORY_READ_ONLY !== "true")
+if (process.env.GETHEN_MEMORY_READ_ONLY !== "true")
   server.registerTool(
     "memory_add",
     {
@@ -147,14 +147,14 @@ class CatalogTransport extends StdioServerTransport {
     if (
       this.lists.delete(message.id) &&
       Array.isArray(message.result?.tools) &&
-      process.env.MENTAT_MCP_READY_FILE &&
-      process.env.MENTAT_MCP_READY_TOKEN
+      process.env.GETHEN_MCP_READY_FILE &&
+      process.env.GETHEN_MCP_READY_TOKEN
     ) {
       appendFileSync(
-        process.env.MENTAT_MCP_READY_FILE,
+        process.env.GETHEN_MCP_READY_FILE,
         `${JSON.stringify({
           event: "tools/list-sent",
-          token: process.env.MENTAT_MCP_READY_TOKEN,
+          token: process.env.GETHEN_MCP_READY_TOKEN,
           tools: message.result.tools.map((tool) => tool.name),
           pid: process.pid,
         })}\n`,

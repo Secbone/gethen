@@ -12,8 +12,8 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import type { ExperienceRecord } from "@mentat/session";
-import { withFileLock } from "@mentat/storage-file";
+import type { ExperienceRecord } from "@gethen/session";
+import { withFileLock } from "@gethen/storage-file";
 import { readTrajectory, redact, resolveEventData } from "./trajectory";
 
 export type {
@@ -21,13 +21,13 @@ export type {
   ExperienceRecord,
   MessageEvidence,
   RecordedToolCall,
-} from "@mentat/session";
+} from "@gethen/session";
 export {
   experienceEvidence,
   messageEvidence,
   SessionRecorder,
   sessionEvidence,
-} from "@mentat/session";
+} from "@gethen/session";
 
 function dayStamp(ts: number): string {
   return new Date(ts).toISOString().slice(0, 10);

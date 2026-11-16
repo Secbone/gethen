@@ -1,8 +1,8 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AgentEventListener, HarnessAdapter } from "@mentat/core";
-import { createAssistantHost } from "@mentat/host";
+import type { AgentEventListener, HarnessAdapter } from "@gethen/core";
+import { createAssistantHost } from "@gethen/host";
 import { expect, it } from "vitest";
 
 function setup(actualReceipt: boolean) {
@@ -50,7 +50,7 @@ function setup(actualReceipt: boolean) {
       },
     }),
   };
-  const root = mkdtempSync(join(tmpdir(), "mentat-ready-host-"));
+  const root = mkdtempSync(join(tmpdir(), "gethen-ready-host-"));
   const host = createAssistantHost({
     cwd: root,
     adapter,

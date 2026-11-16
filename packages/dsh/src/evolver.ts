@@ -1,8 +1,8 @@
-import type { DreamService, EvolutionResult, Observation, PackArchive } from "@mentat/evolve";
-import type { CapabilityPack } from "@mentat/pack";
+import type { DreamService, EvolutionResult, Observation, PackArchive } from "@gethen/evolve";
+import type { CapabilityPack } from "@gethen/pack";
 import type { ReceiptStore, RuntimeReceipt } from "./runtime";
 
-export interface MentatEvolverOptions {
+export interface GethenEvolverOptions {
   receipts: ReceiptStore;
   packs: PackArchive;
   dream: DreamService;
@@ -35,14 +35,14 @@ function observationOf(receipt: RuntimeReceipt): Observation | undefined {
  * named by an archived candidate are skipped, so a periodic pass does not
  * re-learn the same lesson; duplicate lesson text is collapsed in one batch.
  */
-export class MentatEvolver {
+export class GethenEvolver {
   private readonly receipts: ReceiptStore;
   private readonly packs: PackArchive;
   private readonly dream: DreamService;
   private readonly currentPack: () => CapabilityPack;
   private readonly maxObservations: number;
 
-  constructor(options: MentatEvolverOptions) {
+  constructor(options: GethenEvolverOptions) {
     this.receipts = options.receipts;
     this.packs = options.packs;
     this.dream = options.dream;

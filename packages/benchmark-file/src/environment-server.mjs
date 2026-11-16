@@ -7,9 +7,9 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 
-const socketPath = process.env.MENTAT_BENCH_SOCKET;
-const toolsPath = process.env.MENTAT_BENCH_TOOLS;
-const token = process.env.MENTAT_BENCH_TOKEN;
+const socketPath = process.env.GETHEN_BENCH_SOCKET;
+const toolsPath = process.env.GETHEN_BENCH_TOOLS;
+const token = process.env.GETHEN_BENCH_TOKEN;
 if (!socketPath || !isAbsolute(socketPath) || !toolsPath || !isAbsolute(toolsPath) || !token)
   throw new Error("missing controller socket/catalog/token");
 const tools = JSON.parse(readFileSync(toolsPath, "utf8"));
@@ -78,7 +78,7 @@ function invoke(name, args) {
 }
 
 const server = new Server(
-  { name: "mentat-upstream-environment", version: "0.0.1" },
+  { name: "gethen-upstream-environment", version: "0.0.1" },
   { capabilities: { tools: {} } },
 );
 // Upstream task runtimes execute stateful calls sequentially. Do not open one
@@ -95,12 +95,12 @@ function dispatch(name, args) {
   return pending;
 }
 server.setRequestHandler(ListToolsRequestSchema, async () => {
-  if (process.env.MENTAT_MCP_READY_FILE && process.env.MENTAT_MCP_READY_TOKEN)
+  if (process.env.GETHEN_MCP_READY_FILE && process.env.GETHEN_MCP_READY_TOKEN)
     appendFileSync(
-      process.env.MENTAT_MCP_READY_FILE,
+      process.env.GETHEN_MCP_READY_FILE,
       `${JSON.stringify({
         event: "tools/list-sent",
-        token: process.env.MENTAT_MCP_READY_TOKEN,
+        token: process.env.GETHEN_MCP_READY_TOKEN,
         tools: tools.map((tool) => tool.name),
         pid: process.pid,
       })}\n`,

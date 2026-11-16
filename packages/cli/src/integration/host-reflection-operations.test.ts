@@ -1,14 +1,14 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createFakeAdapter } from "@mentat/core";
-import { createAssistantHost } from "@mentat/host";
-import { createMemoryAccess } from "@mentat/memory";
-import { FileMemoryRepository } from "@mentat/memory-file";
+import { createFakeAdapter } from "@gethen/core";
+import { createAssistantHost } from "@gethen/host";
+import { createMemoryAccess } from "@gethen/memory";
+import { FileMemoryRepository } from "@gethen/memory-file";
 import { expect, it } from "vitest";
 
 it("applies scoped proposals, merges new evidence and exposes rejections without altering active rules", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "mentat-reflection-ops-"));
+  const dir = mkdtempSync(join(tmpdir(), "gethen-reflection-ops-"));
   let mode: "add" | "merge" | "task" = "add";
   const adapter = createFakeAdapter({
     script: (input) => {
@@ -96,7 +96,7 @@ it("applies scoped proposals, merges new evidence and exposes rejections without
 });
 
 it("version-checks competing file writers inside the durable transaction", async () => {
-  const path = join(mkdtempSync(join(tmpdir(), "mentat-evidence-cas-")), "memory.json");
+  const path = join(mkdtempSync(join(tmpdir(), "gethen-evidence-cas-")), "memory.json");
   const first = createMemoryAccess(new FileMemoryRepository(path)),
     second = createMemoryAccess(new FileMemoryRepository(path));
   const source = {

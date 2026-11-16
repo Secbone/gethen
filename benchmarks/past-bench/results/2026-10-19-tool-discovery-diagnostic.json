@@ -9,7 +9,7 @@
       "toolNames": [],
       "toolChoice": null,
       "messageRoles": ["system", "user"],
-      "mentatSystem": true
+      "gethenSystem": true
     },
     {
       "type": "request",
@@ -24,12 +24,12 @@
       ],
       "toolChoice": null,
       "messageRoles": ["system", "user"],
-      "mentatSystem": true
+      "gethenSystem": true
     }
   ],
   "trials": [
     {
-      "run": ".mentat/public-evaluations/past-foundation-wire-20261019-v1",
+      "run": ".gethen/public-evaluations/past-foundation-wire-20261019-v1",
       "taskId": "SM01_COLD_001",
       "score": 0.2,
       "dispatches": 0,
@@ -37,7 +37,7 @@
       "querySha256": "8f2dc65bd3e9eb977a6fbe888e93ca9f211ea6a36ac1be344f070007f8b92eea"
     },
     {
-      "run": ".mentat/public-evaluations/past-foundation-wire-20261019-v2",
+      "run": ".gethen/public-evaluations/past-foundation-wire-20261019-v2",
       "taskId": "SM01_COLD_001",
       "score": 0.6,
       "dispatches": 3,

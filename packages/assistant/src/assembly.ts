@@ -1,6 +1,6 @@
-import type { HarnessAdapter } from "@mentat/core";
-import type { MemoryAccess } from "@mentat/memory";
-import { normalizeTaskInput, type TaskInput } from "@mentat/session";
+import type { HarnessAdapter } from "@gethen/core";
+import type { MemoryAccess } from "@gethen/memory";
+import { normalizeTaskInput, type TaskInput } from "@gethen/session";
 import { ASSISTANT_PROMPT_VERSION, type AssistantTools, assistantPromptOptions } from "./prompt";
 export async function assemblePrompt(
   memory: MemoryAccess,

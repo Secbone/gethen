@@ -1,5 +1,5 @@
-import type { Signal } from "@mentat/core";
-import type { Candidate, Proposal, Proposer } from "@mentat/evolution";
+import type { Signal } from "@gethen/core";
+import type { Candidate, Proposal, Proposer } from "@gethen/evolution";
 
 export interface ProposeContext {
   parent: Candidate;

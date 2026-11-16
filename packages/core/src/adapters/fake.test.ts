@@ -1,4 +1,4 @@
-import { describeHarnessContract } from "@mentat/core/testing";
+import { describeHarnessContract } from "@gethen/core/testing";
 import { createFakeAdapter } from "./fake";
 
 describeHarnessContract("fake", () => createFakeAdapter());

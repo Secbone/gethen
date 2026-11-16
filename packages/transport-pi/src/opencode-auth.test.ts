@@ -10,7 +10,7 @@ describe("resolveOpencodeApiKey", () => {
   });
 
   it("reads opencode-go from the credential store", () => {
-    const dir = mkdtempSync(join(tmpdir(), "mentat-oc-"));
+    const dir = mkdtempSync(join(tmpdir(), "gethen-oc-"));
     writeFileSync(join(dir, "auth.json"), JSON.stringify({ "opencode-go": { key: "store-key" } }));
     expect(resolveOpencodeApiKey({ OPENCODE_DATA_HOME: dir, XDG_DATA_HOME: dir })).toBe(
       "store-key",
@@ -18,7 +18,7 @@ describe("resolveOpencodeApiKey", () => {
   });
 
   it("returns undefined when nothing is available", () => {
-    const dir = mkdtempSync(join(tmpdir(), "mentat-oc-"));
+    const dir = mkdtempSync(join(tmpdir(), "gethen-oc-"));
     expect(resolveOpencodeApiKey({ OPENCODE_DATA_HOME: dir, XDG_DATA_HOME: dir })).toBeUndefined();
   });
 });

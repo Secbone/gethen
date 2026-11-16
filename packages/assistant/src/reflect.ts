@@ -1,6 +1,6 @@
-import type { HarnessAdapter } from "@mentat/core";
-import type { MemoryAccess } from "@mentat/memory";
-import { runOnce, type TurnOptions } from "@mentat/session";
+import type { HarnessAdapter } from "@gethen/core";
+import type { MemoryAccess } from "@gethen/memory";
+import { runOnce, type TurnOptions } from "@gethen/session";
 import {
   parseEvidenceReflection,
   type ReflectedCandidate,
@@ -19,7 +19,7 @@ export async function reflectMemories(
   options: ReflectionInput & {
     cwd: string;
     model?: string;
-    execution?: TurnOptions & { deps?: import("@mentat/core").AdapterDeps };
+    execution?: TurnOptions & { deps?: import("@gethen/core").AdapterDeps };
   },
 ): Promise<
   ReflectionParseResult & {

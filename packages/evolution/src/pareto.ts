@@ -1,4 +1,4 @@
-import type { Signal } from "@mentat/core";
+import type { Signal } from "@gethen/core";
 
 function index(signals: Signal[]): Map<string, Signal> {
   validateSignals(signals);

@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { GitWorkspace } from "./git-workspace";
 
 function makeRepo(): string {
-  const dir = mkdtempSync(join(tmpdir(), "mentat-git-"));
+  const dir = mkdtempSync(join(tmpdir(), "gethen-git-"));
   const git = (args: string[]): string => execFileSync("git", args, { cwd: dir, encoding: "utf8" });
   git(["init", "-b", "main"]);
   git(["config", "user.email", "test@test"]);

@@ -19,7 +19,7 @@ require_disk(args.out)
 args.out.mkdir()
 root = Path(__file__).resolve().parents[2]
 results = []
-for method in ["mentat", "upstream-basic"]:
+for method in ["gethen", "upstream-basic"]:
     trial = args.out / method
     trial.mkdir()
     token, code = uuid.uuid4().hex, "answer-" + uuid.uuid4().hex

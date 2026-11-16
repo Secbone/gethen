@@ -14,7 +14,7 @@ import {
   reflectMemories,
   rememberUserFact,
   validateHistoricalSessions,
-} from "@mentat/assistant";
+} from "@gethen/assistant";
 import type {
   ExecutionPolicy,
   HarnessAdapter,
@@ -23,10 +23,10 @@ import type {
   PermissionHandler,
   SessionHandle,
   Tracer,
-} from "@mentat/core";
-import { createMemoryAccess, type MemoryAccess } from "@mentat/memory";
-import { FileMemoryRepository } from "@mentat/memory-file";
-import { memoryMcpSpec } from "@mentat/memory-mcp";
+} from "@gethen/core";
+import { createMemoryAccess, type MemoryAccess } from "@gethen/memory";
+import { FileMemoryRepository } from "@gethen/memory-file";
+import { memoryMcpSpec } from "@gethen/memory-mcp";
 import {
   type ActionEffect,
   ExperienceStore,
@@ -35,7 +35,7 @@ import {
   type RecallKind,
   recallSelection,
   redact,
-} from "@mentat/observability";
+} from "@gethen/observability";
 import {
   closeSession,
   type ExperienceRecord,
@@ -46,8 +46,8 @@ import {
   SessionRecorder,
   type TaskInput,
   type TurnOptions,
-} from "@mentat/session";
-import { skillsMcpSpec } from "@mentat/skills-mcp";
+} from "@gethen/session";
+import { skillsMcpSpec } from "@gethen/skills-mcp";
 import { evaluateResult, type ResultEvaluator } from "./acceptance";
 import { createFragmentIngestor } from "./capture";
 import {
@@ -136,7 +136,7 @@ export function createAssistantHost(config: HostConfig, overrides: HostOverrides
     });
   const experience =
     overrides.experience ??
-    new ExperienceStore(config.experienceDir ?? join(config.cwd, ".mentat", "experience"), {
+    new ExperienceStore(config.experienceDir ?? join(config.cwd, ".gethen", "experience"), {
       onDiagnostic: diagnostic,
     });
   const readExperience = () => {
@@ -149,7 +149,7 @@ export function createAssistantHost(config: HostConfig, overrides: HostOverrides
   const file = overrides.trajectory
     ? undefined
     : new FileTrajectoryStore(
-        join(config.logDir ?? join(config.cwd, ".mentat", "runs"), traceId),
+        join(config.logDir ?? join(config.cwd, ".gethen", "runs"), traceId),
         {
           metadata: {
             cwd: config.cwd,

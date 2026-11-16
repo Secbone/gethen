@@ -1,14 +1,31 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   apply,
   type DshContext,
   type DshToolDefinition,
-  type MentatService,
+  type GethenService,
   workerFromEnv,
 } from "./index";
+
+// The plugin reads GETHEN_* at apply time. A developer shell (or a DSH profile)
+// that exports GETHEN_WORKER or GETHEN_BENCH_PLAN would otherwise spawn a real
+// engine or evaluator inside these unit tests.
+const savedEnv: Record<string, string> = {};
+
+beforeAll(() => {
+  for (const key of Object.keys(process.env)) {
+    if (!key.startsWith("GETHEN_")) continue;
+    savedEnv[key] = process.env[key] ?? "";
+    delete process.env[key];
+  }
+});
+
+afterAll(() => {
+  for (const [key, value] of Object.entries(savedEnv)) process.env[key] = value;
+});
 
 function context() {
   const services = new Map<string, unknown>();
@@ -34,23 +51,23 @@ function tool(tools: DshToolDefinition[], name: string): DshToolDefinition {
   return found;
 }
 
-describe("Mentat DSH plugin", () => {
+describe("Gethen DSH plugin", () => {
   it("provides the control-plane service and its tools", async () => {
     const { ctx, services, tools } = context();
-    apply(ctx, { dir: mkdtempSync(join(tmpdir(), "mentat-dsh-")) });
-    expect(services.get("mentat")).toMatchObject({ runtime: expect.anything() });
+    apply(ctx, { dir: mkdtempSync(join(tmpdir(), "gethen-dsh-")) });
+    expect(services.get("gethen")).toMatchObject({ runtime: expect.anything() });
     expect(tools.map((entry) => entry.name)).toEqual([
-      "mentat_status",
-      "mentat_receive",
-      "mentat_dispatch",
-      "mentat_dream",
-      "mentat_evolve",
-      "mentat_channel",
-      "mentat_overview",
-      "mentat_poll",
-      "mentat_run",
+      "gethen_status",
+      "gethen_receive",
+      "gethen_dispatch",
+      "gethen_dream",
+      "gethen_evolve",
+      "gethen_channel",
+      "gethen_overview",
+      "gethen_poll",
+      "gethen_run",
     ]);
-    await expect(tool(tools, "mentat_status").execute({}, {})).resolves.toEqual({
+    await expect(tool(tools, "gethen_status").execute({}, {})).resolves.toEqual({
       tickets: 0,
       threads: 0,
       decisions: 0,
@@ -60,15 +77,15 @@ describe("Mentat DSH plugin", () => {
 
   it("selects the configured heterogeneous worker", () => {
     expect(workerFromEnv({})).toBeUndefined();
-    expect(workerFromEnv({ MENTAT_WORKER: "pi" })?.id).toBe("pi");
-    expect(workerFromEnv({ MENTAT_WORKER: "opencode" })?.id).toBe("opencode");
-    expect(() => workerFromEnv({ MENTAT_WORKER: "codex" })).toThrow("unknown worker: codex");
+    expect(workerFromEnv({ GETHEN_WORKER: "pi" })?.id).toBe("pi");
+    expect(workerFromEnv({ GETHEN_WORKER: "opencode" })?.id).toBe("opencode");
+    expect(() => workerFromEnv({ GETHEN_WORKER: "codex" })).toThrow("unknown worker: codex");
   });
 
   it("runs one request through the tool surface and records a receipt", async () => {
     const { ctx, services, tools } = context();
-    apply(ctx, { dir: mkdtempSync(join(tmpdir(), "mentat-dsh-")) });
-    const result = (await tool(tools, "mentat_run").execute(
+    apply(ctx, { dir: mkdtempSync(join(tmpdir(), "gethen-dsh-")) });
+    const result = (await tool(tools, "gethen_run").execute(
       { text: "fix the failing test" },
       {},
     )) as {
@@ -79,7 +96,7 @@ describe("Mentat DSH plugin", () => {
     expect(result.outcome).toBe("accept");
     expect(result.ticket).toBeTruthy();
     expect(result.receipt).toMatchObject({ outcome: "completed", report: { kind: "ready" } });
-    const service = services.get("mentat") as MentatService;
+    const service = services.get("gethen") as GethenService;
     expect(service.repos.tickets.list()).toHaveLength(1);
   });
 });

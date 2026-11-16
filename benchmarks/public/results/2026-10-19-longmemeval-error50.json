@@ -10,7 +10,7 @@
     "messageDelivery": "serialized-text; system-policy-appended-by-ACP",
     "tools": "unsupported; requests with tools are rejected",
     "historyProtocol": "shared-corpus-v2",
-    "sourceArchive": "/Users/soar/Code/mentat/.mentat/public-evaluations/transport-error50-20261019-v1/checkout-source.json",
+    "sourceArchive": "/Users/soar/Code/gethen/.gethen/public-evaluations/transport-error50-20261019-v1/checkout-source.json",
     "correctiveRetries": 1,
     "correctionPolicy": "one format-only re-ask for empty/protocol output; no grader feedback or retry of a valid wrong answer",
     "active": 0,
@@ -177,7 +177,7 @@
   "unknownCostRows": 0,
   "medianReaderAndJudgeMs": 12575.5,
   "toolAudit": {
-    "transport": "/Users/soar/Code/mentat/.mentat/public-evaluations/transport-error50-20261019-v1",
+    "transport": "/Users/soar/Code/gethen/.gethen/public-evaluations/transport-error50-20261019-v1",
     "counts": {
       "requests": 100,
       "traces": 100,
@@ -759,23 +759,23 @@
   ],
   "sourceArtifacts": [
     {
-      "path": ".mentat/public-evaluations/longmemeval-error50-20261019-v1/manifest.json",
+      "path": ".gethen/public-evaluations/longmemeval-error50-20261019-v1/manifest.json",
       "sha256": "12d37bcd3ee62be20c17aff0808e2683b5ed1201ea9f2498766ac3335d3ab851"
     },
     {
-      "path": ".mentat/public-evaluations/longmemeval-error50-20261019-v1/selection.json",
+      "path": ".gethen/public-evaluations/longmemeval-error50-20261019-v1/selection.json",
       "sha256": "ecc8e9968f6f679e781a151f9aa394e5c127b1af23961994544dd27f066a1706"
     },
     {
-      "path": ".mentat/public-evaluations/longmemeval-error50-20261019-v1/results.jsonl",
+      "path": ".gethen/public-evaluations/longmemeval-error50-20261019-v1/results.jsonl",
       "sha256": "5ab2df65fbc9e1bec9e0550bdcebc8ea74fdec7952d64dc6250cff507cb87456"
     },
     {
-      "path": ".mentat/public-evaluations/longmemeval-error50-20261019-v1/summary.json",
+      "path": ".gethen/public-evaluations/longmemeval-error50-20261019-v1/summary.json",
       "sha256": "f6c1db351f48ae42aed7f6715937d7a2bdf53f8faaf4fdb05d48e70b358e0892"
     },
     {
-      "path": ".mentat/public-evaluations/longmemeval-error50-20261019-v1-analysis.json",
+      "path": ".gethen/public-evaluations/longmemeval-error50-20261019-v1-analysis.json",
       "sha256": "4e42680bbfe4f15868d4166c640566f32bd4bbb37219e99bd9d97cf444ee77a7"
     }
   ]

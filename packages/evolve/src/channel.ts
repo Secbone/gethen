@@ -1,4 +1,4 @@
-import type { CapabilityPack } from "@mentat/pack";
+import type { CapabilityPack } from "@gethen/pack";
 
 export type PackChannelName = "stable" | "canary";
 

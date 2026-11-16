@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { atomicJson, withFileLock } from "@mentat/storage-file";
+import { atomicJson, withFileLock } from "@gethen/storage-file";
 import type { PackCandidate } from "./types";
 
 /**

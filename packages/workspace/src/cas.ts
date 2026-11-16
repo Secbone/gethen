@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { type Digest, digestOf, type JsonValue } from "@mentat/core";
-import { atomicJson } from "@mentat/storage-file";
+import { type Digest, digestOf, type JsonValue } from "@gethen/core";
+import { atomicJson } from "@gethen/storage-file";
 
 const PREFIX = "sha256:";
 

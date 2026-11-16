@@ -1,7 +1,7 @@
-import { type RememberInput, reflectionTrigger } from "@mentat/assistant";
-import type { AgentEvent, PermissionMode } from "@mentat/core";
-import { createAssistantHost } from "@mentat/host";
-import type { TurnResult } from "@mentat/session";
+import { type RememberInput, reflectionTrigger } from "@gethen/assistant";
+import type { AgentEvent, PermissionMode } from "@gethen/core";
+import { createAssistantHost } from "@gethen/host";
+import type { TurnResult } from "@gethen/session";
 import { defaultExperienceDir, defaultMemoryPath } from "../lib/paths";
 import { createPermissionHandler, parsePermissionMode } from "../lib/permission";
 import { createDefaultRegistry } from "../lib/registry";

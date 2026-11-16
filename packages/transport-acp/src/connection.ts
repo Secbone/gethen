@@ -1,5 +1,5 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
-import type { AdapterDeps } from "@mentat/core";
+import type { AdapterDeps } from "@gethen/core";
 
 interface PendingRequest {
   resolve: (value: Record<string, unknown>) => void;

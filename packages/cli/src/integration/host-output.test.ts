@@ -2,9 +2,9 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { type AcpRegistration, createDefaultRegistry } from "@mentat/harnesses";
-import { createAssistantHost } from "@mentat/host";
-import { ExperienceStore, inspectTrajectory, readTrajectory } from "@mentat/observability";
+import { type AcpRegistration, createDefaultRegistry } from "@gethen/harnesses";
+import { createAssistantHost } from "@gethen/host";
+import { ExperienceStore, inspectTrajectory, readTrajectory } from "@gethen/observability";
 
 import { expect, it, vi } from "vitest";
 import { runCommand } from "../commands/run";
@@ -20,7 +20,7 @@ const response = (text: string) => ({
 });
 
 it("preserves conflicting native and assistant termination evidence through persisted experience", async () => {
-  const cwd = mkdtempSync(join(tmpdir(), "mentat-termination-"));
+  const cwd = mkdtempSync(join(tmpdir(), "gethen-termination-"));
   const experienceDir = join(cwd, "experience");
   const text =
     "Maximum steps for this agent have been reached, so no further tool calls can be made.\nPartial result.";
@@ -63,7 +63,7 @@ it("preserves conflicting native and assistant termination evidence through pers
 });
 
 it("validates and corrects by default, preserving the original task in experience and audit", async () => {
-  const cwd = mkdtempSync(join(tmpdir(), "mentat-output-"));
+  const cwd = mkdtempSync(join(tmpdir(), "gethen-output-"));
   const host = createAssistantHost({
     cwd,
     memoryPath: join(cwd, "memory.json"),
@@ -97,7 +97,7 @@ it("validates and corrects by default, preserving the original task in experienc
 });
 
 it("supports explicit opt-out for protocol documentation", async () => {
-  const cwd = mkdtempSync(join(tmpdir(), "mentat-output-doc-"));
+  const cwd = mkdtempSync(join(tmpdir(), "gethen-output-doc-"));
   const host = createAssistantHost({
     cwd,
     memoryPath: join(cwd, "memory.json"),
@@ -119,7 +119,7 @@ it("supports explicit opt-out for protocol documentation", async () => {
 });
 
 it("CLI prints only the validated answer, hiding fragmented protocol from the first attempt", async () => {
-  const cwd = mkdtempSync(join(tmpdir(), "mentat-output-cli-"));
+  const cwd = mkdtempSync(join(tmpdir(), "gethen-output-cli-"));
   const invalid = {
     updates: ["<｜｜DS", "ML｜｜ calls>", "unexecuted"].map((text) => ({
       sessionUpdate: "agent_message_chunk",
@@ -133,8 +133,8 @@ it("CLI prints only the validated answer, hiding fragmented protocol from the fi
     return true;
   });
   const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
-  vi.stubEnv("MENTAT_ACP_BIN", process.execPath);
-  vi.stubEnv("MENTAT_ACP_ARGS", fixture);
+  vi.stubEnv("GETHEN_ACP_BIN", process.execPath);
+  vi.stubEnv("GETHEN_ACP_ARGS", fixture);
   vi.stubEnv("ACP_TEST_TURNS", JSON.stringify([invalid, response("Lookup was not executed.")]));
   try {
     expect(await runCommand(["--harness", "acp", "--cwd", cwd, "lookup"])).toBe(0);

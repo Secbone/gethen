@@ -1,10 +1,10 @@
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { reflectMemories } from "@mentat/assistant";
-import type { AgentEventListener, HarnessAdapter, SessionOptions } from "@mentat/core";
-import { JsonFileMemoryStore } from "@mentat/memory-file";
-import { SessionRecorder } from "@mentat/observability";
+import { reflectMemories } from "@gethen/assistant";
+import type { AgentEventListener, HarnessAdapter, SessionOptions } from "@gethen/core";
+import { JsonFileMemoryStore } from "@gethen/memory-file";
+import { SessionRecorder } from "@gethen/observability";
 import { describe, expect, it } from "vitest";
 import { saveReflections } from "../lib/compat";
 
@@ -102,7 +102,7 @@ describe("full interaction reflection", () => {
     expect(sessionOptions?.mcpServers).toBeUndefined();
     expect(disposed).toBe(true);
     expect(result.status).toBe("ok");
-    const path = join(mkdtempSync(join(tmpdir(), "mentat-reflection-")), "memory.json");
+    const path = join(mkdtempSync(join(tmpdir(), "gethen-reflection-")), "memory.json");
     new JsonFileMemoryStore(path).add({ id: "tool-write", text: "已有事实", createdAt: 0 });
     expect(await saveReflections(path, result.candidates)).toBe(1);
     expect(new JsonFileMemoryStore(path).list()).toHaveLength(2);

@@ -2,7 +2,7 @@
   "protocol": "posthoc-rsi-outcome-review-v1",
   "posthoc": true,
   "modelCalls": 0,
-  "runDirectory": ".mentat/public-evaluations/past-foundation-rsi-pair-20261020-v2",
+  "runDirectory": ".gethen/public-evaluations/past-foundation-rsi-pair-20261020-v2",
   "sourceResultsSha256": "bbcfee198a171a4f463f955a7e8fc904a6b3427327262f681ae1da1eda591a6d",
   "summaries": {
     "reset": {

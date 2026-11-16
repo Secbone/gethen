@@ -1,4 +1,4 @@
-import type { ArtifactRef, Signal } from "@mentat/core";
+import type { ArtifactRef, Signal } from "@gethen/core";
 import type { EvalProtocol } from "./protocol";
 import type { Candidate, GateResult, IterationOutcome, IterationRecord } from "./types";
 

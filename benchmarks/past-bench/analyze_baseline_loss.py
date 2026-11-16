@@ -90,7 +90,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
-    result = analyze(ROOT/".mentat/public-evaluations/past-rsi-20261019-v2", ROOT/".mentat/public-evaluations/past-rsi-corrective1-20261019-v1")
+    result = analyze(ROOT/".gethen/public-evaluations/past-rsi-20261019-v2", ROOT/".gethen/public-evaluations/past-rsi-corrective1-20261019-v1")
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(result, ensure_ascii=False, indent=2)+"\n")
     print(json.dumps({k: result[k] for k in ["all", "evaluation", "scoreComposition100", "categories"]}, ensure_ascii=False, indent=2))

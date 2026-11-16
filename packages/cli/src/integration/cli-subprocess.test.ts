@@ -3,7 +3,7 @@ import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { inspectTrajectory } from "@mentat/observability";
+import { inspectTrajectory } from "@gethen/observability";
 import { expect, it } from "vitest";
 
 const exec = promisify(execFile);
@@ -20,7 +20,7 @@ const cli = (args: string[], input?: string) =>
     if (input !== undefined) child.stdin?.end(input);
   });
 it("runs actual CLI task, chat, trace, feedback and evolution commands", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "mentat-cli-full-"));
+  const dir = mkdtempSync(join(tmpdir(), "gethen-cli-full-"));
   const logs = join(dir, "runs"),
     memory = join(dir, "memory.json"),
     experience = join(dir, "experience");

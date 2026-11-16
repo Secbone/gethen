@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
-import type { SourceState } from "@mentat/domain";
-import { atomicJson, withFileLock } from "@mentat/storage-file";
+import type { SourceState } from "@gethen/domain";
+import { atomicJson, withFileLock } from "@gethen/storage-file";
 
 /** JSON read position and source metadata under a file lock. */
 export class FileSourceState implements SourceState {

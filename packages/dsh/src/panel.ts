@@ -1,5 +1,5 @@
-import { buildOverview } from "@mentat/panel";
-import type { MentatService } from "./service";
+import { buildOverview } from "@gethen/panel";
+import type { GethenService } from "./service";
 
 export interface PanelRequest {
   method?: string;
@@ -19,7 +19,7 @@ export interface PanelRoute {
 }
 
 export interface PanelContext {
-  mentat: MentatService;
+  gethen: GethenService;
   webServer: { register(route: PanelRoute): () => void };
   connection: {
     requestRejection(request: {
@@ -29,8 +29,8 @@ export interface PanelContext {
   effect?(setup: () => (() => void) | void): () => void;
 }
 
-export const name = "mentat-panel";
-export const inject = ["webServer", "mentat", "connection"];
+export const name = "gethen-panel";
+export const inject = ["webServer", "gethen", "connection"];
 
 /** Apply DSH's Host/Origin fence and signed browser cookie to a panel route. */
 function reject(ctx: PanelContext, req: PanelRequest, res: PanelResponse): boolean {
@@ -54,7 +54,7 @@ function sendHtml(res: PanelResponse, body: string): void {
   res.end(body);
 }
 
-/** A small server-rendered panel at /mentat; it reads the same projection as mentat_overview. */
+/** A small server-rendered panel at /gethen; it reads the same projection as gethen_overview. */
 export function renderPanelHtml(): string {
   return `<!doctype html>
 <html lang="en">
@@ -62,7 +62,7 @@ export function renderPanelHtml(): string {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <link rel="icon" href="data:,">
-<title>Mentat</title>
+<title>Gethen</title>
 <style>
   :root { color-scheme: dark; font-family: ui-sans-serif, system-ui, sans-serif; }
   body { margin: 0; background: #0b0e14; color: #d7dce5; }
@@ -81,7 +81,7 @@ export function renderPanelHtml(): string {
 </head>
 <body>
 <main>
-  <h1>Mentat</h1>
+  <h1>Gethen</h1>
   <div class="muted" id="stamp">loading…</div>
   <div class="bar">
     <button id="refresh">Refresh</button>
@@ -94,7 +94,7 @@ export function renderPanelHtml(): string {
 </main>
 <script>
 async function refresh() {
-  const response = await fetch('/mentat/overview');
+  const response = await fetch('/gethen/overview');
   const overview = await response.json();
   document.getElementById('stamp').textContent = overview.generatedAt;
   const needs = document.getElementById('needs');
@@ -136,7 +136,7 @@ async function refresh() {
 }
 document.getElementById('refresh').addEventListener('click', refresh);
 document.getElementById('poll').addEventListener('click', async () => {
-  await fetch('/mentat/poll', { method: 'POST' });
+  await fetch('/gethen/poll', { method: 'POST' });
   await refresh();
 });
 refresh();
@@ -148,7 +148,7 @@ refresh();
 export function apply(ctx: PanelContext): void {
   const dispose = ctx.webServer.register({
     kind: "exact",
-    path: "/mentat",
+    path: "/gethen",
     handler: (req, res) => {
       if (reject(ctx, req, res)) return;
       sendHtml(res, renderPanelHtml());
@@ -156,16 +156,16 @@ export function apply(ctx: PanelContext): void {
   });
   const disposeOverview = ctx.webServer.register({
     kind: "exact",
-    path: "/mentat/overview",
+    path: "/gethen/overview",
     handler: (req, res) => {
       if (reject(ctx, req, res)) return;
-      const channel = ctx.mentat.packChannel;
+      const channel = ctx.gethen.packChannel;
       const stable = channel.current();
       const canary = channel.canary();
       sendJson(
         res,
-        buildOverview(ctx.mentat.repos, {
-          ...(ctx.mentat.poller ? { source: ctx.mentat.poller.health() } : {}),
+        buildOverview(ctx.gethen.repos, {
+          ...(ctx.gethen.poller ? { source: ctx.gethen.poller.health() } : {}),
           channel: {
             stable: { id: stable.id, version: stable.version, digest: stable.digest },
             ...(canary
@@ -173,7 +173,7 @@ export function apply(ctx: PanelContext): void {
               : {}),
             canaryRatio: channel.ratio(),
           },
-          evolution: ctx.mentat.packs.list().map((candidate) => ({
+          evolution: ctx.gethen.packs.list().map((candidate) => ({
             id: candidate.id,
             status: candidate.status,
             version: candidate.pack.version,
@@ -186,11 +186,11 @@ export function apply(ctx: PanelContext): void {
   });
   const disposePoll = ctx.webServer.register({
     kind: "exact",
-    path: "/mentat/poll",
+    path: "/gethen/poll",
     handler: async (req, res) => {
       if (reject(ctx, req, res)) return;
       if (req.method !== "POST") return sendJson(res, { error: "POST required" }, 405);
-      const polled = ctx.mentat.poller ? await ctx.mentat.poller.tick() : 0;
+      const polled = ctx.gethen.poller ? await ctx.gethen.poller.tick() : 0;
       return sendJson(res, { polled });
     },
   });

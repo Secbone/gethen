@@ -13,7 +13,7 @@ import { describe, expect, it } from "vitest";
 import { prepareFilePolicy, prepareOutputContract } from "./task-contract";
 
 function fixture() {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), "mentat-contract-")));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "gethen-contract-")));
   const work = join(root, "work"),
     control = join(root, "control");
   mkdirSync(work);

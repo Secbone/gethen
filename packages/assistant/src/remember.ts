@@ -1,5 +1,5 @@
-import type { MemoryAccess, MemoryKind } from "@mentat/memory";
-import { type ExperienceSink, messageEvidence, SessionRecorder } from "@mentat/session";
+import type { MemoryAccess, MemoryKind } from "@gethen/memory";
+import { type ExperienceSink, messageEvidence, SessionRecorder } from "@gethen/session";
 
 /** Trusted explicit user command input, never model-supplied confirmation. */
 export type RememberInput =

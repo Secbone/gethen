@@ -1,4 +1,4 @@
-import { createFakeAdapter } from "@mentat/core";
+import { createFakeAdapter } from "@gethen/core";
 import { expect, it } from "vitest";
 import { assistantPromptOptions, assistantSystemPrompt } from "./prompt";
 

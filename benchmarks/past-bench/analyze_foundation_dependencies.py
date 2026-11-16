@@ -9,7 +9,7 @@ from pathlib import Path
 import sys
 
 ROOT = Path(__file__).resolve().parents[2]
-UPSTREAM = ROOT / ".mentat/upstream/past-bench"
+UPSTREAM = ROOT / ".gethen/upstream/past-bench"
 sys.path.insert(0, str(UPSTREAM / "src"))
 
 from past_bench.graders.self_evolve_helpers import SelfEvolveTaskGrader

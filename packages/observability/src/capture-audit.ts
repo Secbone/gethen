@@ -1,4 +1,4 @@
-import type { JsonValue } from "@mentat/core";
+import type { JsonValue } from "@gethen/core";
 
 type Row = { type: string; data?: JsonValue };
 const object = (value: unknown): Record<string, unknown> =>

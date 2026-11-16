@@ -1,5 +1,5 @@
-import { createOpenCodeAdapter, createPiAdapter } from "@mentat/harnesses";
-import { HarnessWorker, type WorkerAdapter } from "@mentat/worker";
+import { createOpenCodeAdapter, createPiAdapter } from "@gethen/harnesses";
+import { HarnessWorker, type WorkerAdapter } from "@gethen/worker";
 
 /** Compose one named Worker adapter; an unknown name is a hard error. */
 export function createWorker(name: string): WorkerAdapter {
@@ -11,5 +11,5 @@ export function createWorker(name: string): WorkerAdapter {
 }
 
 export function workerFromEnv(env: NodeJS.ProcessEnv = process.env): WorkerAdapter | undefined {
-  return env.MENTAT_WORKER ? createWorker(env.MENTAT_WORKER) : undefined;
+  return env.GETHEN_WORKER ? createWorker(env.GETHEN_WORKER) : undefined;
 }

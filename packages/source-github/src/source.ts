@@ -1,5 +1,5 @@
-import type { SourceKind, SourceState, Trigger } from "@mentat/domain";
-import type { OutboxMessage, OutboxTransport } from "@mentat/effects";
+import type { SourceKind, SourceState, Trigger } from "@gethen/domain";
+import type { OutboxMessage, OutboxTransport } from "@gethen/effects";
 import type { GitHubApi, GitHubEvent } from "./types";
 
 export interface GitHubSourceOptions {

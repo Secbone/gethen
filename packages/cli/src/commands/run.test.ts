@@ -1,9 +1,9 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createFakeAdapter } from "@mentat/core";
-import { JsonFileMemoryStore } from "@mentat/memory-file";
-import { ExperienceStore } from "@mentat/observability";
+import { createFakeAdapter } from "@gethen/core";
+import { JsonFileMemoryStore } from "@gethen/memory-file";
+import { ExperienceStore } from "@gethen/observability";
 import { afterEach, expect, it, vi } from "vitest";
 import { printResult, runCommand } from "./run";
 
@@ -55,7 +55,7 @@ it("warns about self-reported limits without labeling a normal stop as verified 
 it("does not send a task to the harness when required constraints exceed the budget", async () => {
   vi.spyOn(process.stdout, "write").mockReturnValue(true);
   const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
-  const dir = mkdtempSync(join(tmpdir(), "mentat-run-budget-"));
+  const dir = mkdtempSync(join(tmpdir(), "gethen-run-budget-"));
   const path = join(dir, "memory.json");
   const experience = join(dir, "experience");
   new JsonFileMemoryStore(path).add({

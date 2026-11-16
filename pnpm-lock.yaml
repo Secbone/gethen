@@ -29,13 +29,13 @@ importers:
 
   packages/assistant:
     dependencies:
-      '@mentat/core':
+      '@gethen/core':
         specifier: workspace:*
         version: link:../core
-      '@mentat/memory':
+      '@gethen/memory':
         specifier: workspace:*
         version: link:../memory
-      '@mentat/session':
+      '@gethen/session':
         specifier: workspace:*
         version: link:../session
 
@@ -43,13 +43,13 @@ importers:
 
   packages/benchmark-file:
     dependencies:
-      '@mentat/benchmark':
+      '@gethen/benchmark':
         specifier: workspace:*
         version: link:../benchmark
-      '@mentat/evaluation':
+      '@gethen/evaluation':
         specifier: workspace:*
         version: link:../evaluation
-      '@mentat/storage-file':
+      '@gethen/storage-file':
         specifier: workspace:*
         version: link:../storage-file
       '@modelcontextprotocol/sdk':
@@ -58,49 +58,49 @@ importers:
 
   packages/cli:
     dependencies:
-      '@mentat/assistant':
+      '@gethen/assistant':
         specifier: workspace:*
         version: link:../assistant
-      '@mentat/benchmark':
+      '@gethen/benchmark':
         specifier: workspace:*
         version: link:../benchmark
-      '@mentat/benchmark-file':
+      '@gethen/benchmark-file':
         specifier: workspace:*
         version: link:../benchmark-file
-      '@mentat/core':
+      '@gethen/core':
         specifier: workspace:*
         version: link:../core
-      '@mentat/evaluation':
+      '@gethen/evaluation':
         specifier: workspace:*
         version: link:../evaluation
-      '@mentat/evolution':
+      '@gethen/evolution':
         specifier: workspace:*
         version: link:../evolution
-      '@mentat/harnesses':
+      '@gethen/harnesses':
         specifier: workspace:*
         version: link:../harnesses
-      '@mentat/host':
+      '@gethen/host':
         specifier: workspace:*
         version: link:../host
-      '@mentat/memory':
+      '@gethen/memory':
         specifier: workspace:*
         version: link:../memory
-      '@mentat/memory-evolution':
+      '@gethen/memory-evolution':
         specifier: workspace:*
         version: link:../memory-evolution
-      '@mentat/memory-file':
+      '@gethen/memory-file':
         specifier: workspace:*
         version: link:../memory-file
-      '@mentat/observability':
+      '@gethen/observability':
         specifier: workspace:*
         version: link:../observability
-      '@mentat/session':
+      '@gethen/session':
         specifier: workspace:*
         version: link:../session
-      '@mentat/transport-pi':
+      '@gethen/transport-pi':
         specifier: workspace:*
         version: link:../transport-pi
-      '@mentat/workspace':
+      '@gethen/workspace':
         specifier: workspace:*
         version: link:../workspace
 
@@ -110,40 +110,40 @@ importers:
 
   packages/dsh:
     dependencies:
-      '@mentat/benchmark':
+      '@gethen/benchmark':
         specifier: workspace:*
         version: link:../benchmark
-      '@mentat/core':
+      '@gethen/core':
         specifier: workspace:*
         version: link:../core
-      '@mentat/domain':
+      '@gethen/domain':
         specifier: workspace:*
         version: link:../domain
-      '@mentat/effects':
+      '@gethen/effects':
         specifier: workspace:*
         version: link:../effects
-      '@mentat/evaluation':
+      '@gethen/evaluation':
         specifier: workspace:*
         version: link:../evaluation
-      '@mentat/evolve':
+      '@gethen/evolve':
         specifier: workspace:*
         version: link:../evolve
-      '@mentat/harnesses':
+      '@gethen/harnesses':
         specifier: workspace:*
         version: link:../harnesses
-      '@mentat/pack':
+      '@gethen/pack':
         specifier: workspace:*
         version: link:../pack
-      '@mentat/panel':
+      '@gethen/panel':
         specifier: workspace:*
         version: link:../panel
-      '@mentat/source-github':
+      '@gethen/source-github':
         specifier: workspace:*
         version: link:../source-github
-      '@mentat/store':
+      '@gethen/store':
         specifier: workspace:*
         version: link:../store
-      '@mentat/worker':
+      '@gethen/worker':
         specifier: workspace:*
         version: link:../worker
 
@@ -151,19 +151,19 @@ importers:
 
   packages/effects:
     dependencies:
-      '@mentat/core':
+      '@gethen/core':
         specifier: workspace:*
         version: link:../core
-      '@mentat/storage-file':
+      '@gethen/storage-file':
         specifier: workspace:*
         version: link:../storage-file
 
   packages/evaluation:
     dependencies:
-      '@mentat/core':
+      '@gethen/core':
         specifier: workspace:*
         version: link:../core
-      '@mentat/evolution':
+      '@gethen/evolution':
         specifier: workspace:*
         version: link:../evolution
       ajv:
@@ -172,70 +172,70 @@ importers:
 
   packages/evolution:
     dependencies:
-      '@mentat/core':
+      '@gethen/core':
         specifier: workspace:*
         version: link:../core
-      '@mentat/kernel':
+      '@gethen/kernel':
         specifier: workspace:*
         version: link:../kernel
 
   packages/evolve:
     dependencies:
-      '@mentat/core':
+      '@gethen/core':
         specifier: workspace:*
         version: link:../core
-      '@mentat/effects':
+      '@gethen/effects':
         specifier: workspace:*
         version: link:../effects
-      '@mentat/pack':
+      '@gethen/pack':
         specifier: workspace:*
         version: link:../pack
-      '@mentat/storage-file':
+      '@gethen/storage-file':
         specifier: workspace:*
         version: link:../storage-file
 
   packages/harnesses:
     dependencies:
-      '@mentat/core':
+      '@gethen/core':
         specifier: workspace:*
         version: link:../core
-      '@mentat/transport-acp':
+      '@gethen/transport-acp':
         specifier: workspace:*
         version: link:../transport-acp
-      '@mentat/transport-pi':
+      '@gethen/transport-pi':
         specifier: workspace:*
         version: link:../transport-pi
 
   packages/host:
     dependencies:
-      '@mentat/assistant':
+      '@gethen/assistant':
         specifier: workspace:*
         version: link:../assistant
-      '@mentat/core':
+      '@gethen/core':
         specifier: workspace:*
         version: link:../core
-      '@mentat/memory':
+      '@gethen/memory':
         specifier: workspace:*
         version: link:../memory
-      '@mentat/memory-file':
+      '@gethen/memory-file':
         specifier: workspace:*
         version: link:../memory-file
-      '@mentat/memory-mcp':
+      '@gethen/memory-mcp':
         specifier: workspace:*
         version: link:../memory-mcp
-      '@mentat/observability':
+      '@gethen/observability':
         specifier: workspace:*
         version: link:../observability
-      '@mentat/session':
+      '@gethen/session':
         specifier: workspace:*
         version: link:../session
-      '@mentat/skills-mcp':
+      '@gethen/skills-mcp':
         specifier: workspace:*
         version: link:../skills-mcp
 
   packages/kernel:
     dependencies:
-      '@mentat/core':
+      '@gethen/core':
         specifier: workspace:*
         version: link:../core
 
@@ -243,38 +243,38 @@ importers:
 
   packages/memory-evolution:
     dependencies:
-      '@mentat/core':
+      '@gethen/core':
         specifier: workspace:*
         version: link:../core
-      '@mentat/evolution':
+      '@gethen/evolution':
         specifier: workspace:*
         version: link:../evolution
-      '@mentat/memory':
+      '@gethen/memory':
         specifier: workspace:*
         version: link:../memory
     devDependencies:
-      '@mentat/kernel':
+      '@gethen/kernel':
         specifier: workspace:*
         version: link:../kernel
 
   packages/memory-file:
     dependencies:
-      '@mentat/memory':
+      '@gethen/memory':
         specifier: workspace:*
         version: link:../memory
-      '@mentat/storage-file':
+      '@gethen/storage-file':
         specifier: workspace:*
         version: link:../storage-file
 
   packages/memory-mcp:
     dependencies:
-      '@mentat/core':
+      '@gethen/core':
         specifier: workspace:*
         version: link:../core
-      '@mentat/memory':
+      '@gethen/memory':
         specifier: workspace:*
         version: link:../memory
-      '@mentat/memory-file':
+      '@gethen/memory-file':
         specifier: workspace:*
         version: link:../memory-file
       '@modelcontextprotocol/sdk':
@@ -289,44 +289,50 @@ importers:
 
   packages/models:
     dependencies:
-      '@mentat/core':
+      '@gethen/core':
         specifier: workspace:*
         version: link:../core
     devDependencies:
-      '@mentat/kernel':
+      '@gethen/kernel':
         specifier: workspace:*
         version: link:../kernel
 
   packages/observability:
     dependencies:
-      '@mentat/core':
+      '@gethen/core':
         specifier: workspace:*
         version: link:../core
-      '@mentat/evolution':
+      '@gethen/evolution':
         specifier: workspace:*
         version: link:../evolution
-      '@mentat/session':
+      '@gethen/session':
         specifier: workspace:*
         version: link:../session
-      '@mentat/storage-file':
+      '@gethen/storage-file':
         specifier: workspace:*
         version: link:../storage-file
 
   packages/pack:
     dependencies:
-      '@mentat/core':
+      '@gethen/core':
         specifier: workspace:*
         version: link:../core
 
   packages/panel:
     dependencies:
-      '@mentat/domain':
+      '@gethen/domain':
         specifier: workspace:*
         version: link:../domain
 
+  packages/router:
+    dependencies:
+      '@gethen/worker-bridge':
+        specifier: workspace:*
+        version: link:../worker-bridge
+
   packages/session:
     dependencies:
-      '@mentat/core':
+      '@gethen/core':
         specifier: workspace:*
         version: link:../core
 
@@ -334,22 +340,22 @@ importers:
 
   packages/skills-file:
     dependencies:
-      '@mentat/skills':
+      '@gethen/skills':
         specifier: workspace:*
         version: link:../skills
-      '@mentat/storage-file':
+      '@gethen/storage-file':
         specifier: workspace:*
         version: link:../storage-file
 
   packages/skills-mcp:
     dependencies:
-      '@mentat/core':
+      '@gethen/core':
         specifier: workspace:*
         version: link:../core
-      '@mentat/skills':
+      '@gethen/skills':
         specifier: workspace:*
         version: link:../skills
-      '@mentat/skills-file':
+      '@gethen/skills-file':
         specifier: workspace:*
         version: link:../skills-file
       '@modelcontextprotocol/sdk':
@@ -364,13 +370,13 @@ importers:
 
   packages/source-github:
     dependencies:
-      '@mentat/domain':
+      '@gethen/domain':
         specifier: workspace:*
         version: link:../domain
-      '@mentat/effects':
+      '@gethen/effects':
         specifier: workspace:*
         version: link:../effects
-      '@mentat/storage-file':
+      '@gethen/storage-file':
         specifier: workspace:*
         version: link:../storage-file
 
@@ -378,49 +384,51 @@ importers:
 
   packages/store:
     dependencies:
-      '@mentat/domain':
+      '@gethen/domain':
         specifier: workspace:*
         version: link:../domain
-      '@mentat/storage-file':
+      '@gethen/storage-file':
         specifier: workspace:*
         version: link:../storage-file
 
   packages/transport-acp:
     dependencies:
-      '@mentat/core':
+      '@gethen/core':
         specifier: workspace:*
         version: link:../core
 
   packages/transport-pi:
     dependencies:
-      '@mentat/core':
+      '@gethen/core':
         specifier: workspace:*
         version: link:../core
 
   packages/worker:
     dependencies:
-      '@mentat/core':
+      '@gethen/core':
         specifier: workspace:*
         version: link:../core
-      '@mentat/domain':
+      '@gethen/domain':
         specifier: workspace:*
         version: link:../domain
-      '@mentat/pack':
+      '@gethen/pack':
         specifier: workspace:*
         version: link:../pack
-      '@mentat/session':
+      '@gethen/session':
         specifier: workspace:*
         version: link:../session
 
+  packages/worker-bridge: {}
+
   packages/workspace:
     dependencies:
-      '@mentat/core':
+      '@gethen/core':
         specifier: workspace:*
         version: link:../core
-      '@mentat/evolution':
+      '@gethen/evolution':
         specifier: workspace:*
         version: link:../evolution
-      '@mentat/storage-file':
+      '@gethen/storage-file':
         specifier: workspace:*
         version: link:../storage-file
 

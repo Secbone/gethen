@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { PackChannel, type PackChannelSnapshot } from "@mentat/evolve";
-import type { CapabilityPack } from "@mentat/pack";
+import { PackChannel, type PackChannelSnapshot } from "@gethen/evolve";
+import type { CapabilityPack } from "@gethen/pack";
 
 /** Load the durable stable/canary channel, falling back to the initial pack. */
 export function loadPackChannel(path: string, fallback: CapabilityPack): PackChannel {

@@ -10,10 +10,10 @@ converge into a few large "misc" packages.
 
 ## Decision
 
-- `@mentat/core` and `@mentat/memory` have **zero workspace dependencies**.
+- `@gethen/core` and `@gethen/memory` have **zero workspace dependencies**.
 - Every other package declares a **single functional responsibility** and an
   explicit, acyclic set of allowed workspace dependencies.
-- `transport-*` depend only on `@mentat/core`.
+- `transport-*` depend only on `@gethen/core`.
 - Domain packages do not bind a concrete engine; assembly is the job of the
   wiring layer plus the CLI.
 - Cross-package imports go through public entrypoints only.

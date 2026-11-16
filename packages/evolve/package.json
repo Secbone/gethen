@@ -1,5 +1,5 @@
 {
-  "name": "@mentat/evolve",
+  "name": "@gethen/evolve",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -12,10 +12,10 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@mentat/core": "workspace:*",
-    "@mentat/effects": "workspace:*",
-    "@mentat/pack": "workspace:*",
-    "@mentat/storage-file": "workspace:*"
+    "@gethen/core": "workspace:*",
+    "@gethen/effects": "workspace:*",
+    "@gethen/pack": "workspace:*",
+    "@gethen/storage-file": "workspace:*"
   },
   "description": "Dream and pack evolution: propose, evaluate, gate and archive CapabilityPacks"
 }

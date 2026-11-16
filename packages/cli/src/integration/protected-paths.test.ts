@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createFakeAdapter } from "@mentat/core";
+import { createFakeAdapter } from "@gethen/core";
 import { afterEach, expect, it, vi } from "vitest";
 import { iterateCommand } from "../commands/iterate";
 
@@ -16,7 +16,7 @@ afterEach(() => vi.restoreAllMocks());
 
 it("the CLI default protects the relocated evolution code and rolls back its modification", async () => {
   vi.spyOn(process.stdout, "write").mockReturnValue(true);
-  const dir = mkdtempSync(join(tmpdir(), "mentat-protect-"));
+  const dir = mkdtempSync(join(tmpdir(), "gethen-protect-"));
   const repo = join(dir, "repo");
   const logs = join(dir, "logs");
   const protectedFile = "packages/evolution/src/loop.ts";

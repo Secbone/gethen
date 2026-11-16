@@ -1,5 +1,5 @@
-import { type ArtifactAdapter, createArtifact } from "@mentat/core";
-import type { Candidate } from "@mentat/evolution";
+import { type ArtifactAdapter, createArtifact } from "@gethen/core";
+import type { Candidate } from "@gethen/evolution";
 import { describe, expect, it } from "vitest";
 import { AgentDataProposer } from "./data-proposer";
 
@@ -14,7 +14,7 @@ const rowsAdapter: ArtifactAdapter<Row[]> = {
     if (!Array.isArray(raw)) throw new Error("rows must be an array");
     return raw as Row[];
   },
-  snapshot: (rows) => rows as unknown as import("@mentat/core").JsonValue,
+  snapshot: (rows) => rows as unknown as import("@gethen/core").JsonValue,
   restore: (snapshot) => rowsAdapter.parse(snapshot),
   materialize: () => ({ dispose: () => {} }),
 };

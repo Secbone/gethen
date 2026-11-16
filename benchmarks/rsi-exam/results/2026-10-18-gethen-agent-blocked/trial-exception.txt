@@ -4,7 +4,7 @@ Traceback (most recent call last):
            ^^^^^^^^^
   File "/home/secbone/.local/share/uv/tools/harbor/lib/python3.13/site-packages/harbor/agents/installed/base.py", line 1087, in setup
     await self.install(environment)
-  File "/home/secbone/Code/mentat/benchmarks/rsi-exam/mentat_agent.py", line 57, in install
+  File "/home/secbone/Code/gethen/benchmarks/rsi-exam/gethen_agent.py", line 57, in install
     await self.ensure_system_dependencies(environment, ("curl", "git", "ca_certificates"))
   File "/home/secbone/.local/share/uv/tools/harbor/lib/python3.13/site-packages/harbor/agents/installed/base.py", line 788, in ensure_system_dependencies
     await self.exec_as_root(environment, command=command, env=env)

@@ -15,19 +15,19 @@ import {
   buildReflectionBatch,
   parseEvidenceReflection,
   reflectionPrompt,
-} from "@mentat/assistant";
-import type { AgentEvent, SessionHandle } from "@mentat/core";
+} from "@gethen/assistant";
+import type { AgentEvent, SessionHandle } from "@gethen/core";
 import {
   buildTurnContext,
   createMemoryAccess,
   InMemoryMemoryStore,
   rememberFact,
-} from "@mentat/memory";
-import { FileMemoryRepository, JsonFileMemoryStore } from "@mentat/memory-file";
-import { memoryMcpSpec } from "@mentat/memory-mcp";
-import { SessionRecorder } from "@mentat/observability";
-import { runTurn } from "@mentat/session";
-import { createAcpAdapter } from "@mentat/transport-acp";
+} from "@gethen/memory";
+import { FileMemoryRepository, JsonFileMemoryStore } from "@gethen/memory-file";
+import { memoryMcpSpec } from "@gethen/memory-mcp";
+import { SessionRecorder } from "@gethen/observability";
+import { runTurn } from "@gethen/session";
+import { createAcpAdapter } from "@gethen/transport-acp";
 
 export type Arm = "A" | "B" | "C" | "C0";
 export function acpPermission(arm: Arm): Record<string, string> {
@@ -159,10 +159,10 @@ async function run(): Promise<void> {
   );
   if (scenarios.length !== requested.length) throw new Error("unknown or duplicate scenario");
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const out = resolve(arg("--out", `.mentat/experiments/personal-assistant/${stamp}`));
+  const out = resolve(arg("--out", `.gethen/experiments/personal-assistant/${stamp}`));
   mkdirSync(resolve(out, ".."), { recursive: true });
   mkdirSync(out); // Never overwrite or combine trials.
-  const runtimeRoot = mkdtempSync(join(tmpdir(), "mentat-assistant-runtime-"));
+  const runtimeRoot = mkdtempSync(join(tmpdir(), "gethen-assistant-runtime-"));
   const journal = join(out, "results.jsonl");
   const write = (file: string, value: unknown) =>
     writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`);
@@ -200,8 +200,8 @@ async function run(): Promise<void> {
       binary: process.execPath,
       baseArgs: [fileURLToPath(new URL("./acp-observer.mjs", import.meta.url))],
       env: {
-        MENTAT_OPENCODE_BIN: binary,
-        MENTAT_EXPERIMENT_METRICS: metrics,
+        GETHEN_OPENCODE_BIN: binary,
+        GETHEN_EXPERIMENT_METRICS: metrics,
         OPENCODE_CONFIG_CONTENT: JSON.stringify({
           model,
           small_model: model,

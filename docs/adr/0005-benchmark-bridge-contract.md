@@ -4,8 +4,8 @@ Status: accepted (2026-10-18).
 
 ## Context
 
-`@mentat/benchmark` already defines the pure evaluation contracts (`RunPlan`,
-`BenchmarkSubject`, `ResultAdapter`), and `@mentat/benchmark-file` ships a
+`@gethen/benchmark` already defines the pure evaluation contracts (`RunPlan`,
+`BenchmarkSubject`, `ResultAdapter`), and `@gethen/benchmark-file` ships a
 `ResultAdapterRegistry`. But bridging an *upstream* dataset (PAST-Bench,
 RSI-Exam, AgentDojo, …) was bespoke: each set's runner, environment, subject
 adapter and integration state lived only in prose. That made progress
@@ -14,7 +14,7 @@ unmeasurable and easy to overstate.
 ## Decision
 
 Add a pure `BenchmarkBridge` description + `BridgeRegistry` to
-`@mentat/benchmark` (`bridges.ts`). A bridge records:
+`@gethen/benchmark` (`bridges.ts`). A bridge records:
 
 - `id` (must match `BENCHMARK_CATALOG`), `source`, pinned `revision`;
 - `runner` (`native | harbor | upstream | benchflow`);

@@ -13,12 +13,12 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def download(dataset, filename):
-    meta = json.loads((ROOT / ".mentat/benchmark-data/metadata" / f"{dataset}.json").read_text())
+    meta = json.loads((ROOT / ".gethen/benchmark-data/metadata" / f"{dataset}.json").read_text())
     entry = next(f for f in meta["siblings"] if f["rfilename"] == filename)
     expected = entry.get("size", entry.get("lfs", {}).get("size"))
     if not isinstance(expected, int):
         raise ValueError("unknown upstream asset size")
-    path = ROOT / ".mentat/benchmark-data" / dataset / filename
+    path = ROOT / ".gethen/benchmark-data" / dataset / filename
     if ".." in Path(filename).parts or Path(filename).is_absolute():
         raise ValueError("invalid asset path")
     repo = meta.get("id") or meta.get("_id")
@@ -86,7 +86,7 @@ if __name__ == "__main__":
     files=sorted(set(files))
     if not files:
         raise ValueError("no assets selected")
-    meta=json.loads((ROOT/".mentat/benchmark-data/metadata"/f"{args.dataset}.json").read_text())
+    meta=json.loads((ROOT/".gethen/benchmark-data/metadata"/f"{args.dataset}.json").read_text())
     known={f["rfilename"]:f.get("size",f.get("lfs",{}).get("size")) for f in meta["siblings"]}
     if any(not isinstance(known.get(name),int) for name in files):
         raise ValueError("selected asset lacks pinned byte size")

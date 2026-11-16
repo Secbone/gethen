@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { appendFileSync } from "node:fs";
 
 // Transparent stdio relay: only records model/session/usage metadata for this trial.
-const child = spawn(process.env.MENTAT_OPENCODE_BIN ?? "opencode", ["acp"], {
+const child = spawn(process.env.GETHEN_OPENCODE_BIN ?? "opencode", ["acp"], {
   cwd: process.cwd(),
   env: process.env,
   stdio: ["pipe", "pipe", "pipe"],
@@ -14,7 +14,7 @@ child.stderr.on("data", (chunk) => {
   log({ type: "startupDiagnostic", text: chunk.toString() });
 });
 let buffer = "";
-const file = process.env.MENTAT_EXPERIMENT_METRICS;
+const file = process.env.GETHEN_EXPERIMENT_METRICS;
 const log = (value) => {
   if (file) appendFileSync(file, `${JSON.stringify(value)}\n`);
 };

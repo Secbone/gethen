@@ -13,8 +13,8 @@ import type {
   Thread,
   Ticket,
   Trigger,
-} from "@mentat/domain";
-import { atomicJson, withFileLock } from "@mentat/storage-file";
+} from "@gethen/domain";
+import { atomicJson, withFileLock } from "@gethen/storage-file";
 
 interface State {
   triggers: Trigger[];

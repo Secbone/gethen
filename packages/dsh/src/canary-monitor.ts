@@ -1,4 +1,4 @@
-import type { PackChannel } from "@mentat/evolve";
+import type { PackChannel } from "@gethen/evolve";
 import type { ReceiptStore, RuntimeReceipt } from "./runtime";
 
 export interface CanaryPolicy {

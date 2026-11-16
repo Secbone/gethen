@@ -1,14 +1,14 @@
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createFakeAdapter } from "@mentat/core";
-import { createAssistantHost } from "@mentat/host";
-import { FileMemoryRepository } from "@mentat/memory-file";
-import { ExperienceStore } from "@mentat/observability";
+import { createFakeAdapter } from "@gethen/core";
+import { createAssistantHost } from "@gethen/host";
+import { FileMemoryRepository } from "@gethen/memory-file";
+import { ExperienceStore } from "@gethen/observability";
 import { expect, it } from "vitest";
 
 it("marks the absence of matching evidence so the model abstains instead of guessing", async () => {
-  const root = mkdtempSync(join(tmpdir(), "mentat-history-none-"));
+  const root = mkdtempSync(join(tmpdir(), "gethen-history-none-"));
   const host = createAssistantHost({
     cwd: root,
     adapter: createFakeAdapter(),
@@ -38,7 +38,7 @@ it("marks the absence of matching evidence so the model abstains instead of gues
 });
 
 it("imports history idempotently, persists reference retrieval and never confirms inferred rules", async () => {
-  const root = mkdtempSync(join(tmpdir(), "mentat-history-"));
+  const root = mkdtempSync(join(tmpdir(), "gethen-history-"));
   const memoryPath = join(root, "memory.json"),
     experienceDir = join(root, "experience");
   const host = createAssistantHost({

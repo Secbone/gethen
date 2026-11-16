@@ -1,4 +1,4 @@
-import type { JsonValue } from "@mentat/core";
+import type { JsonValue } from "@gethen/core";
 import { expect, it } from "vitest";
 import { auditAcpCapture } from "./capture-audit";
 

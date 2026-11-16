@@ -12,6 +12,7 @@
       "!node_modules",
       "!dist",
       "!coverage",
+      "!.gethen",
       "!.mentat",
       "!docs/research/2026-10-21-product-attribute-workers/evidence",
       "!tsconfig.paths.json",

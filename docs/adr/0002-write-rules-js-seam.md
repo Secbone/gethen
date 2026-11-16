@@ -4,16 +4,16 @@ Status: accepted (2026-10-18).
 
 ## Context
 
-`@mentat/memory/src/write-rules.mjs` (+ `write-rules.d.mts`) holds the shared,
+`@gethen/memory/src/write-rules.mjs` (+ `write-rules.d.mts`) holds the shared,
 dependency-free write rules (`normalizeKey`, `deriveId`, `decideWrite`,
 `isRetrievable`). It is imported both by TypeScript (`service.ts`, `store.ts`,
 `access.ts`, `index.ts`) and by a plain `.mjs` module:
-`@mentat/memory-file/src/transaction.mjs` imports `@mentat/memory/write-rules`.
+`@gethen/memory-file/src/transaction.mjs` imports `@gethen/memory/write-rules`.
 
 ## Decision
 
 Keep the rules in `.mjs` with an adjacent hand-written `.d.mts`. The `.mjs`
-extension is the public subpath (`@mentat/memory/write-rules`), so both the TS
+extension is the public subpath (`@gethen/memory/write-rules`), so both the TS
 build and the raw `.mjs` consumer resolve the same file without a build step.
 
 ## Alternatives considered

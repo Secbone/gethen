@@ -1,4 +1,4 @@
-"""PAST task/anchor diagnostic with native Mentat memory and upstream graders.
+"""PAST task/anchor diagnostic with native Gethen memory and upstream graders.
 
 This is an adapted protocol, not PAST's Hermes persistence implementation or a
 claim of recursive self-improvement. Labels and fixtures remain controller-side.
@@ -24,7 +24,7 @@ from collections import Counter
 from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parents[2]
-UPSTREAM = ROOT / ".mentat/upstream/past-bench"
+UPSTREAM = ROOT / ".gethen/upstream/past-bench"
 sys.path.insert(0, str(UPSTREAM / "src"))
 
 import httpx
@@ -152,7 +152,7 @@ def run_episode(task, episode, arm, state, out, timeout, port_offset):
     trace = out / "upstream-trace.jsonl"
     response = None
     started = time.monotonic()
-    with tempfile.TemporaryDirectory(prefix="mentat-past-") as socket_dir, TraceWriter(trace) as writer:
+    with tempfile.TemporaryDirectory(prefix="gethen-past-") as socket_dir, TraceWriter(trace) as writer:
         writer.write_event(TraceStart(trace_id=trace_id, task_id=task.task_id, model=MODEL))
         writer.write_event(TraceMessage(trace_id=trace_id, message=Message(role="user", content=[TextBlock(text=task.prompt.text)])))
         token = uuid.uuid4().hex

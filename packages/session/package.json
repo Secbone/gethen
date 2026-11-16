@@ -1,5 +1,5 @@
 {
-  "name": "@mentat/session",
+  "name": "@gethen/session",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -12,6 +12,6 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@mentat/core": "workspace:*"
+    "@gethen/core": "workspace:*"
   }
 }

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { AgentEvent, AgentEventListener, SessionHandle } from "@mentat/core";
+import type { AgentEvent, AgentEventListener, SessionHandle } from "@gethen/core";
 import { acpPermission, lexicalDiagnostic, parentCheckpoint, sendTurn, taskInput } from "./runner";
 
 test("MCP gateway stays discoverable while unrelated built-in actions are denied", () => {

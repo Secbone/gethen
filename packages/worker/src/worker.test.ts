@@ -1,6 +1,6 @@
-import type { AgentEvent, AgentEventListener, HarnessAdapter, SessionHandle } from "@mentat/core";
-import { defineCapabilityPack } from "@mentat/pack";
-import type { TurnResult } from "@mentat/session";
+import type { AgentEvent, AgentEventListener, HarnessAdapter, SessionHandle } from "@gethen/core";
+import { defineCapabilityPack } from "@gethen/pack";
+import type { TurnResult } from "@gethen/session";
 import { describe, expect, it } from "vitest";
 import type { WorkerTask } from "./contract";
 import { FakeWorker } from "./fake";

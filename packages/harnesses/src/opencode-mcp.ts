@@ -2,10 +2,10 @@ import { randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { McpServerSpec } from "@mentat/core";
-import type { McpCatalogReadiness } from "@mentat/transport-acp";
+import type { McpServerSpec } from "@gethen/core";
+import type { McpCatalogReadiness } from "@gethen/transport-acp";
 
-/** Explicit process metadata for servers implementing Mentat's catalog receipt contract. */
+/** Explicit process metadata for servers implementing Gethen's catalog receipt contract. */
 export type CatalogServer = McpServerSpec & { catalogTools?: string[] };
 
 /** OpenCode's ACP stdio-server format does not retain codemode:false. Configure
@@ -14,7 +14,7 @@ export type CatalogServer = McpServerSpec & { catalogTools?: string[] };
  */
 export function prepareOpenCodeMcp(servers: CatalogServer[]) {
   const root = servers.some((s) => s.catalogTools?.length)
-    ? mkdtempSync(join(tmpdir(), "mentat-catalog-"))
+    ? mkdtempSync(join(tmpdir(), "gethen-catalog-"))
     : undefined;
   const catalog: McpCatalogReadiness[] = [];
   const configured: Record<
@@ -32,8 +32,8 @@ export function prepareOpenCodeMcp(servers: CatalogServer[]) {
           throw new Error("invalid MCP readiness tool name");
         const receiptPath = join(root, `${index}.jsonl`),
           token = randomUUID();
-        environment.MENTAT_MCP_READY_FILE = receiptPath;
-        environment.MENTAT_MCP_READY_TOKEN = token;
+        environment.GETHEN_MCP_READY_FILE = receiptPath;
+        environment.GETHEN_MCP_READY_TOKEN = token;
         catalog.push({ receiptPath, token, tools: [...server.catalogTools] });
       }
       configured[server.name] = {

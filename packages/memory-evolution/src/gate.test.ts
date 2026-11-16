@@ -1,6 +1,6 @@
-import type { Artifact } from "@mentat/core";
-import type { Candidate } from "@mentat/evolution";
-import type { MemoryEntry } from "@mentat/memory";
+import type { Artifact } from "@gethen/core";
+import type { Candidate } from "@gethen/evolution";
+import type { MemoryEntry } from "@gethen/memory";
 import { describe, expect, it } from "vitest";
 import { memoryArtifact } from "./artifact";
 import { memoryGate } from "./gate";

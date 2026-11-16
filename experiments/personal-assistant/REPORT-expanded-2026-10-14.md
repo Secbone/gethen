@@ -20,17 +20,17 @@
 原生会话计费合计 **$0.225603906，约$0.226**，不是账单实付。主实验$0.205985544，诊断$0.019618362。保存了答案、修订、反思候选、注入上下文、前后记忆、模型核对和成本记录。
 
 - [结构化分析](results/expanded-analysis-2026-10-14.json)：数量检查、逐条问题证据、重复条目和压力结果。
-- [主实验原始记录](../../.mentat/experiments/personal-assistant/expanded-1791963400008/summary.json)、[原生计费](../../.mentat/experiments/personal-assistant/expanded-1791963400008/accounting.json)。
-- [补充诊断](../../.mentat/experiments/personal-assistant/expanded-diagnostics-1791964672144/summary.json)、[实际模型核对](../../.mentat/experiments/personal-assistant/expanded-diagnostics-1791964672144/verification.json)。
+- [主实验原始记录](../../.gethen/experiments/personal-assistant/expanded-1791963400008/summary.json)、[原生计费](../../.gethen/experiments/personal-assistant/expanded-1791963400008/accounting.json)。
+- [补充诊断](../../.gethen/experiments/personal-assistant/expanded-diagnostics-1791964672144/summary.json)、[实际模型核对](../../.gethen/experiments/personal-assistant/expanded-diagnostics-1791964672144/verification.json)。
 - [新变式材料](expanded-cases.json)、[执行器](expanded-runner.ts)、[诊断执行器](expanded-diagnostics.ts)。
 
 ## 观察到的有效迁移
 
 教师的“学生先实例、教师交流先框架”能随受众切换。在教师交流变式里，有记忆两次均先框架，无记忆两次均先实例。家长A/B的信息没有混用，但其中一次有记忆答案出现分数大小错误，见下文。
 
-电商排程变式不再重复提供09:30截止时间。有记忆两次都主动恢复本周规则，先完成常规快递交接；无记忆两次都需要询问截止时间。这是记忆减少重复澄清的明确例子，不只是格式更像用户。[有记忆示例](../../.mentat/experiments/personal-assistant/expanded-1791963400008/retail-cutoff-transfer-learned-1.json)
+电商排程变式不再重复提供09:30截止时间。有记忆两次都主动恢复本周规则，先完成常规快递交接；无记忆两次都需要询问截止时间。这是记忆减少重复澄清的明确例子，不只是格式更像用户。[有记忆示例](../../.gethen/experiments/personal-assistant/expanded-1791963400008/retail-cutoff-transfer-learned-1.json)
 
-设计师在老客户变式中两次均给一个方向，在“上次临时给三个、本次是新客户”变式中两次均恢复两个方向。财务能按用途切换“管理层万元1位/明细元2位”，但一个舍入变式最后又写成11.96万元，说明偏好遵循仍需检查最终摘要。[设计师恢复示例](../../.mentat/experiments/personal-assistant/expanded-1791963400008/designer-new-after-exception-learned-1.json)
+设计师在老客户变式中两次均给一个方向，在“上次临时给三个、本次是新客户”变式中两次均恢复两个方向。财务能按用途切换“管理层万元1位/明细元2位”，但一个舍入变式最后又写成11.96万元，说明偏好遵循仍需检查最终摘要。[设计师恢复示例](../../.gethen/experiments/personal-assistant/expanded-1791963400008/designer-new-after-exception-learned-1.json)
 
 相反偏好诊断的8个回答都呈现了对应的顺序、单位、篇幅或方案数；客服正文分别43字与113字，包含标点。这证明当前输出会响应注入画像，但这些画像是人工给定的，不能作为自动学习成功率；其中教师和财务答案仍有事实错误。混合币种/月份的4个变式回答均正确分组，不能把模型已有的数据处理能力全部归功于记忆。
 
@@ -38,9 +38,9 @@
 
 ### 1. 草稿把缺少证据的行动和推断写成事实
 
-供应商缺货任务只提供“订购40、实到34、破损2”。模型算对缺货6、可售32，却写“破损件已单独留存并拍照（照片见附件）”，还列出并不存在的附件。末尾说明“只依据现有材料”不能修复正文的虚构。[电商09原始回答](../../.mentat/experiments/personal-assistant/expanded-1791963400008/retail-learned-09.json)
+供应商缺货任务只提供“订购40、实到34、破损2”。模型算对缺货6、可售32，却写“破损件已单独留存并拍照（照片见附件）”，还列出并不存在的附件。末尾说明“只依据现有材料”不能修复正文的虚构。[电商09原始回答](../../.gethen/experiments/personal-assistant/expanded-1791963400008/retail-learned-09.json)
 
-财务任务只明确设备维护4万元为一次性，模型把招聘增加2万元也归为一次性，继而断言经常性费用没有超预算。教师把错误原因推测写进家长反馈，设计师把“合作两年”扩展成已知品牌调性与现有视觉模板。这些跨职业现象共同指向事实状态丢失：已提供、推测、建议执行和已经执行混在一起。[财务03](../../.mentat/experiments/personal-assistant/expanded-1791963400008/finance-learned-03.json)
+财务任务只明确设备维护4万元为一次性，模型把招聘增加2万元也归为一次性，继而断言经常性费用没有超预算。教师把错误原因推测写进家长反馈，设计师把“合作两年”扩展成已知品牌调性与现有视觉模板。这些跨职业现象共同指向事实状态丢失：已提供、推测、建议执行和已经执行混在一起。[财务03](../../.gethen/experiments/personal-assistant/expanded-1791963400008/finance-learned-03.json)
 
 财务06还把“下周预计支付2万元”当成新增未发生费用，与已发生33万元相加；但支付时间不能单独证明费用尚未发生，可能重复计入，应先核对两者关系。现金流与利润中的应计/递延项目本就需要区分，参见 [IFRS IAS 7 官方说明](https://www.ifrs.org/issued-standards/list-of-standards/ias-7-statement-of-cash-flows.html/)。这是合成任务的口径诊断，不是对真实企业财务的结论。
 
@@ -48,7 +48,7 @@
 
 电商09反思保存了 `mem-14juuc5`：客服偏好包含“提供等待/全额退款选项”。用户纠正只要求短、共情、不要编造物流或未确认日期；退款选项来自助手先前草稿，用户没有确认它为默认处理方式。候选引用的是包含用户与助手内容的交互记录，ID存在，仍无法证明这句话得到用户认可。
 
-同轮还把促销贡献毛利规则扩展到延误补偿，把用户“这次供应商说明要详细”扩成长期供应商文案规则。后者目前是未经确认的泛化风险，并未观察到下一次供应商任务的实际失败。后续客户变式再次提出“随时可以全额退款”，材料没有给出退款授权或政策。提供选项本身不等于替客户选择退款，问题是默认流程与办理能力缺少确认。[反思候选和后续客户回答](../../.mentat/experiments/personal-assistant/expanded-1791963400008/retail-customer-after-supplier-learned-2.json)
+同轮还把促销贡献毛利规则扩展到延误补偿，把用户“这次供应商说明要详细”扩成长期供应商文案规则。后者目前是未经确认的泛化风险，并未观察到下一次供应商任务的实际失败。后续客户变式再次提出“随时可以全额退款”，材料没有给出退款授权或政策。提供选项本身不等于替客户选择退款，问题是默认流程与办理能力缺少确认。[反思候选和后续客户回答](../../.gethen/experiments/personal-assistant/expanded-1791963400008/retail-customer-after-supplier-learned-2.json)
 
 应把来源定位到说话者和具体消息/片段，并区分用户确认、助手建议、第三方意见与推测；经验可以保留为建议，但不能无标记地升级成用户规则。
 
@@ -69,7 +69,7 @@
 
 家庭场景的9条小库、加入80条无关偏好的89条库、人工调整标签控制，初始上下文都保留11点回家规则，各两次回答都遵守了规则。不能据此声称“记忆一增长就失败”。
 
-另造一个边界：把80条无关记录标成同优先级约束并排在硬规则前。6000字符预算保留5997字符、遗漏72条，11点规则仍在存储，却不在初始注入中。两次回答，一次通过 `memory_search` 找回并正确改期，另一次认为“唯一固定约束是09:00出门”，接受11:35结束。原生记录确认成功那次工具结果确实含目标ID；失败那次没有原生工具调用记录。[预算选择](../../.mentat/experiments/personal-assistant/expanded-1791963400008/pressure-selection.json)、[实际恢复调用](../../.mentat/experiments/personal-assistant/expanded-diagnostics-1791964672144/native-retrieval-check.json)、[失败回答](../../.mentat/experiments/personal-assistant/expanded-diagnostics-1791964672144/pressure-saturated-2.json)
+另造一个边界：把80条无关记录标成同优先级约束并排在硬规则前。6000字符预算保留5997字符、遗漏72条，11点规则仍在存储，却不在初始注入中。两次回答，一次通过 `memory_search` 找回并正确改期，另一次认为“唯一固定约束是09:00出门”，接受11:35结束。原生记录确认成功那次工具结果确实含目标ID；失败那次没有原生工具调用记录。[预算选择](../../.gethen/experiments/personal-assistant/expanded-1791963400008/pressure-selection.json)、[实际恢复调用](../../.gethen/experiments/personal-assistant/expanded-diagnostics-1791964672144/native-retrieval-check.json)、[失败回答](../../.gethen/experiments/personal-assistant/expanded-diagnostics-1791964672144/pressure-saturated-2.json)
 
 这属于人工构造的拥挤/标签误分类压力，并不是4个职业自然使用10次已发生的规模问题。它证明当前机制缺少硬约束保障：警告后继续交给模型补查，结果不稳定。
 

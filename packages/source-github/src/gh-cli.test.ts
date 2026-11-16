@@ -11,7 +11,7 @@ const repoEvents = [
       issue: {
         number: 12,
         title: "Bug",
-        body: "please fix @mentat",
+        body: "please fix @gethen",
         html_url: "https://github.com/acme/app/issues/12",
       },
     },

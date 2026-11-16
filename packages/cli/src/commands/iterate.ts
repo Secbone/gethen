@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { JsonValue, PermissionMode } from "@mentat/core";
-import { CheckEvaluator, commandGate, JsonCommandEvaluator, runCommand } from "@mentat/evaluation";
+import type { JsonValue, PermissionMode } from "@gethen/core";
+import { CheckEvaluator, commandGate, JsonCommandEvaluator, runCommand } from "@gethen/evaluation";
 import {
   AgentProposer,
   defineEvalProtocol,
@@ -10,15 +10,15 @@ import {
   pathGuardGate,
   SelfIterationLoop,
   type SessionRunner,
-} from "@mentat/evolution";
+} from "@gethen/evolution";
 import {
   buildExperienceDigest,
   ExperienceStore,
   FileTrajectoryStore,
   ReceiptStore,
-} from "@mentat/observability";
-import { runOnce } from "@mentat/session";
-import { GitWorkspace } from "@mentat/workspace";
+} from "@gethen/observability";
+import { runOnce } from "@gethen/session";
+import { GitWorkspace } from "@gethen/workspace";
 import { defaultExperienceDir } from "../lib/paths";
 import { createPermissionHandler, parsePermissionMode } from "../lib/permission";
 import { createDefaultRegistry } from "../lib/registry";
@@ -109,7 +109,7 @@ export async function iterateCommand(args: string[]): Promise<number> {
     const runId = `${new Date().toISOString().replace(/[:.]/g, "-")}-${Math.random()
       .toString(36)
       .slice(2, 8)}`;
-    const runDir = logDir ? join(logDir, runId) : join(process.cwd(), ".mentat", "runs", runId);
+    const runDir = logDir ? join(logDir, runId) : join(process.cwd(), ".gethen", "runs", runId);
     mkdirSync(runDir, { recursive: true });
     const tracer = new FileTrajectoryStore(
       runDir,

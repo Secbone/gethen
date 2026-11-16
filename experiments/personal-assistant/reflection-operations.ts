@@ -4,15 +4,15 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createAssistantHost } from "@mentat/host";
-import { inspectTrajectory, readTrajectory, resolveEventData } from "@mentat/observability";
-import type { ExperienceRecord } from "@mentat/session";
-import { createAcpAdapter } from "@mentat/transport-acp";
+import { createAssistantHost } from "@gethen/host";
+import { inspectTrajectory, readTrajectory, resolveEventData } from "@gethen/observability";
+import type { ExperienceRecord } from "@gethen/session";
+import { createAcpAdapter } from "@gethen/transport-acp";
 
 const arg = (name: string) =>
   process.argv.find((value) => value.startsWith(`${name}=`))?.slice(name.length + 1);
-const source = resolve(arg("--source") ?? ".mentat/experiments/multiturn-scope-merge-20261015");
-const out = resolve(arg("--out") ?? `.mentat/experiments/reflection-operations-${Date.now()}`);
+const source = resolve(arg("--source") ?? ".gethen/experiments/multiturn-scope-merge-20261015");
+const out = resolve(arg("--out") ?? `.gethen/experiments/reflection-operations-${Date.now()}`);
 if (existsSync(out)) throw Error("use a new output directory");
 const sourceText = readFileSync(join(source, "results.jsonl"), "utf8");
 const rows = sourceText
@@ -31,7 +31,7 @@ if (
 mkdirSync(out, { recursive: true });
 const write = (name: string, data: unknown) =>
   writeFileSync(join(out, name), `${JSON.stringify(data, null, 2)}\n`);
-const model = process.env.MENTAT_SMOKE_MODEL ?? "opencode-go/deepseek-v4.1-flash";
+const model = process.env.GETHEN_SMOKE_MODEL ?? "opencode-go/deepseek-v4.1-flash";
 write("manifest.json", {
   model,
   source,

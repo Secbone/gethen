@@ -7,13 +7,13 @@ import {
   ASSISTANT_PROMPT_VERSION,
   assistantPromptOptions,
   reflectMemories,
-} from "@mentat/assistant";
-import type { AgentEvent, HarnessAdapter, SessionHandle } from "@mentat/core";
-import { buildTurnContext, type MemoryEntry } from "@mentat/memory";
-import { JsonFileMemoryStore } from "@mentat/memory-file";
-import { memoryMcpSpec } from "@mentat/memory-mcp";
-import { type ExperienceRecord, SessionRecorder } from "@mentat/observability";
-import { createAcpAdapter } from "@mentat/transport-acp";
+} from "@gethen/assistant";
+import type { AgentEvent, HarnessAdapter, SessionHandle } from "@gethen/core";
+import { buildTurnContext, type MemoryEntry } from "@gethen/memory";
+import { JsonFileMemoryStore } from "@gethen/memory-file";
+import { memoryMcpSpec } from "@gethen/memory-mcp";
+import { type ExperienceRecord, SessionRecorder } from "@gethen/observability";
+import { createAcpAdapter } from "@gethen/transport-acp";
 import { saveReflections, taskContext } from "./memory";
 import { acpPermission, parentCheckpoint, sendTurn, taskInput } from "./runner";
 
@@ -50,7 +50,7 @@ if (process.argv.includes("--diagnostics-only")) {
   process.exit(0);
 }
 
-const base = resolve(".mentat/experiments/personal-assistant");
+const base = resolve(".gethen/experiments/personal-assistant");
 const out = join(base, `expanded-${Date.now()}`);
 mkdirSync(out);
 const datasetText = readFileSync(resolve("experiments/personal-assistant/cases.json"), "utf8");
@@ -108,8 +108,8 @@ function adapterFor(cwd: string, metrics: string, reflector = false): HarnessAda
     binary: process.execPath,
     baseArgs: [fileURLToPath(new URL("./acp-observer.mjs", import.meta.url))],
     env: {
-      MENTAT_OPENCODE_BIN: "/opt/homebrew/bin/opencode",
-      MENTAT_EXPERIMENT_METRICS: metrics,
+      GETHEN_OPENCODE_BIN: "/opt/homebrew/bin/opencode",
+      GETHEN_EXPERIMENT_METRICS: metrics,
       OPENCODE_CONFIG_CONTENT: JSON.stringify({
         model,
         small_model: model,
@@ -184,7 +184,7 @@ async function runCase(
   inherited: State,
   options: { kind: string; arm: string; reflect?: boolean; repetition?: number },
 ) {
-  const cwd = mkdtempSync(join(tmpdir(), "mentat-expanded-"));
+  const cwd = mkdtempSync(join(tmpdir(), "gethen-expanded-"));
   const memoryPath = join(cwd, "memory.json");
   write(memoryPath, inherited.memory);
   const metrics = join(out, `${id}.usage.jsonl`);

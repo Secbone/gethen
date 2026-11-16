@@ -1,3 +1,3 @@
-export { createPiAdapter, type PiAdapterOptions } from "@mentat/transport-pi";
+export { createPiAdapter, type PiAdapterOptions } from "@gethen/transport-pi";
 export * from "./opencode";
 export * from "./registry";

@@ -1,5 +1,5 @@
-import type { Candidate } from "@mentat/evolution";
-import { FunctionEvaluator, InMemoryWorkspace, SelfIterationLoop } from "@mentat/evolution";
+import type { Candidate } from "@gethen/evolution";
+import { FunctionEvaluator, InMemoryWorkspace, SelfIterationLoop } from "@gethen/evolution";
 import { describe, expect, it } from "vitest";
 import { memoryArtifact, memoryArtifactRegistry, memoryEntries } from "./artifact";
 import { memoryEntry, type RecallQuery, recallTask } from "./evolution";

@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { BenchmarkSubject, EpisodeInput, SubjectFactory } from "@mentat/benchmark";
-import type { CapabilityPack } from "@mentat/pack";
-import type { WorkerAdapter, WorkerEvent } from "@mentat/worker";
+import type { BenchmarkSubject, EpisodeInput, SubjectFactory } from "@gethen/benchmark";
+import type { CapabilityPack } from "@gethen/pack";
+import type { WorkerAdapter, WorkerEvent } from "@gethen/worker";
 
 export interface WorkerSubjectOptions {
   worker: WorkerAdapter;

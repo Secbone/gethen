@@ -1,12 +1,12 @@
 window.__ModuleLoader__.load({
-  id: "@mentat/dsh-client",
+  id: "@gethen/dsh-client",
   factory: (require) => {
     const module = { exports: {} };
     const exports = module.exports;
     const React = require("react");
 
     const EN = {
-      nav: "Mentat",
+      nav: "Gethen",
       refresh: "Refresh",
       poll: "Poll source",
       needs: "Needs a person",
@@ -27,13 +27,13 @@ window.__ModuleLoader__.load({
       emptyAssignments: "No Assignments.",
       emptyEvolution: "No evolution candidates.",
       loading: "Loading…",
-      unavailable: "Mentat unavailable: {error}",
+      unavailable: "Gethen unavailable: {error}",
       counts: "needs person {needs} · open {open} · tickets {tickets}",
       noPack: "no pack",
     };
 
     const ZH = {
-      nav: "Mentat",
+      nav: "Gethen",
       refresh: "刷新",
       poll: "轮询来源",
       needs: "需要人处理",
@@ -54,7 +54,7 @@ window.__ModuleLoader__.load({
       emptyAssignments: "没有执行任务。",
       emptyEvolution: "没有进化候选。",
       loading: "加载中…",
-      unavailable: "Mentat 不可用：{error}",
+      unavailable: "Gethen 不可用：{error}",
       counts: "需要人 {needs} · 进行中 {open} · 工单 {tickets}",
       noPack: "无能力包",
     };
@@ -98,12 +98,12 @@ window.__ModuleLoader__.load({
       return text;
     }
 
-    function MentatSection({ t }) {
+    function GethenSection({ t }) {
       const [state, setState] = React.useState({ loading: true });
 
       const load = React.useCallback(async () => {
         try {
-          const response = await fetch("/mentat/overview");
+          const response = await fetch("/gethen/overview");
           if (!response.ok) throw new Error("HTTP " + response.status);
           const overview = await response.json();
           setState({ loading: false, overview });
@@ -118,7 +118,7 @@ window.__ModuleLoader__.load({
 
       const poll = React.useCallback(async () => {
         try {
-          await fetch("/mentat/poll", { method: "POST" });
+          await fetch("/gethen/poll", { method: "POST" });
           await load();
         } catch (error) {
           setState({ loading: false, error: String(error) });
@@ -253,19 +253,19 @@ window.__ModuleLoader__.load({
     }
 
     function apply(ctx) {
-      ctx.effect(() => ctx.locale.register("mentat", { en: EN, zh: ZH }), "mentat: dictionaries");
-      const t = ctx.locale.bind("mentat");
+      ctx.effect(() => ctx.locale.register("gethen", { en: EN, zh: ZH }), "gethen: dictionaries");
+      const t = ctx.locale.bind("gethen");
       ctx.slots.inject("settings.section", () =>
         ctx.slots.register(
           {
             name: "settings.section",
-            id: "mentat",
+            id: "gethen",
             order: 80,
             label: () => t("nav"),
-            locale: "mentat",
+            locale: "gethen",
             inject: () => ({ t }),
           },
-          MentatSection,
+          GethenSection,
         ),
       );
     }

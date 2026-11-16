@@ -6,7 +6,7 @@ import {
   recallAttribution,
   resolveEventData,
   summarizeTrajectory,
-} from "@mentat/observability";
+} from "@gethen/observability";
 import { latestRunDir } from "../lib/paths";
 
 function option(args: string[], name: string) {
@@ -33,7 +33,7 @@ export async function traceCommand(args: string[]): Promise<number> {
       throw new Error("score must be 0..1");
     const events = readTrajectory(dir);
     if (!events.some((event) => event.turnId === turnId)) throw new Error("unknown turn");
-    const { redact } = await import("@mentat/observability");
+    const { redact } = await import("@gethen/observability");
     appendFileSync(
       join(dir, "feedback.jsonl"),
       `${JSON.stringify(redact({ schemaVersion: 1, traceId: events[0]?.traceId, turnId, ts: Date.now(), source: "user", score, correction }))}\n`,

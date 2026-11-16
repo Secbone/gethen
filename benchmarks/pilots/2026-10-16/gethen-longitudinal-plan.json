@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "benchmark": {
-    "id": "mentat-longitudinal",
+    "id": "gethen-longitudinal",
     "version": "pilot-1",
     "track": "adapted"
   },
@@ -9,7 +9,7 @@
     "revision": "frozen-1",
     "sha256": "fd7dc6179e52bd7c204470cefab5c060f972173968a4988d9baa167e99494701",
     "split": "pilot",
-    "source": "benchmarks/pilots/2026-10-16/mentat-longitudinal-episodes.json"
+    "source": "benchmarks/pilots/2026-10-16/gethen-longitudinal-episodes.json"
   },
   "scorer": {
     "id": "native-structured-rules",
@@ -49,7 +49,7 @@
     "turnTimeoutMs": 90000
   },
   "subject": {
-    "id": "mentat",
+    "id": "gethen",
     "revision": "fixture-1",
     "codeSha256": "0000000000000000000000000000000000000000000000000000000000000000",
     "harness": "acp",

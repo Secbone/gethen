@@ -1,4 +1,4 @@
-import type { JsonValue, Tracer } from "@mentat/core";
+import type { JsonValue, Tracer } from "@gethen/core";
 
 export interface TraceContext {
   traceId: string;

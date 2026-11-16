@@ -2,17 +2,17 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { assistantPromptOptions, reflectMemories } from "@mentat/assistant";
-import { ExperienceStore, SessionRecorder } from "@mentat/observability";
-import { createAcpAdapter } from "@mentat/transport-acp";
+import { assistantPromptOptions, reflectMemories } from "@gethen/assistant";
+import { ExperienceStore, SessionRecorder } from "@gethen/observability";
+import { createAcpAdapter } from "@gethen/transport-acp";
 import { saveReflections, taskContext } from "./memory";
 
 // Two model calls: one frozen held-out constraint probe, one reflection replay.
 // This is a smoke check, not a new benchmark score. Historical trial files stay intact.
-const root = resolve(".mentat/experiments/personal-assistant");
+const root = resolve(".gethen/experiments/personal-assistant");
 const out = join(root, `context-smoke-${Date.now()}`);
 mkdirSync(out);
-const cwd = mkdtempSync(join(tmpdir(), "mentat-context-smoke-"));
+const cwd = mkdtempSync(join(tmpdir(), "gethen-context-smoke-"));
 const memory = join(out, "memory.json");
 const seed = JSON.parse(readFileSync(join(root, "household-day07-memory.json"), "utf8"));
 writeFileSync(memory, JSON.stringify(seed));
@@ -21,8 +21,8 @@ const adapter = createAcpAdapter({
   binary: process.execPath,
   baseArgs: [fileURLToPath(new URL("./acp-observer.mjs", import.meta.url))],
   env: {
-    MENTAT_OPENCODE_BIN: "/opt/homebrew/bin/opencode",
-    MENTAT_EXPERIMENT_METRICS: join(out, "native.jsonl"),
+    GETHEN_OPENCODE_BIN: "/opt/homebrew/bin/opencode",
+    GETHEN_EXPERIMENT_METRICS: join(out, "native.jsonl"),
     OPENCODE_CONFIG_CONTENT: JSON.stringify({
       model,
       small_model: model,

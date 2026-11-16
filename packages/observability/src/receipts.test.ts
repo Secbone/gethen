@@ -1,7 +1,7 @@
 import { appendFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { IterationReceipt } from "@mentat/evolution";
+import type { IterationReceipt } from "@gethen/evolution";
 import { describe, expect, it } from "vitest";
 import { ReceiptStore } from "./receipts";
 
@@ -21,7 +21,7 @@ const receipt: IterationReceipt = {
 
 describe("ReceiptStore", () => {
   it("appends and reads receipts in order", () => {
-    const store = new ReceiptStore(mkdtempSync(join(tmpdir(), "mentat-receipts-")));
+    const store = new ReceiptStore(mkdtempSync(join(tmpdir(), "gethen-receipts-")));
     store.append(receipt);
     store.append({ ...receipt, iteration: 2, accepted: false, outcome: "invalid" });
     expect(store.read().map((item) => item.iteration)).toEqual([1, 2]);
@@ -29,7 +29,7 @@ describe("ReceiptStore", () => {
   });
 
   it("reports the line of a corrupt receipt instead of silently skipping it", () => {
-    const store = new ReceiptStore(mkdtempSync(join(tmpdir(), "mentat-receipts-")));
+    const store = new ReceiptStore(mkdtempSync(join(tmpdir(), "gethen-receipts-")));
     store.append(receipt);
     appendFileSync(store.path, "not json\n");
     expect(() => store.read()).toThrow("corrupt receipt");

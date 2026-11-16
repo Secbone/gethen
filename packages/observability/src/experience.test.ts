@@ -1,7 +1,7 @@
 import { appendFileSync, mkdtempSync, readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AgentEvent } from "@mentat/core";
+import type { AgentEvent } from "@gethen/core";
 import { describe, expect, it } from "vitest";
 import {
   ExperienceStore,
@@ -13,7 +13,7 @@ import {
 
 describe("SessionRecorder + ExperienceStore", () => {
   it("quarantines a torn tail before the next append without hiding middle corruption", () => {
-    const dir = mkdtempSync(join(tmpdir(), "mentat-exp-torn-"));
+    const dir = mkdtempSync(join(tmpdir(), "gethen-exp-torn-"));
     const diagnostics: string[] = [],
       store = new ExperienceStore(dir, { onDiagnostic: (d) => diagnostics.push(d.code) });
     const first = new SessionRecorder({ prompt: "first", cwd: dir, harness: "fake" }).snapshot();
@@ -50,7 +50,7 @@ describe("SessionRecorder + ExperienceStore", () => {
     expect(JSON.stringify(recorder.snapshot())).not.toContain("private reasoning");
   });
   it("records outcome, usage, tools and persists to JSONL", () => {
-    const dir = mkdtempSync(join(tmpdir(), "mentat-exp-"));
+    const dir = mkdtempSync(join(tmpdir(), "gethen-exp-"));
     const store = new ExperienceStore(dir);
     const recorder = new SessionRecorder({ prompt: "do a thing", cwd: "/tmp", harness: "fake" });
 
@@ -102,7 +102,7 @@ describe("SessionRecorder + ExperienceStore", () => {
   });
 
   it("returns an empty list for a missing directory", () => {
-    expect(new ExperienceStore("/nonexistent/mentat-exp-xyz").list()).toEqual([]);
+    expect(new ExperienceStore("/nonexistent/gethen-exp-xyz").list()).toEqual([]);
   });
 
   it("projects final tool parameters and permission outcomes without losing snapshots", () => {

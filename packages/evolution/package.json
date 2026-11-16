@@ -1,5 +1,5 @@
 {
-  "name": "@mentat/evolution",
+  "name": "@gethen/evolution",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -12,8 +12,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@mentat/core": "workspace:*",
-    "@mentat/kernel": "workspace:*"
+    "@gethen/core": "workspace:*",
+    "@gethen/kernel": "workspace:*"
   },
   "description": "Engine-independent proposal, evaluation and selection loop"
 }

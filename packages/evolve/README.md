@@ -1,4 +1,4 @@
-# @mentat/evolve
+# @gethen/evolve
 
 Dream and CapabilityPack evolution.
 
@@ -16,7 +16,7 @@ observe → propose → evaluate → gate → archive
   under a file lock.
 - `DreamService` is the offline entry point.
 - `enqueueDream` / `registerDream` run one Dream pass as a durable
-  `@mentat/effects` job, so a restart does not lose it.
+  `@gethen/effects` job, so a restart does not lose it.
 
 ```ts
 const loop = new EvolutionLoop({
@@ -28,7 +28,7 @@ const loop = new EvolutionLoop({
 const result = await new DreamService(loop).dream(basePack, observations);
 ```
 
-The evaluator is the trust boundary: `@mentat/evolve` does not know how a pack
+The evaluator is the trust boundary: `@gethen/evolve` does not know how a pack
 is scored, and the archive records the exact base/candidate signals and gate
 result. DSH scheduling (`ctx.schedule`/`ctx.jobs`) and a model-backed proposer
 land in the runtime plugin.

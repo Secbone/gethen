@@ -3,7 +3,7 @@ import type {
   MemoryEntry,
   MemoryWriteResult,
   WriteRequest,
-} from "@mentat/memory";
+} from "@gethen/memory";
 export function withMemoryLock<T>(path: string, fn: () => T): T;
 export function memoryRevision(entries: MemoryEntry[]): string;
 export function readMemory(path: string): MemoryEntry[];

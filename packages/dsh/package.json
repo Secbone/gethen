@@ -1,5 +1,5 @@
 {
-  "name": "@mentat/dsh",
+  "name": "@gethen/dsh",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -13,18 +13,18 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@mentat/benchmark": "workspace:*",
-    "@mentat/core": "workspace:*",
-    "@mentat/domain": "workspace:*",
-    "@mentat/effects": "workspace:*",
-    "@mentat/evaluation": "workspace:*",
-    "@mentat/evolve": "workspace:*",
-    "@mentat/harnesses": "workspace:*",
-    "@mentat/pack": "workspace:*",
-    "@mentat/panel": "workspace:*",
-    "@mentat/source-github": "workspace:*",
-    "@mentat/store": "workspace:*",
-    "@mentat/worker": "workspace:*"
+    "@gethen/benchmark": "workspace:*",
+    "@gethen/core": "workspace:*",
+    "@gethen/domain": "workspace:*",
+    "@gethen/effects": "workspace:*",
+    "@gethen/evaluation": "workspace:*",
+    "@gethen/evolve": "workspace:*",
+    "@gethen/harnesses": "workspace:*",
+    "@gethen/pack": "workspace:*",
+    "@gethen/panel": "workspace:*",
+    "@gethen/source-github": "workspace:*",
+    "@gethen/store": "workspace:*",
+    "@gethen/worker": "workspace:*"
   },
-  "description": "Cordis plugin that hosts the Mentat control plane inside DeepSeek Harness"
+  "description": "Cordis plugin that hosts the Gethen control plane inside DeepSeek Harness"
 }

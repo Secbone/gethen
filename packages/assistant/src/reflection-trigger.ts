@@ -1,4 +1,4 @@
-import type { ExperienceRecord } from "@mentat/session";
+import type { ExperienceRecord } from "@gethen/session";
 
 export interface ReflectionTriggerInput {
   /** Explicit caller request (e.g. `--reflect`); always reflects. */

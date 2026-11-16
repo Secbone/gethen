@@ -1,5 +1,5 @@
-import { createArtifactRegistry, type Signal } from "@mentat/core";
-import type { Candidate, EvalTask } from "@mentat/evolution";
+import { createArtifactRegistry, type Signal } from "@gethen/core";
+import type { Candidate, EvalTask } from "@gethen/evolution";
 import {
   FunctionEvaluator,
   InMemoryWorkspace,
@@ -7,8 +7,8 @@ import {
   type ProposeStep,
   ScriptedProposer,
   SelfIterationLoop,
-} from "@mentat/evolution";
-import type { InMemoryMemoryStore, MemoryEntry, MemoryService } from "@mentat/memory";
+} from "@gethen/evolution";
+import type { InMemoryMemoryStore, MemoryEntry, MemoryService } from "@gethen/memory";
 import { MEMORY_SERVICE, memoryAdapter, memoryArtifact, memoryEntries } from "./artifact";
 
 /** A held-out query with the memory id we expect retrieval to surface. */

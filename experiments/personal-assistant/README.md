@@ -4,7 +4,7 @@
 
 # 个人助理连续任务实验
 
-实验检验 Mentat 能否在多次使用后减少用户重复解释、正确复用处理方法，并适应偏好变化。判定依据是后续任务的质量、用户纠正次数和总成本；记忆数量、召回率和代码提交数量只用于解释过程。
+实验检验 Gethen 能否在多次使用后减少用户重复解释、正确复用处理方法，并适应偏好变化。判定依据是后续任务的质量、用户纠正次数和总成本；记忆数量、召回率和代码提交数量只用于解释过程。
 
 `cases.json` 包含 7 类合成用户、每人 10 个任务，共 70 个任务；另有 3 组隐式学习序列，每组 4 个任务，共计 82 个任务。`prepare.mjs` 按单个任务导出用户材料、事后反馈、独立评分标准和评分记录模板。所有姓名、业务数据和日程均为合成材料。
 
@@ -12,7 +12,7 @@
 
 后续结果见 [Prompt与上下文优化验证](REPORT-optimization-2026-10-14.md) 和 [扩展场景实验](REPORT-expanded-2026-10-14.md)。这些是2026-10-14的历史实验；下文C组及旧执行器中的写入方式描述当时基线，不能直接代表2026-10-15修复后的生产链路。当前候选隔离、显式确认和约束预算规则见 [实现说明](../../docs/prompt-context.md)。使用当前源码重跑需重新标记策略版本与实验干预，不能覆盖历史结论。
 
-提交包含合成材料、脚本、报告与结构化观察；报告引用的原始会话和冻结快照位于本机 `.mentat/`，不随源码发布。部分复核脚本依赖这些快照和本机OpenCode会话数据库，需要相应运行数据才能执行。
+提交包含合成材料、脚本、报告与结构化观察；报告引用的原始会话和冻结快照位于本机 `.gethen/`，不随源码发布。部分复核脚本依赖这些快照和本机OpenCode会话数据库，需要相应运行数据才能执行。
 
 ## 用户与任务
 
@@ -147,7 +147,7 @@ node --import tsx experiments/personal-assistant/runner.ts \
   --max-calls 150 --max-cost-usd 5
 ```
 
-默认把结果写入新的`.mentat/experiments/personal-assistant/<时间戳>/`，不覆盖旧试验。每题JSON包括首次答复、训练修订、反思、记忆前后快照、模型选择和事件。`--max-calls`限制主机send次数；美元预算使用可见ACP计量，可能漏掉后续用量，不能作为账单级硬限额。实际成本另由原生会话表核对：
+默认把结果写入新的`.gethen/experiments/personal-assistant/<时间戳>/`，不覆盖旧试验。每题JSON包括首次答复、训练修订、反思、记忆前后快照、模型选择和事件。`--max-calls`限制主机send次数；美元预算使用可见ACP计量，可能漏掉后续用量，不能作为账单级硬限额。实际成本另由原生会话表核对：
 
 ```bash
 python3 experiments/personal-assistant/accounting.py <本次结果目录>
@@ -167,7 +167,7 @@ node --import tsx experiments/personal-assistant/runner.ts \
 
 ```bash
 node experiments/personal-assistant/prepare.mjs validate
-node experiments/personal-assistant/prepare.mjs prepare /tmp/mentat-product-01 product 01
+node experiments/personal-assistant/prepare.mjs prepare /tmp/gethen-product-01 product 01
 ```
 
 输出目录必须尚不存在，其父目录需存在。每次调用只导出一个当前任务，不导出后续任务。用户标识为 `product`、`engineer`、`teacher`、`finance`、`retail`、`designer`、`household`，任务标识为 `01` 至 `10`；补充序列标识为 `implicit-product`、`implicit-engineer`、`implicit-household`，其任务为 `01` 至 `04`。
@@ -175,9 +175,9 @@ node experiments/personal-assistant/prepare.mjs prepare /tmp/mentat-product-01 p
 手动测 C 时，把允许继承的在线记忆复制到当前 `agent` 目录，并用项目的绝对启动器路径调用，避免将工作目录设为项目仓库：
 
 ```bash
-/Users/soar/Code/mentat/mentat run \
+/Users/soar/Code/gethen/gethen run \
   "读取 task.json，根据其中的 prompt 和 source 完成任务。" \
-  --cwd /tmp/mentat-product-01/agent \
+  --cwd /tmp/gethen-product-01/agent \
   --harness pi --model <已配置的模型标识> --reflect
 ```
 

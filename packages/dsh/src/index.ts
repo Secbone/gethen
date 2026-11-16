@@ -1,22 +1,22 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { validateDataset, validateEpisodePlan, validatePlan } from "@mentat/benchmark";
-import type { Decision, Trigger } from "@mentat/domain";
-import { MatrixPackEvaluator, type PackEvaluator } from "@mentat/evolve";
-import { packRef } from "@mentat/pack";
-import { buildOverview } from "@mentat/panel";
-import { FileSourceState, GhCliGitHubApi, GitHubSource } from "@mentat/source-github";
+import { validateDataset, validateEpisodePlan, validatePlan } from "@gethen/benchmark";
+import type { Decision, Trigger } from "@gethen/domain";
+import { MatrixPackEvaluator, type PackEvaluator } from "@gethen/evolve";
+import { packRef } from "@gethen/pack";
+import { buildOverview } from "@gethen/panel";
+import { FileSourceState, GhCliGitHubApi, GitHubSource } from "@gethen/source-github";
 import { BenchmarkPackEvaluator } from "./benchmark-evaluator";
 import type { CanaryPolicy } from "./canary-monitor";
 import { CommandPackEvaluator } from "./command-evaluator";
 import type { RouterAgentPort, RuntimeReceipt } from "./runtime";
-import type { MentatService } from "./service";
-import { createMentatService } from "./service";
+import type { GethenService } from "./service";
+import { createGethenService } from "./service";
 import { workerSubjectFactory } from "./worker-subject";
 import { createWorker, workerFromEnv } from "./workers";
 
 export type { RuntimeReceipt } from "./runtime";
-export type { MentatService } from "./service";
+export type { GethenService } from "./service";
 export { workerFromEnv } from "./workers";
 
 /** The narrow DSH surface this plugin uses; no DSH package is imported. */
@@ -55,11 +55,11 @@ export interface BenchmarkConfig {
   dataset: string;
   out?: string;
   arms?: string[];
-  /** Worker names to evaluate as a matrix; defaults to MENTAT_WORKER. */
+  /** Worker names to evaluate as a matrix; defaults to GETHEN_WORKER. */
   workers?: string[];
 }
 
-export interface MentatConfig {
+export interface GethenConfig {
   dir?: string;
   model?: string;
   github?: { repo: string; agent: string; intervalMs?: number };
@@ -67,14 +67,14 @@ export interface MentatConfig {
   benchmark?: BenchmarkConfig;
 }
 
-export const name = "mentat";
+export const name = "gethen";
 export const inject = ["tools", "agents"];
 
 function evolveFromEnv(): { command: string; cwd?: string; timeoutMs?: number } | undefined {
-  const command = process.env.MENTAT_EVAL_COMMAND;
+  const command = process.env.GETHEN_EVAL_COMMAND;
   if (!command) return undefined;
-  const cwd = process.env.MENTAT_EVAL_CWD;
-  const timeout = Number(process.env.MENTAT_EVAL_TIMEOUT_MS ?? "");
+  const cwd = process.env.GETHEN_EVAL_CWD;
+  const timeout = Number(process.env.GETHEN_EVAL_TIMEOUT_MS ?? "");
   return {
     command,
     ...(cwd ? { cwd } : {}),
@@ -83,10 +83,10 @@ function evolveFromEnv(): { command: string; cwd?: string; timeoutMs?: number } 
 }
 
 function canaryFromEnv(): { intervalMs?: number; policy?: Partial<CanaryPolicy> } {
-  const interval = Number(process.env.MENTAT_CANARY_INTERVAL_MS ?? "");
-  const minSamples = Number(process.env.MENTAT_CANARY_MIN_SAMPLES ?? "");
-  const maxFailureRate = Number(process.env.MENTAT_CANARY_MAX_FAILURE_RATE ?? "");
-  const maxDelta = Number(process.env.MENTAT_CANARY_MAX_DELTA ?? "");
+  const interval = Number(process.env.GETHEN_CANARY_INTERVAL_MS ?? "");
+  const minSamples = Number(process.env.GETHEN_CANARY_MIN_SAMPLES ?? "");
+  const maxFailureRate = Number(process.env.GETHEN_CANARY_MAX_FAILURE_RATE ?? "");
+  const maxDelta = Number(process.env.GETHEN_CANARY_MAX_DELTA ?? "");
   const policy: Partial<CanaryPolicy> = {
     ...(Number.isSafeInteger(minSamples) && minSamples > 0 ? { minSamples } : {}),
     ...(Number.isFinite(maxFailureRate) && maxFailureRate >= 0 && maxFailureRate <= 1
@@ -103,8 +103,8 @@ function canaryFromEnv(): { intervalMs?: number; policy?: Partial<CanaryPolicy> 
 }
 
 function evolutionFromEnv(): { intervalMs?: number; maxObservations?: number } {
-  const interval = Number(process.env.MENTAT_EVOLVE_INTERVAL_MS ?? "");
-  const max = Number(process.env.MENTAT_EVOLVE_MAX_OBSERVATIONS ?? "");
+  const interval = Number(process.env.GETHEN_EVOLVE_INTERVAL_MS ?? "");
+  const max = Number(process.env.GETHEN_EVOLVE_MAX_OBSERVATIONS ?? "");
   return {
     ...(Number.isSafeInteger(interval) && interval > 0 ? { intervalMs: interval } : {}),
     ...(Number.isSafeInteger(max) && max > 0 ? { maxObservations: max } : {}),
@@ -112,14 +112,14 @@ function evolutionFromEnv(): { intervalMs?: number; maxObservations?: number } {
 }
 
 function benchmarkFromEnv(): BenchmarkConfig | undefined {
-  const plan = process.env.MENTAT_BENCH_PLAN;
-  const dataset = process.env.MENTAT_BENCH_DATASET;
+  const plan = process.env.GETHEN_BENCH_PLAN;
+  const dataset = process.env.GETHEN_BENCH_DATASET;
   if (!plan || !dataset) return undefined;
-  const out = process.env.MENTAT_BENCH_OUT;
-  const arms = process.env.MENTAT_BENCH_ARMS?.split(",")
+  const out = process.env.GETHEN_BENCH_OUT;
+  const arms = process.env.GETHEN_BENCH_ARMS?.split(",")
     .map((arm) => arm.trim())
     .filter(Boolean);
-  const workers = process.env.MENTAT_BENCH_WORKERS?.split(",")
+  const workers = process.env.GETHEN_BENCH_WORKERS?.split(",")
     .map((worker) => worker.trim())
     .filter(Boolean);
   return {
@@ -135,9 +135,9 @@ function benchmarkEvaluator(config: BenchmarkConfig, dir: string): PackEvaluator
   const plan = validatePlan(JSON.parse(readFileSync(config.plan, "utf8")) as unknown);
   const dataset = validateDataset(JSON.parse(readFileSync(config.dataset, "utf8")) as unknown);
   validateEpisodePlan(plan, dataset);
-  const workers = config.workers ?? (process.env.MENTAT_WORKER ? [process.env.MENTAT_WORKER] : []);
+  const workers = config.workers ?? (process.env.GETHEN_WORKER ? [process.env.GETHEN_WORKER] : []);
   if (workers.length === 0)
-    throw new Error("benchmark evaluation requires MENTAT_WORKER or MENTAT_BENCH_WORKERS");
+    throw new Error("benchmark evaluation requires GETHEN_WORKER or GETHEN_BENCH_WORKERS");
   const out = config.out ?? join(dir, "bench");
   const entries = workers.map((worker) => ({
     worker,
@@ -158,10 +158,10 @@ function benchmarkEvaluator(config: BenchmarkConfig, dir: string): PackEvaluator
 }
 
 function githubFromEnv(): { repo: string; agent: string; intervalMs?: number } | undefined {
-  const repo = process.env.MENTAT_GITHUB_REPO;
-  const agent = process.env.MENTAT_GITHUB_AGENT;
+  const repo = process.env.GETHEN_GITHUB_REPO;
+  const agent = process.env.GETHEN_GITHUB_AGENT;
   if (!repo || !agent) return undefined;
-  const interval = Number(process.env.MENTAT_GITHUB_POLL_MS ?? "");
+  const interval = Number(process.env.GETHEN_GITHUB_POLL_MS ?? "");
   return {
     repo,
     agent,
@@ -199,17 +199,17 @@ function routerAgents(ctx: DshContext): RouterAgentPort | undefined {
   };
 }
 
-/** Mount the Mentat control plane, its Router session and its tools into DSH. */
-export function apply(ctx: DshContext, config: MentatConfig = {}): void {
+/** Mount the Gethen control plane, its Router session and its tools into DSH. */
+export function apply(ctx: DshContext, config: GethenConfig = {}): void {
   const dir =
-    config.dir ?? process.env.MENTAT_STATE_DIR ?? join(process.cwd(), ".mentat", "superagent");
+    config.dir ?? process.env.GETHEN_STATE_DIR ?? join(process.cwd(), ".gethen", "superagent");
   const agents = routerAgents(ctx);
   const github = config.github ?? githubFromEnv();
   const evolve = config.evolve ?? evolveFromEnv();
   const benchmark = config.benchmark ?? benchmarkFromEnv();
   const evolution = evolutionFromEnv();
   const canary = canaryFromEnv();
-  const model = config.model ?? process.env.MENTAT_MODEL;
+  const model = config.model ?? process.env.GETHEN_MODEL;
   const worker = workerFromEnv();
   let evaluator: PackEvaluator | undefined;
   if (benchmark) {
@@ -229,7 +229,7 @@ export function apply(ctx: DshContext, config: MentatConfig = {}): void {
         agentLogin: github.agent,
       })
     : undefined;
-  const service: MentatService = createMentatService({
+  const service: GethenService = createGethenService({
     dir,
     ...(agents ? { agents } : {}),
     ...(worker ? { worker } : {}),
@@ -244,21 +244,21 @@ export function apply(ctx: DshContext, config: MentatConfig = {}): void {
     ...(canary.intervalMs !== undefined ? { canaryIntervalMs: canary.intervalMs } : {}),
     ...(canary.policy ? { canaryPolicy: canary.policy } : {}),
     onPollError: (error) => {
-      if (process.env.MENTAT_DEBUG) console.error(`[mentat] source poll failed: ${String(error)}`);
+      if (process.env.GETHEN_DEBUG) console.error(`[gethen] source poll failed: ${String(error)}`);
     },
     onEvolveError: (error) => {
-      if (process.env.MENTAT_DEBUG) console.error(`[mentat] evolution failed: ${String(error)}`);
+      if (process.env.GETHEN_DEBUG) console.error(`[gethen] evolution failed: ${String(error)}`);
     },
     onCanaryRollback: (assessment) => {
-      if (process.env.MENTAT_DEBUG)
-        console.error(`[mentat] canary rollback: ${assessment.reason ?? "regression"}`);
+      if (process.env.GETHEN_DEBUG)
+        console.error(`[gethen] canary rollback: ${assessment.reason ?? "regression"}`);
     },
     onCanaryError: (error) => {
-      if (process.env.MENTAT_DEBUG) console.error(`[mentat] canary check failed: ${String(error)}`);
+      if (process.env.GETHEN_DEBUG) console.error(`[gethen] canary check failed: ${String(error)}`);
     },
   });
-  ctx.provide("mentat", service);
-  if (process.env.MENTAT_DEBUG) console.error("[mentat] plugin loaded");
+  ctx.provide("gethen", service);
+  if (process.env.GETHEN_DEBUG) console.error("[gethen] plugin loaded");
   service.poller?.start();
   service.evolutionScheduler?.start();
   service.canaryScheduler?.start();
@@ -273,8 +273,8 @@ export function apply(ctx: DshContext, config: MentatConfig = {}): void {
     });
 
   ctx.tools.register({
-    name: "mentat_status",
-    description: "Return Mentat's ticket, thread, decision and Router counts.",
+    name: "gethen_status",
+    description: "Return Gethen's ticket, thread, decision and Router counts.",
     parameters: {},
     output: {
       schema: objectSchema(
@@ -299,7 +299,7 @@ export function apply(ctx: DshContext, config: MentatConfig = {}): void {
   });
 
   ctx.tools.register({
-    name: "mentat_receive",
+    name: "gethen_receive",
     description: "Receive a local Trigger, start due Evals and run due effects.",
     parameters: {
       text: { type: "string", required: true, description: "Request text" },
@@ -333,7 +333,7 @@ export function apply(ctx: DshContext, config: MentatConfig = {}): void {
   });
 
   ctx.tools.register({
-    name: "mentat_dispatch",
+    name: "gethen_dispatch",
     description: "Accept one candidate and run its Assignment through the Worker.",
     parameters: {
       trigger: { type: "string", required: true, description: "Trigger id" },
@@ -356,7 +356,7 @@ export function apply(ctx: DshContext, config: MentatConfig = {}): void {
   });
 
   ctx.tools.register({
-    name: "mentat_dream",
+    name: "gethen_dream",
     description:
       "Turn one observation into a versioned CapabilityPack candidate, evaluate it with the configured evaluator, gate it and archive it.",
     parameters: {
@@ -377,7 +377,7 @@ export function apply(ctx: DshContext, config: MentatConfig = {}): void {
     async execute(raw) {
       if (!service.dream)
         throw new Error(
-          "no pack evaluator is configured (MENTAT_BENCH_PLAN or MENTAT_EVAL_COMMAND)",
+          "no pack evaluator is configured (GETHEN_BENCH_PLAN or GETHEN_EVAL_COMMAND)",
         );
       const args = raw as { text: string };
       const result = await service.dream.dream(service.runtime.currentPack, [
@@ -403,7 +403,7 @@ export function apply(ctx: DshContext, config: MentatConfig = {}): void {
   });
 
   ctx.tools.register({
-    name: "mentat_evolve",
+    name: "gethen_evolve",
     description:
       "Collect failed Assignment receipts, then run Dream: propose, evaluate, gate and archive one CapabilityPack candidate.",
     parameters: {},
@@ -424,7 +424,7 @@ export function apply(ctx: DshContext, config: MentatConfig = {}): void {
     async execute() {
       if (!service.evolver)
         throw new Error(
-          "evolution requires a listable receipt store and a pack evaluator (MENTAT_BENCH_PLAN or MENTAT_EVAL_COMMAND)",
+          "evolution requires a listable receipt store and a pack evaluator (GETHEN_BENCH_PLAN or GETHEN_EVAL_COMMAND)",
         );
       const outcome = await service.evolver.evolve();
       if (!outcome.result)
@@ -452,7 +452,7 @@ export function apply(ctx: DshContext, config: MentatConfig = {}): void {
   });
 
   ctx.tools.register({
-    name: "mentat_channel",
+    name: "gethen_channel",
     description:
       "Inspect or change the stable/canary CapabilityPack channel. action=status|canary|promote|rollback; canary requires an accepted candidate id and optional ratio.",
     parameters: {
@@ -515,7 +515,7 @@ export function apply(ctx: DshContext, config: MentatConfig = {}): void {
   });
 
   ctx.tools.register({
-    name: "mentat_overview",
+    name: "gethen_overview",
     description:
       "Return the panel overview: person-blocked Tickets, open work, assignments and decisions.",
     parameters: {},
@@ -540,7 +540,7 @@ export function apply(ctx: DshContext, config: MentatConfig = {}): void {
   });
 
   ctx.tools.register({
-    name: "mentat_poll",
+    name: "gethen_poll",
     description: "Poll the configured Source now and return how many Triggers arrived.",
     parameters: {},
     output: {
@@ -554,7 +554,7 @@ export function apply(ctx: DshContext, config: MentatConfig = {}): void {
   });
 
   ctx.tools.register({
-    name: "mentat_run",
+    name: "gethen_run",
     description: "Receive, evaluate and dispatch one local request end-to-end.",
     parameters: {
       text: { type: "string", required: true, description: "Request text" },

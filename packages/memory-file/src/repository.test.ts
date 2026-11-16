@@ -1,12 +1,12 @@
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createMemoryAccess, InMemoryMemoryStore, MemoryService } from "@mentat/memory";
+import { createMemoryAccess, InMemoryMemoryStore, MemoryService } from "@gethen/memory";
 import { describe, expect, it } from "vitest";
 import { JsonFileMemoryStore } from "./json-memory-store";
 import { FileMemoryRepository } from "./repository";
 
-const path = () => join(mkdtempSync(join(tmpdir(), "mentat-repository-")), "memory.json");
+const path = () => join(mkdtempSync(join(tmpdir(), "gethen-repository-")), "memory.json");
 const user = (text: string) => ({ text, basis: "user" as const, speaker: "user" as const });
 describe("file memory consistency", () => {
   it("preserves colliding legacy hashes and stable identity on subsequent updates", async () => {

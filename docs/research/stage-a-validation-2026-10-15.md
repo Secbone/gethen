@@ -25,7 +25,7 @@
 | host落盘与重建 | 轨迹中124帧捕获字段匹配；经验重建包含17组非空结果及42条权限生命周期事件 |
 | 旧24任务审计反查 | 找回17处参数差异、17处结构内容差异、17处文本差异、21处缺请求及21处缺决定；这些是重叠的字段问题，不是93个独立任务失败 |
 
-协议样本位于 `packages/transport-acp/src/__fixtures__/multiturn-tooling.json`，来源及标识替换见同目录README。回放只传递数据，不执行样本中的代码。旧24任务原始轨迹没有改写，反查结果保存于本机 `.mentat/experiments/stage-a-validation/capture-before.json`。
+协议样本位于 `packages/transport-acp/src/__fixtures__/multiturn-tooling.json`，来源及标识替换见同目录README。回放只传递数据，不执行样本中的代码。旧24任务原始轨迹没有改写，反查结果保存于本机 `.gethen/experiments/stage-a-validation/capture-before.json`。
 
 新增/扩展测试分别位于 `adapter.replay.test.ts`、`host-acp-capture.test.ts`、`host-remember.test.ts`、`capture-audit.test.ts`、经验记录及CLI子进程测试。完整检查命令：
 
@@ -35,7 +35,7 @@ pnpm -r typecheck
 node --import tsx --test experiments/personal-assistant/multiturn.test.ts
 ```
 
-本次实际结果：`pnpm check`通过，53个测试文件中184项行为测试通过、1项Docker集成测试默认跳过，7项架构测试通过；17个包独立类型检查全部通过；多轮实验的6项测试通过。`git diff --check`通过。检查输出保留在本机 `/tmp/mentat-stage-a-check.log` 与 `/tmp/mentat-stage-a-packages.log`。
+本次实际结果：`pnpm check`通过，53个测试文件中184项行为测试通过、1项Docker集成测试默认跳过，7项架构测试通过；17个包独立类型检查全部通过；多轮实验的6项测试通过。`git diff --check`通过。检查输出保留在本机 `/tmp/gethen-stage-a-check.log` 与 `/tmp/gethen-stage-a-packages.log`。
 
 ## 仍需优化
 

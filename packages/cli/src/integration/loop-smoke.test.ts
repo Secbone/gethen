@@ -2,13 +2,13 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CheckEvaluator, commandGate } from "@mentat/evaluation";
-import { type Proposal, type Proposer, SelfIterationLoop } from "@mentat/evolution";
-import { GitWorkspace } from "@mentat/workspace";
+import { CheckEvaluator, commandGate } from "@gethen/evaluation";
+import { type Proposal, type Proposer, SelfIterationLoop } from "@gethen/evolution";
+import { GitWorkspace } from "@gethen/workspace";
 import { describe, expect, it } from "vitest";
 
 function makeRepo(): string {
-  const dir = mkdtempSync(join(tmpdir(), "mentat-smoke-"));
+  const dir = mkdtempSync(join(tmpdir(), "gethen-smoke-"));
   const git = (args: string[]): string => execFileSync("git", args, { cwd: dir, encoding: "utf8" });
   git(["init", "-b", "main"]);
   git(["config", "user.email", "test@test"]);

@@ -4,7 +4,7 @@ import {
   type Ticket,
   type TicketStage,
   ticketStage,
-} from "@mentat/domain";
+} from "@gethen/domain";
 
 export interface TicketView {
   id: string;
@@ -144,7 +144,7 @@ export function buildOverview(
 /** Terminal rendering of the same projection. */
 export function renderOverviewText(overview: Overview): string {
   const lines = [
-    `Mentat overview ${overview.generatedAt}`,
+    `Gethen overview ${overview.generatedAt}`,
     `needs person: ${overview.counts.needsPerson}  open: ${overview.counts.open}  tickets: ${overview.counts.tickets}`,
   ];
   for (const ticket of overview.needsPerson) {

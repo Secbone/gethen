@@ -1,6 +1,6 @@
-import type { Signal } from "@mentat/core";
-import type { Candidate, Proposal, Proposer } from "@mentat/evolution";
-import type { MemoryEntry } from "@mentat/memory";
+import type { Signal } from "@gethen/core";
+import type { Candidate, Proposal, Proposer } from "@gethen/evolution";
+import type { MemoryEntry } from "@gethen/memory";
 import { memoryArtifact, memoryEntries } from "./artifact";
 
 /**

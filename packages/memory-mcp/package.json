@@ -1,5 +1,5 @@
 {
-  "name": "@mentat/memory-mcp",
+  "name": "@gethen/memory-mcp",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -12,14 +12,14 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "bin": {
-    "mentat-memory-mcp": "./src/loader.mjs"
+    "gethen-memory-mcp": "./src/loader.mjs"
   },
   "dependencies": {
-    "@mentat/core": "workspace:*",
-    "@mentat/memory": "workspace:*",
+    "@gethen/core": "workspace:*",
+    "@gethen/memory": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.32.1",
     "zod": "^4.6.7",
-    "@mentat/memory-file": "workspace:*",
+    "@gethen/memory-file": "workspace:*",
     "tsx": "^4.20.6"
   },
   "description": "Standalone memory MCP server and process specification"

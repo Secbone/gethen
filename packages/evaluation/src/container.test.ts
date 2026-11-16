@@ -6,7 +6,7 @@ import { ContainerRunner, dockerRunArgs } from "./container";
 
 describe("dockerRunArgs", () => {
   it("reclaims an owned container after the Docker client times out", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "mentat-container-cleanup-")),
+    const dir = mkdtempSync(join(tmpdir(), "gethen-container-cleanup-")),
       docker = join(dir, "docker"),
       receipt = join(dir, "cleanup.json");
     writeFileSync(
@@ -28,7 +28,7 @@ else {fs.writeFileSync(${JSON.stringify(receipt)},JSON.stringify(a));}
     expect(JSON.parse(readFileSync(receipt, "utf8"))).toEqual([
       "rm",
       "--force",
-      expect.stringMatching(/^mentat-/),
+      expect.stringMatching(/^gethen-/),
     ]);
   });
   it("mounts the workspace and disables the network by default", () => {
@@ -63,7 +63,7 @@ else {fs.writeFileSync(${JSON.stringify(receipt)},JSON.stringify(a));}
   });
 });
 
-const dockerDescribe = process.env.MENTAT_DOCKER === "1" ? describe : describe.skip;
+const dockerDescribe = process.env.GETHEN_DOCKER === "1" ? describe : describe.skip;
 
 dockerDescribe("ContainerRunner (docker)", () => {
   it("runs a trivial command in an isolated container", async () => {

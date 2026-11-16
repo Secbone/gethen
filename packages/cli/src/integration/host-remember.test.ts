@@ -1,21 +1,21 @@
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createFakeAdapter } from "@mentat/core";
-import { createAssistantHost } from "@mentat/host";
+import { createFakeAdapter } from "@gethen/core";
+import { createAssistantHost } from "@gethen/host";
 import {
   buildTurnContext,
   InMemoryMemoryStore,
   type MemoryEntry,
   MemoryService,
-} from "@mentat/memory";
-import { JsonFileMemoryStore } from "@mentat/memory-file";
-import { ExperienceStore } from "@mentat/observability";
+} from "@gethen/memory";
+import { JsonFileMemoryStore } from "@gethen/memory-file";
+import { ExperienceStore } from "@gethen/observability";
 import { expect, it } from "vitest";
 import { rememberUserFact } from "../lib/compat";
 
 it("confirms a persisted candidate with evidence of the actual manual directive", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "mentat-confirm-"));
+  const dir = mkdtempSync(join(tmpdir(), "gethen-confirm-"));
   const path = join(dir, "memory.json");
   const experience = join(dir, "experience");
   new MemoryService(new JsonFileMemoryStore(path)).write({
@@ -43,7 +43,7 @@ it("confirms a persisted candidate with evidence of the actual manual directive"
 });
 
 it("preserves explicitly typed rules through host, repository, budget selection and reload", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "mentat-typed-confirm-"));
+  const dir = mkdtempSync(join(tmpdir(), "gethen-typed-confirm-"));
   const path = join(dir, "memory.json");
   const host = createAssistantHost({
     cwd: dir,
@@ -106,7 +106,7 @@ it("preserves explicitly typed rules through host, repository, budget selection 
 });
 
 it("blocks oversized constraints written through the real confirmation entrypoint before send", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "mentat-typed-overflow-"));
+  const dir = mkdtempSync(join(tmpdir(), "gethen-typed-overflow-"));
   const host = createAssistantHost({
     cwd: dir,
     adapter: createFakeAdapter(),
@@ -128,7 +128,7 @@ it("blocks oversized constraints written through the real confirmation entrypoin
 });
 
 it("reports unspecified classification and does not trust caller-supplied source fields", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "mentat-confirm-source-"));
+  const dir = mkdtempSync(join(tmpdir(), "gethen-confirm-source-"));
   const diagnostics: string[] = [];
   const host = createAssistantHost(
     { cwd: dir, adapter: createFakeAdapter(), memoryPath: join(dir, "memory.json") },

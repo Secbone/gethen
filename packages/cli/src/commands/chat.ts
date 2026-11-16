@@ -1,7 +1,7 @@
 import { createInterface } from "node:readline/promises";
-import type { PermissionMode } from "@mentat/core";
-import { createAssistantHost } from "@mentat/host";
-import type { ExperienceRecord } from "@mentat/session";
+import type { PermissionMode } from "@gethen/core";
+import { createAssistantHost } from "@gethen/host";
+import type { ExperienceRecord } from "@gethen/session";
 import { defaultExperienceDir, defaultMemoryPath } from "../lib/paths";
 import { createPermissionHandler, parsePermissionMode } from "../lib/permission";
 import { createDefaultRegistry } from "../lib/registry";
@@ -107,7 +107,7 @@ export async function chatCommand(args: string[]): Promise<number> {
   };
 
   process.stdout.write(
-    "mentat chat — /exit, /remember <text>, /remember-constraint|preference|fact|method <text>, /reflect\n",
+    "gethen chat — /exit, /remember <text>, /remember-constraint|preference|fact|method <text>, /reflect\n",
   );
 
   try {

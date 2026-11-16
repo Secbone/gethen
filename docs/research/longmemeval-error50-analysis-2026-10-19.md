@@ -6,7 +6,7 @@
 
 这 50 题是预先选定的旧错题诊断组，不是随机测试集；68% 是错误恢复率，不能替代全量正确率。以下分类是基于记录的人工诊断，不是修复后已验证的因果收益。没有新增模型调用，也没有修改原答案、原评分或数据集标签。
 
-结果与协议见 [复测报告](longmemeval-error50-results-2026-10-19.md)，逐题机器记录见 [结果 JSON](../../benchmarks/public/results/2026-10-19-longmemeval-error50.json)。原始证据位于 `.mentat/public-evaluations/longmemeval-error50-20261019-v1/` 和对应 `transport-error50-20261019-v1/`；原始历史为 `.mentat/benchmark-data/longmemeval-cleaned/s-cleaned.json`。复核通过 `audit_text_transport.payload()` 读取轨迹及校验带摘要的 artifact。
+结果与协议见 [复测报告](longmemeval-error50-results-2026-10-19.md)，逐题机器记录见 [结果 JSON](../../benchmarks/public/results/2026-10-19-longmemeval-error50.json)。原始证据位于 `.gethen/public-evaluations/longmemeval-error50-20261019-v1/` 和对应 `transport-error50-20261019-v1/`；原始历史为 `.gethen/benchmark-data/longmemeval-cleaned/s-cleaned.json`。复核通过 `audit_text_transport.payload()` 读取轨迹及校验带摘要的 artifact。
 
 ## 证据如何分布
 

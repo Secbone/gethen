@@ -1,7 +1,7 @@
-import { extractJson } from "@mentat/core";
-import { AgentDataProposer, type Proposer } from "@mentat/evolution";
-import type { MemoryEntry } from "@mentat/memory";
-import { memoryArtifact, type RecallQuery } from "@mentat/memory-evolution";
+import { extractJson } from "@gethen/core";
+import { AgentDataProposer, type Proposer } from "@gethen/evolution";
+import type { MemoryEntry } from "@gethen/memory";
+import { memoryArtifact, type RecallQuery } from "@gethen/memory-evolution";
 
 /**
  * Build an agent-backed proposer for the memory artifact: it asks the Pi

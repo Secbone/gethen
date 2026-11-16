@@ -1,13 +1,13 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type JsonValue, renderTurnInput } from "@mentat/core";
+import { type JsonValue, renderTurnInput } from "@gethen/core";
 import { describe, expect, it } from "vitest";
 import { recallAttribution, recallSelection } from "./recall-attribution";
 import { FileTrajectoryStore } from "./trajectory";
 
 const create = () =>
-  new FileTrajectoryStore(join(mkdtempSync(join(tmpdir(), "mentat-recall-")), "trace"));
+  new FileTrajectoryStore(join(mkdtempSync(join(tmpdir(), "gethen-recall-")), "trace"));
 const emit = (store: FileTrajectoryStore, type: string, data: unknown) =>
   store.emit(type, data as JsonValue);
 const text = JSON.stringify({

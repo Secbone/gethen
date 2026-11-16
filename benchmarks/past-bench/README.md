@@ -1,4 +1,4 @@
-# PAST-Bench ↔ Mentat (minimal bridge)
+# PAST-Bench ↔ Gethen (minimal bridge)
 
 ## Current diagnostic runner and context boundary
 
@@ -38,17 +38,17 @@ read-only. For missing protocol capture or unknown operation ordering, delivery
 and timing remain unverified. See the context policy for the evidence limits.
 
 Bridge that lets [PAST-Bench](https://github.com/Gen-Verse/PAST-Bench) evaluate
-Mentat as the subject agent. Upstream, PAST-Bench resolves agents from a fixed
-`_ADAPTERS` map; we register a Mentat adapter into that map at runtime instead of
+Gethen as the subject agent. Upstream, PAST-Bench resolves agents from a fixed
+`_ADAPTERS` map; we register a Gethen adapter into that map at runtime instead of
 patching the checkout.
 
 ## Files
 
 | File | Side | Role |
 |---|---|---|
-| `../../scripts/past-bench-agent.ts` | Mentat | Runs one Mentat assistant host turn and prints `{final_output, usage, reason}` on stdout. |
-| `mentat_adapter.py` | PAST-Bench | `_OneShotCliAdapter` that shells out to the script with the task prompt on stdin. |
-| `agents.mentat.yaml` | PAST-Bench | Agent registry entry (`agent: mentat`, `adapter: mentat_cli`). |
+| `../../scripts/past-bench-agent.ts` | Gethen | Runs one Gethen assistant host turn and prints `{final_output, usage, reason}` on stdout. |
+| `gethen_adapter.py` | PAST-Bench | `_OneShotCliAdapter` that shells out to the script with the task prompt on stdin. |
+| `agents.gethen.yaml` | PAST-Bench | Agent registry entry (`agent: gethen`, `adapter: gethen_cli`). |
 | `run.py` | PAST-Bench | Injects the adapter into `_ADAPTERS`, then defers to the `past-bench` CLI. |
 
 ## Setup
@@ -60,34 +60,34 @@ uv venv --python 3.11 --seed .venv
 UV_HTTP_TIMEOUT=300 uv pip install -p .venv -e ".[mock,sandbox,dev]"
 ```
 
-Mentat side: use the repo as-is (`scripts/past-bench-agent.ts`); Node + `tsx`
+Gethen side: use the repo as-is (`scripts/past-bench-agent.ts`); Node + `tsx`
 come from the repo's own `node_modules`. The adapter keeps the real `HOME` so
-Mentat's Pi/OpenCode credential discovery works.
+Gethen's Pi/OpenCode credential discovery works.
 
 ## Run a single episode / a family
 
 ```bash
-cd /path/to/mentat
-export MENTAT_ROOT=/path/to/mentat
-export MENTAT_MODEL=opencode-go/deepseek-v4.1-flash   # or any Mentat model id
+cd /path/to/gethen
+export GETHEN_ROOT=/path/to/gethen
+export GETHEN_MODEL=opencode-go/deepseek-v4.1-flash   # or any Gethen model id
 
 PY=/tmp/PAST-Bench/.venv/bin/python
 
 # one episode
 $PY benchmarks/past-bench/run.py run \
   --task /tmp/PAST-Bench/self-evolve-tasks-v2/memory_ability/SM01_preference_adoption/cold_style_baseline \
-  --agent mentat --registry benchmarks/past-bench/agents.mentat.yaml \
+  --agent gethen --registry benchmarks/past-bench/agents.gethen.yaml \
   --runtime local --no-judge --trace-dir /tmp/past-bench-smoke/cold
 
 # a whole self-evolve family (cross-session)
 $PY benchmarks/past-bench/run.py evolve \
   --family memory_ability/SM01_preference_adoption \
-  --agent mentat --registry benchmarks/past-bench/agents.mentat.yaml \
+  --agent gethen --registry benchmarks/past-bench/agents.gethen.yaml \
   --runtime local --no-judge --trace-dir /tmp/past-bench-smoke/sm01
 ```
 
-Required/optional env for the adapter: `MENTAT_ROOT` (required), `MENTAT_NODE`,
-`MENTAT_HARNESS` (`pi|acp|fake`, default `pi`), `MENTAT_MODEL`.
+Required/optional env for the adapter: `GETHEN_ROOT` (required), `GETHEN_NODE`,
+`GETHEN_HARNESS` (`pi|acp|fake`, default `pi`), `GETHEN_MODEL`.
 
 ## Smoke result — 2026-10-17
 
@@ -107,15 +107,15 @@ turn timeout and was scored 0 by the infra rule. One control passed (1.000).
 
 ## Known gaps (why the delta is negative)
 
-- The adapter is **one-shot**: one Mentat host turn per task. It does not drive
+- The adapter is **one-shot**: one Gethen host turn per task. It does not drive
   PAST-Bench's multi-turn tool protocol.
 - **No dispatch attribution**: PAST-Bench reads `dispatches`/`memory_calls`/
   `skill_calls` to attribute cross-session gains. The bridge reports none, so the
   substrate-usage evidence is empty (`memory_calls=0`, `search_calls=0`) even
-  though Mentat writes memory. A proper bridge must surface Mentat memory/skill
+  though Gethen writes memory. A proper bridge must surface Gethen memory/skill
   reads/writes as PAST-Bench dispatch events.
-- The Mentat assistant host injects its own system prompt; a leaderboard-grade
+- The Gethen assistant host injects its own system prompt; a leaderboard-grade
   subject should pin an assistant-policy version and record it.
-- Output format is a known Mentat weakness (see `docs/research/`); here the
+- Output format is a known Gethen weakness (see `docs/research/`); here the
   first-turn answers were parsed, but communication scoring was disabled
   (`--no-judge`).

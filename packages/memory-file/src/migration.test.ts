@@ -1,13 +1,13 @@
 import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { InMemoryMemoryStore } from "@mentat/memory";
+import { InMemoryMemoryStore } from "@gethen/memory";
 import { describe, expect, it } from "vitest";
 import { migrateLegacyMemory } from "./migration";
 
 describe("migrateLegacyMemory", () => {
   it("snapshots first, marks legacy entries unconfirmed with unknown source, and is idempotent", () => {
-    const dir = mkdtempSync(join(tmpdir(), "mentat-mig-"));
+    const dir = mkdtempSync(join(tmpdir(), "gethen-mig-"));
     const snapshotPath = join(dir, "snapshot.json");
     const store = new InMemoryMemoryStore();
     store.add({ id: "a", text: "user likes dark mode", createdAt: 1 });
@@ -36,7 +36,7 @@ describe("migrateLegacyMemory", () => {
 
 it("migrates a file and its audit as a single recoverable batch", async () => {
   const { JsonFileMemoryStore } = await import("./json-memory-store");
-  const dir = mkdtempSync(join(tmpdir(), "mentat-mig-file-"));
+  const dir = mkdtempSync(join(tmpdir(), "gethen-mig-file-"));
   const file = join(dir, "memory.json");
   const store = new JsonFileMemoryStore(file);
   store.add({ id: "a", text: "legacy a", createdAt: 1 });

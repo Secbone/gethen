@@ -1,4 +1,4 @@
-import type { TaskInput } from "@mentat/session";
+import type { TaskInput } from "@gethen/session";
 
 /** Host policy injected when history retrieval is enabled but matched nothing. */
 export const NO_EVIDENCE_POLICY =

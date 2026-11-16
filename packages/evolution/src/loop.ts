@@ -1,4 +1,4 @@
-import { type JsonValue, type Signal, sameArtifact, type Tracer } from "@mentat/core";
+import { type JsonValue, type Signal, sameArtifact, type Tracer } from "@gethen/core";
 import { Archive } from "./archive";
 import type { Evaluator } from "./evaluator";
 import type { Gate } from "./gate";
@@ -27,7 +27,7 @@ export interface LoopDeps {
 
 const signalsJson = (signals: Signal[]): JsonValue => signals as unknown as JsonValue;
 
-const refJson = (ref: import("@mentat/core").ArtifactRef): JsonValue => ({
+const refJson = (ref: import("@gethen/core").ArtifactRef): JsonValue => ({
   kind: ref.kind,
   id: ref.id,
   version: ref.version,

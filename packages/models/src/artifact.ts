@@ -5,10 +5,10 @@ import {
   createArtifact,
   type Disposable,
   type JsonValue,
-} from "@mentat/core";
+} from "@gethen/core";
 import { ModelCatalog, type ModelDescriptor } from "./catalog";
 
-export const MODEL_SERVICE = "mentat.models";
+export const MODEL_SERVICE = "gethen.models";
 
 function parseModels(raw: unknown): ModelDescriptor[] {
   if (!Array.isArray(raw)) throw new Error("invalid model artifact: payload is not an array");

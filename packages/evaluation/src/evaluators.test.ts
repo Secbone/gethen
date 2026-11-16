@@ -1,11 +1,11 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Candidate } from "@mentat/evolution";
+import type { Candidate } from "@gethen/evolution";
 import { describe, expect, it } from "vitest";
 import { CheckEvaluator, JsonCommandEvaluator } from "./evaluators";
 
-const cwd = mkdtempSync(join(tmpdir(), "mentat-eval-"));
+const cwd = mkdtempSync(join(tmpdir(), "gethen-eval-"));
 const candidate: Candidate = { id: "x", version: "x", artifacts: [] };
 
 describe("CheckEvaluator", () => {

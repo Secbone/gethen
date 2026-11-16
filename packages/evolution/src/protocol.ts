@@ -1,4 +1,4 @@
-import { type Digest, digestOf, type JsonValue } from "@mentat/core";
+import { type Digest, digestOf, type JsonValue } from "@gethen/core";
 
 /**
  * How a benchmark decides whether a change is better. The protocol — not the

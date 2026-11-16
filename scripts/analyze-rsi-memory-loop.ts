@@ -2,16 +2,16 @@
 import { execFileSync } from "node:child_process";
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { type Candidate, FunctionEvaluator } from "@mentat/evolution";
-import { createMemoryAccess } from "@mentat/memory";
+import { type Candidate, FunctionEvaluator } from "@gethen/evolution";
+import { createMemoryAccess } from "@gethen/memory";
 import {
   memoryArtifact,
   memoryArtifactRegistry,
   type RecallQuery,
   recallTask,
-} from "@mentat/memory-evolution";
-import { FileMemoryRepository } from "@mentat/memory-file";
-import { readTrajectory, resolveEventData } from "@mentat/observability";
+} from "@gethen/memory-evolution";
+import { FileMemoryRepository } from "@gethen/memory-file";
+import { readTrajectory, resolveEventData } from "@gethen/observability";
 
 const output = process.argv[2];
 if (!output) throw new Error("expected completed loop output directory");

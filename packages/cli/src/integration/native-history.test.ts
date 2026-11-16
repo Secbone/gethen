@@ -1,16 +1,16 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createFakeAdapter, type UserInput } from "@mentat/core";
-import { createAssistantHost } from "@mentat/host";
-import { createMemoryAccess } from "@mentat/memory";
-import { FileMemoryRepository } from "@mentat/memory-file";
-import { ExperienceStore, recallAttribution } from "@mentat/observability";
-import type { TaskInput } from "@mentat/session";
+import { createFakeAdapter, type UserInput } from "@gethen/core";
+import { createAssistantHost } from "@gethen/host";
+import { createMemoryAccess } from "@gethen/memory";
+import { FileMemoryRepository } from "@gethen/memory-file";
+import { ExperienceStore, recallAttribution } from "@gethen/observability";
+import type { TaskInput } from "@gethen/session";
 import { expect, it } from "vitest";
 
 it("recalls across new host sessions without crossing scope or confirming a candidate", async () => {
-  const root = mkdtempSync(join(tmpdir(), "mentat-native-recall-"));
+  const root = mkdtempSync(join(tmpdir(), "gethen-native-recall-"));
   const memoryPath = join(root, "memory.json");
   const experienceDir = join(root, "experience");
   const repository = new FileMemoryRepository(memoryPath);
@@ -80,7 +80,7 @@ it("recalls across new host sessions without crossing scope or confirming a cand
 });
 
 it("records a retrieval failure without sending a task or fabricating an injection", async () => {
-  const root = mkdtempSync(join(tmpdir(), "mentat-recall-error-"));
+  const root = mkdtempSync(join(tmpdir(), "gethen-recall-error-"));
   let reads = 0,
     sends = 0;
   const host = createAssistantHost(
@@ -125,7 +125,7 @@ it("records a retrieval failure without sending a task or fabricating an injecti
 });
 
 it("does not report selected history as delivered when required constraints block the turn", async () => {
-  const root = mkdtempSync(join(tmpdir(), "mentat-recall-block-"));
+  const root = mkdtempSync(join(tmpdir(), "gethen-recall-block-"));
   const experienceDir = join(root, "experience");
   new ExperienceStore(experienceDir).append({
     id: "history",

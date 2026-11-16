@@ -1,10 +1,10 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { SourceKind, Trigger } from "@mentat/domain";
+import type { SourceKind, Trigger } from "@gethen/domain";
 import { describe, expect, it } from "vitest";
 import { type PollScheduler, SourcePoller } from "./poller";
-import { createMentatService } from "./service";
+import { createGethenService } from "./service";
 
 function trigger(): Trigger {
   return {
@@ -32,8 +32,8 @@ function source(): SourceKind {
 
 describe("SourcePoller", () => {
   it("polls a Source into the runtime", async () => {
-    const service = createMentatService({
-      dir: mkdtempSync(join(tmpdir(), "mentat-poller-")),
+    const service = createGethenService({
+      dir: mkdtempSync(join(tmpdir(), "gethen-poller-")),
       source: source(),
     });
     expect(service.poller).toBeDefined();

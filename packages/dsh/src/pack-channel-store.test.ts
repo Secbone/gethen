@@ -1,7 +1,7 @@
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { defineCapabilityPack } from "@mentat/pack";
+import { defineCapabilityPack } from "@gethen/pack";
 import { describe, expect, it } from "vitest";
 import { loadPackChannel } from "./pack-channel-store";
 
@@ -14,7 +14,7 @@ const pack = (version: number) =>
 
 describe("pack channel persistence", () => {
   it("falls back to the initial pack and persists canary changes", () => {
-    const dir = mkdtempSync(join(tmpdir(), "mentat-channel-"));
+    const dir = mkdtempSync(join(tmpdir(), "gethen-channel-"));
     const path = join(dir, "pack-channel.json");
     const fallback = pack(1);
     const channel = loadPackChannel(path, fallback);
@@ -31,7 +31,7 @@ describe("pack channel persistence", () => {
   });
 
   it("rejects a malformed snapshot", () => {
-    const dir = mkdtempSync(join(tmpdir(), "mentat-channel-"));
+    const dir = mkdtempSync(join(tmpdir(), "gethen-channel-"));
     const path = join(dir, "pack-channel.json");
     writeFileSync(path, "{}");
     expect(() => loadPackChannel(path, pack(1))).toThrow("invalid pack channel snapshot");

@@ -5,14 +5,14 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createDefaultRegistry } from "@mentat/harnesses";
-import { createAssistantHost } from "@mentat/host";
-import { FileMemoryRepository } from "@mentat/memory-file";
-import { readTrajectory, resolveEventData } from "@mentat/observability";
+import { createDefaultRegistry } from "@gethen/harnesses";
+import { createAssistantHost } from "@gethen/host";
+import { FileMemoryRepository } from "@gethen/memory-file";
+import { readTrajectory, resolveEventData } from "@gethen/observability";
 import { benchmarkObservations } from "../packages/cli/src/lib/benchmark-observations";
 import { checkoutIdentity } from "../packages/cli/src/lib/benchmark-subject";
 
-const out = resolve(process.argv[2] ?? ".mentat/public-evaluations/memory-tools-probe-v1");
+const out = resolve(process.argv[2] ?? ".gethen/public-evaluations/memory-tools-probe-v1");
 mkdirSync(out);
 const identity = checkoutIdentity(process.cwd(), join(out, "checkout-source.json"));
 const model = "opencode-go/deepseek-v4.1-flash";
@@ -53,11 +53,11 @@ const registryOptions = {
                 fileURLToPath(new URL("../packages/memory-mcp/src/server.mjs", import.meta.url)),
               ],
               environment: {
-                MENTAT_MEMORY_FILE: file,
-                MENTAT_MEMORY_SCOPE: "memory-tools-contract",
-                MENTAT_MCP_READY_FILE: receiptPath,
-                MENTAT_MCP_READY_TOKEN: readyToken,
-                MENTAT_MCP_PROBE_NONCE: probeNonce,
+                GETHEN_MEMORY_FILE: file,
+                GETHEN_MEMORY_SCOPE: "memory-tools-contract",
+                GETHEN_MCP_READY_FILE: receiptPath,
+                GETHEN_MCP_READY_TOKEN: readyToken,
+                GETHEN_MCP_PROBE_NONCE: probeNonce,
               },
             },
           },

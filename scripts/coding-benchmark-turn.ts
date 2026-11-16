@@ -2,9 +2,9 @@
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { environmentMcpSpec } from "@mentat/benchmark-file";
-import { createDefaultRegistry } from "@mentat/harnesses";
-import { createAssistantHost } from "@mentat/host";
+import { environmentMcpSpec } from "@gethen/benchmark-file";
+import { createDefaultRegistry } from "@gethen/harnesses";
+import { createAssistantHost } from "@gethen/host";
 import { benchmarkObservations } from "../packages/cli/src/lib/benchmark-observations";
 import { checkoutIdentity } from "../packages/cli/src/lib/benchmark-subject";
 
@@ -26,7 +26,7 @@ const out = resolve(destination);
 mkdirSync(out);
 // The archive stays controller-side, outside Harbor's model-visible log mounts.
 const sourceIdentity = checkoutIdentity(process.cwd(), config.sourceArchivePath);
-const cwd = mkdtempSync(join(tmpdir(), "mentat-task-"));
+const cwd = mkdtempSync(join(tmpdir(), "gethen-task-"));
 const environment = environmentMcpSpec(config);
 const tools = JSON.parse(readFileSync(config.toolsPath, "utf8")) as Array<{
   name: string;
@@ -36,8 +36,8 @@ const permitted = tools.map((tool) => `environment_${tool.name}`);
 const receiptPath = join(out, "catalog.jsonl");
 const environmentEnv = {
   ...environment.env,
-  MENTAT_MCP_READY_FILE: receiptPath,
-  MENTAT_MCP_READY_TOKEN: config.token,
+  GETHEN_MCP_READY_FILE: receiptPath,
+  GETHEN_MCP_READY_TOKEN: config.token,
 };
 const adapter = createDefaultRegistry("ask", {
   opencode: {

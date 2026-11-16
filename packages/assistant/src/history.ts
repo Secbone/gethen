@@ -1,5 +1,5 @@
-import { tokenize as baseTokenize } from "@mentat/memory";
-import type { ExperienceRecord } from "@mentat/session";
+import { tokenize as baseTokenize } from "@gethen/memory";
+import type { ExperienceRecord } from "@gethen/session";
 
 /** Historical observations are reference data, never a manual confirmation. */
 export interface HistoricalSession {

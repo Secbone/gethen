@@ -1,4 +1,4 @@
-import type { ExperienceRecord } from "@mentat/session";
+import type { ExperienceRecord } from "@gethen/session";
 import { historicalContext } from "./history";
 
 /** Native interactions remain observations. This never changes memory confirmation state. */

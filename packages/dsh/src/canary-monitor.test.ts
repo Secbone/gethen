@@ -1,5 +1,5 @@
-import { PackChannel } from "@mentat/evolve";
-import { defineCapabilityPack, packRef } from "@mentat/pack";
+import { PackChannel } from "@gethen/evolve";
+import { defineCapabilityPack, packRef } from "@gethen/pack";
 import { describe, expect, it } from "vitest";
 import { CanaryMonitor } from "./canary-monitor";
 import type { ReceiptStore, RuntimeReceipt } from "./runtime";

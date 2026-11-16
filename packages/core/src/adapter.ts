@@ -33,7 +33,7 @@ export interface McpServerSpec {
   command: string;
   args?: string[];
   env?: Record<string, string>;
-  /** Servers implementing Mentat catalog receipts declare their expected tool names. */
+  /** Servers implementing Gethen catalog receipts declare their expected tool names. */
   catalogTools?: string[];
 }
 

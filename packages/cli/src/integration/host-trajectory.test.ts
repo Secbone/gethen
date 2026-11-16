@@ -1,16 +1,16 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createFakeAdapter, MemoryTracer } from "@mentat/core";
-import { createAssistantHost } from "@mentat/host";
+import { createFakeAdapter, MemoryTracer } from "@gethen/core";
+import { createAssistantHost } from "@gethen/host";
 import {
   createMemoryAccess,
   InMemoryMemoryStore,
   type MemoryRepository,
   MemoryService,
-} from "@mentat/memory";
-import { inspectTrajectory, readTrajectory, resolveEventData } from "@mentat/observability";
-import type { ExperienceRecord } from "@mentat/session";
+} from "@gethen/memory";
+import { inspectTrajectory, readTrajectory, resolveEventData } from "@gethen/observability";
+import type { ExperienceRecord } from "@gethen/session";
 import { describe, expect, it } from "vitest";
 import { traceCommand } from "../commands/trace";
 
@@ -50,7 +50,7 @@ describe("host orchestration and observability", () => {
     expect(host.logDir).toBeUndefined();
   });
   it("persists a full task with feedback and validates its trajectory", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "mentat-host-"));
+    const cwd = mkdtempSync(join(tmpdir(), "gethen-host-"));
     const host = createAssistantHost({
       cwd,
       adapter: createFakeAdapter(),
@@ -88,7 +88,7 @@ describe("host orchestration and observability", () => {
     expect(await traceCommand(["compare", required(host.logDir), required(host.logDir)])).toBe(0);
   });
   it("links reflection failures to their parent task without modifying memory", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "mentat-host-reflect-"));
+    const cwd = mkdtempSync(join(tmpdir(), "gethen-host-reflect-"));
     const host = createAssistantHost({
       cwd,
       adapter: createFakeAdapter(),
@@ -112,8 +112,8 @@ describe("host orchestration and observability", () => {
 });
 
 it("feeds trace-linked external corrections into the experience digest", async () => {
-  const { ExperienceStore, buildExperienceDigest } = await import("@mentat/observability");
-  const cwd = mkdtempSync(join(tmpdir(), "mentat-feedback-"));
+  const { ExperienceStore, buildExperienceDigest } = await import("@gethen/observability");
+  const cwd = mkdtempSync(join(tmpdir(), "gethen-feedback-"));
   const host = createAssistantHost({
     cwd,
     adapter: createFakeAdapter(),
@@ -134,7 +134,7 @@ it("feeds trace-linked external corrections into the experience digest", async (
     "--correction",
     "deadline missed",
   ]);
-  const records = new ExperienceStore(join(cwd, ".mentat", "experience")).list();
+  const records = new ExperienceStore(join(cwd, ".gethen", "experience")).list();
   expect(records[0]?.feedback).toMatchObject([
     { source: "user", score: 0, correction: "deadline missed" },
   ]);
@@ -148,7 +148,7 @@ function required<T>(value: T | undefined): T {
 }
 
 it("reports ordinary experience failures without changing a completed task into failure", async () => {
-  const { InMemoryMemoryStore, MemoryService, createMemoryAccess } = await import("@mentat/memory");
+  const { InMemoryMemoryStore, MemoryService, createMemoryAccess } = await import("@gethen/memory");
   const store = new InMemoryMemoryStore();
   const service = new MemoryService(store);
   const errors: string[] = [];

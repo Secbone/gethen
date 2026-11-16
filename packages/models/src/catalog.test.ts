@@ -1,5 +1,5 @@
-import { createArtifactRegistry } from "@mentat/core";
-import { Context } from "@mentat/kernel";
+import { createArtifactRegistry } from "@gethen/core";
+import { Context } from "@gethen/kernel";
 import { describe, expect, it } from "vitest";
 import { MODEL_SERVICE, modelAdapter, modelCatalogArtifact } from "./artifact";
 import { ModelCatalog, type ModelDescriptor } from "./catalog";

@@ -7,113 +7,115 @@ import { fileURLToPath } from "node:url";
 import ts from "typescript";
 
 export const ALLOWED_WORKSPACE_DEPS = {
-  "@mentat/storage-file": [],
-  "@mentat/skills": [],
-  "@mentat/skills-file": ["@mentat/skills", "@mentat/storage-file"],
-  "@mentat/skills-mcp": ["@mentat/core", "@mentat/skills", "@mentat/skills-file"],
-  "@mentat/core": [],
-  "@mentat/domain": [],
-  "@mentat/dsh-client": [],
-  "@mentat/dsh": [
-    "@mentat/benchmark",
-    "@mentat/core",
-    "@mentat/domain",
-    "@mentat/effects",
-    "@mentat/evaluation",
-    "@mentat/evolve",
-    "@mentat/harnesses",
-    "@mentat/pack",
-    "@mentat/panel",
-    "@mentat/source-github",
-    "@mentat/store",
-    "@mentat/worker",
+  "@gethen/storage-file": [],
+  "@gethen/skills": [],
+  "@gethen/skills-file": ["@gethen/skills", "@gethen/storage-file"],
+  "@gethen/skills-mcp": ["@gethen/core", "@gethen/skills", "@gethen/skills-file"],
+  "@gethen/core": [],
+  "@gethen/domain": [],
+  "@gethen/router": ["@gethen/worker-bridge"],
+  "@gethen/worker-bridge": [],
+  "@gethen/dsh-client": [],
+  "@gethen/dsh": [
+    "@gethen/benchmark",
+    "@gethen/core",
+    "@gethen/domain",
+    "@gethen/effects",
+    "@gethen/evaluation",
+    "@gethen/evolve",
+    "@gethen/harnesses",
+    "@gethen/pack",
+    "@gethen/panel",
+    "@gethen/source-github",
+    "@gethen/store",
+    "@gethen/worker",
   ],
-  "@mentat/effects": ["@mentat/core", "@mentat/storage-file"],
-  "@mentat/pack": ["@mentat/core"],
-  "@mentat/panel": ["@mentat/domain"],
-  "@mentat/evolve": ["@mentat/core", "@mentat/effects", "@mentat/pack", "@mentat/storage-file"],
-  "@mentat/source-github": ["@mentat/domain", "@mentat/effects", "@mentat/storage-file"],
-  "@mentat/store": ["@mentat/domain", "@mentat/storage-file"],
-  "@mentat/worker": ["@mentat/core", "@mentat/domain", "@mentat/pack", "@mentat/session"],
-  "@mentat/benchmark": [],
-  "@mentat/benchmark-file": ["@mentat/benchmark", "@mentat/evaluation", "@mentat/storage-file"],
-  "@mentat/session": ["@mentat/core"],
-  "@mentat/host": [
-    "@mentat/skills-mcp",
-    "@mentat/core",
-    "@mentat/session",
-    "@mentat/assistant",
-    "@mentat/memory",
-    "@mentat/memory-file",
-    "@mentat/memory-mcp",
-    "@mentat/observability",
+  "@gethen/effects": ["@gethen/core", "@gethen/storage-file"],
+  "@gethen/pack": ["@gethen/core"],
+  "@gethen/panel": ["@gethen/domain"],
+  "@gethen/evolve": ["@gethen/core", "@gethen/effects", "@gethen/pack", "@gethen/storage-file"],
+  "@gethen/source-github": ["@gethen/domain", "@gethen/effects", "@gethen/storage-file"],
+  "@gethen/store": ["@gethen/domain", "@gethen/storage-file"],
+  "@gethen/worker": ["@gethen/core", "@gethen/domain", "@gethen/pack", "@gethen/session"],
+  "@gethen/benchmark": [],
+  "@gethen/benchmark-file": ["@gethen/benchmark", "@gethen/evaluation", "@gethen/storage-file"],
+  "@gethen/session": ["@gethen/core"],
+  "@gethen/host": [
+    "@gethen/skills-mcp",
+    "@gethen/core",
+    "@gethen/session",
+    "@gethen/assistant",
+    "@gethen/memory",
+    "@gethen/memory-file",
+    "@gethen/memory-mcp",
+    "@gethen/observability",
   ],
-  "@mentat/harnesses": ["@mentat/core", "@mentat/transport-pi", "@mentat/transport-acp"],
-  "@mentat/kernel": ["@mentat/core"],
-  "@mentat/evolution": ["@mentat/core", "@mentat/kernel"],
-  "@mentat/models": ["@mentat/core"],
-  "@mentat/memory": [],
-  "@mentat/memory-file": ["@mentat/memory", "@mentat/storage-file"],
-  "@mentat/observability": [
-    "@mentat/core",
-    "@mentat/evolution",
-    "@mentat/session",
-    "@mentat/storage-file",
+  "@gethen/harnesses": ["@gethen/core", "@gethen/transport-pi", "@gethen/transport-acp"],
+  "@gethen/kernel": ["@gethen/core"],
+  "@gethen/evolution": ["@gethen/core", "@gethen/kernel"],
+  "@gethen/models": ["@gethen/core"],
+  "@gethen/memory": [],
+  "@gethen/memory-file": ["@gethen/memory", "@gethen/storage-file"],
+  "@gethen/observability": [
+    "@gethen/core",
+    "@gethen/evolution",
+    "@gethen/session",
+    "@gethen/storage-file",
   ],
-  "@mentat/memory-mcp": ["@mentat/core", "@mentat/memory", "@mentat/memory-file"],
-  "@mentat/memory-evolution": ["@mentat/core", "@mentat/evolution", "@mentat/memory"],
-  "@mentat/evaluation": ["@mentat/core", "@mentat/evolution"],
-  "@mentat/workspace": ["@mentat/core", "@mentat/evolution", "@mentat/storage-file"],
-  "@mentat/assistant": [
-    "@mentat/session",
-    "@mentat/core",
-    "@mentat/memory",
-    "@mentat/memory-file",
-    "@mentat/observability",
+  "@gethen/memory-mcp": ["@gethen/core", "@gethen/memory", "@gethen/memory-file"],
+  "@gethen/memory-evolution": ["@gethen/core", "@gethen/evolution", "@gethen/memory"],
+  "@gethen/evaluation": ["@gethen/core", "@gethen/evolution"],
+  "@gethen/workspace": ["@gethen/core", "@gethen/evolution", "@gethen/storage-file"],
+  "@gethen/assistant": [
+    "@gethen/session",
+    "@gethen/core",
+    "@gethen/memory",
+    "@gethen/memory-file",
+    "@gethen/observability",
   ],
-  "@mentat/transport-pi": ["@mentat/core"],
-  "@mentat/transport-acp": ["@mentat/core"],
-  "@mentat/cli": [
-    "@mentat/benchmark",
-    "@mentat/benchmark-file",
-    "@mentat/session",
-    "@mentat/host",
-    "@mentat/harnesses",
-    "@mentat/assistant",
-    "@mentat/core",
-    "@mentat/evaluation",
-    "@mentat/evolution",
-    "@mentat/kernel",
-    "@mentat/memory",
-    "@mentat/memory-evolution",
-    "@mentat/memory-file",
-    "@mentat/memory-mcp",
-    "@mentat/models",
-    "@mentat/observability",
-    "@mentat/workspace",
-    "@mentat/transport-pi",
-    "@mentat/transport-acp",
+  "@gethen/transport-pi": ["@gethen/core"],
+  "@gethen/transport-acp": ["@gethen/core"],
+  "@gethen/cli": [
+    "@gethen/benchmark",
+    "@gethen/benchmark-file",
+    "@gethen/session",
+    "@gethen/host",
+    "@gethen/harnesses",
+    "@gethen/assistant",
+    "@gethen/core",
+    "@gethen/evaluation",
+    "@gethen/evolution",
+    "@gethen/kernel",
+    "@gethen/memory",
+    "@gethen/memory-evolution",
+    "@gethen/memory-file",
+    "@gethen/memory-mcp",
+    "@gethen/models",
+    "@gethen/observability",
+    "@gethen/workspace",
+    "@gethen/transport-pi",
+    "@gethen/transport-acp",
   ],
 };
 
 const TEST_ONLY_DEPS = {
-  "@mentat/models": ["@mentat/kernel"],
-  "@mentat/memory-evolution": ["@mentat/kernel"],
+  "@gethen/models": ["@gethen/kernel"],
+  "@gethen/memory-evolution": ["@gethen/kernel"],
 };
 const PURE_PACKAGES = new Set([
-  "@mentat/skills",
-  "@mentat/benchmark",
-  "@mentat/session",
-  "@mentat/assistant",
-  "@mentat/core",
-  "@mentat/domain",
-  "@mentat/pack",
-  "@mentat/panel",
-  "@mentat/kernel",
-  "@mentat/evolution",
-  "@mentat/models",
-  "@mentat/memory",
-  "@mentat/memory-evolution",
+  "@gethen/skills",
+  "@gethen/benchmark",
+  "@gethen/session",
+  "@gethen/assistant",
+  "@gethen/core",
+  "@gethen/domain",
+  "@gethen/pack",
+  "@gethen/panel",
+  "@gethen/kernel",
+  "@gethen/evolution",
+  "@gethen/models",
+  "@gethen/memory",
+  "@gethen/memory-evolution",
 ]);
 
 function* walk(dir) {
@@ -162,7 +164,7 @@ export function checkLayering(root, options = {}) {
     const manifestPath = join(pkgDir, "package.json");
     if (!existsSync(manifestPath)) continue;
     const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-    if (!manifest.name?.startsWith("@mentat/")) continue;
+    if (!manifest.name?.startsWith("@gethen/")) continue;
     if (
       options.verifyAllowedTable &&
       (!manifest.scripts?.typecheck || !existsSync(join(pkgDir, "tsconfig.json")))
@@ -197,10 +199,10 @@ export function checkLayering(root, options = {}) {
       continue;
     }
     const declared = new Set(
-      Object.keys(manifest.dependencies ?? {}).filter((dep) => dep.startsWith("@mentat/")),
+      Object.keys(manifest.dependencies ?? {}).filter((dep) => dep.startsWith("@gethen/")),
     );
     const dev = new Set(
-      Object.keys(manifest.devDependencies ?? {}).filter((dep) => dep.startsWith("@mentat/")),
+      Object.keys(manifest.devDependencies ?? {}).filter((dep) => dep.startsWith("@gethen/")),
     );
     const used = new Set();
     const production = new Set();
@@ -225,7 +227,7 @@ export function checkLayering(root, options = {}) {
         if (PURE_PACKAGES.has(name) && !test && isBuiltin(alias)) {
           violations.push(`${label}: ${name} must stay pure; cannot import ${alias}`);
         }
-        if (!alias.startsWith("@mentat/")) continue;
+        if (!alias.startsWith("@gethen/")) continue;
         const dependency = names.find(
           (candidate) => alias === candidate || alias.startsWith(`${candidate}/`),
         );

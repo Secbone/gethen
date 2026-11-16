@@ -1,4 +1,4 @@
-import type { Candidate, Gate, GateResult } from "@mentat/evolution";
+import type { Candidate, Gate, GateResult } from "@gethen/evolution";
 import { parseMemoryEntries } from "./artifact";
 
 const NAME = "memory-schema";

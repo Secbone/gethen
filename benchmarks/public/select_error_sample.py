@@ -10,7 +10,7 @@ from collections import Counter
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-BASE = ROOT / ".mentat/public-evaluations"
+BASE = ROOT / ".gethen/public-evaluations"
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--out", type=Path, required=True)
 args = parser.parse_args()
@@ -23,11 +23,11 @@ for path in sources[1:]:
     for item in json.loads(path.read_text())["items"]:
         replacement = item["replacement"]
         rows[replacement["question_id"], replacement["agent"]] = replacement
-errors = [r for r in rows.values() if r["agent"] == "mentat-episodic" and r["correct"] is False]
+errors = [r for r in rows.values() if r["agent"] == "gethen-episodic" and r["correct"] is False]
 quotas = {"multi-session": (8, 6), "temporal-reasoning": (8, 6),
           "single-session-preference": (4, 2), "single-session-user": (4, 2),
           "single-session-assistant": (2, 2), "knowledge-update": (4, 2)}
-seed = "mentat-longmemeval-prior-error50-v1"
+seed = "gethen-longmemeval-prior-error50-v1"
 selected = []
 for category, counts in quotas.items():
     for dsml, count in zip([True, False], counts):
@@ -45,7 +45,7 @@ for category, counts in quotas.items():
 selected.sort(key=lambda r: hashlib.sha256((seed + r["questionId"]).encode()).hexdigest())
 assert len(selected) == len({r["questionId"] for r in selected}) == 50
 plan = {"schemaVersion": 1, "kind": "fixed-prior-error-diagnostic", "seed": seed,
-        "selection": "50 prior Mentat errors, 30 with DSML text and20 without; fixed category quotas; prioritize abstention within each stratum; SHA256 deterministic order",
+        "selection": "50 prior Gethen errors, 30 with DSML text and20 without; fixed category quotas; prioritize abstention within each stratum; SHA256 deterministic order",
         "claimBoundary": "Post-hoc error cohort; no full-dataset accuracy or unbiased improvement estimate. Original results immutable. Exactly one inference per selected question; no answer resampling.",
         "sources": [{"path": str(p.relative_to(ROOT)), "sha256": hashlib.sha256(p.read_bytes()).hexdigest()} for p in sources],
         "byType": dict(Counter(r["questionType"] for r in selected)),

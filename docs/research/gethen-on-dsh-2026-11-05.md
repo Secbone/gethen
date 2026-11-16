@@ -1,14 +1,14 @@
-# Mentat on DSH：产品定位与架构
+# Gethen on DSH：产品定位与架构
 
-日期：2026-11-05。状态：设计提案，Phase 0 spike 后确认。配套决策：[ADR-0007](../adr/0007-dsh-hosted-mentat.md)。
+日期：2026-11-05。状态：设计提案，Phase 0 spike 后确认。配套决策：[ADR-0007](../adr/0007-dsh-hosted-gethen.md)。
 
 ## 0. 结论
 
-Mentat 仍然是一个产品，但不再自己造 agent runtime。它基于 DeepSeek Harness（DSH）的插件生态构建，参考 Super-agent 的 Router/Worker 运行逻辑，把执行面开放给异构 Worker（Pi、OpenCode、Codex、DSH-native），把自进化放在控制面完成，并以版本化的 **Capability Pack** 下发给 Worker。
+Gethen 仍然是一个产品，但不再自己造 agent runtime。它基于 DeepSeek Harness（DSH）的插件生态构建，参考 Super-agent 的 Router/Worker 运行逻辑，把执行面开放给异构 Worker（Pi、OpenCode、Codex、DSH-native），把自进化放在控制面完成，并以版本化的 **Capability Pack** 下发给 Worker。
 
 一句话定位：
 
-> **DSH 是宿主，Super-agent 是运行逻辑参考，Mentat 是"异构 Worker 的控制面 + 自进化能力层"。**
+> **DSH 是宿主，Super-agent 是运行逻辑参考，Gethen 是"异构 Worker 的控制面 + 自进化能力层"。**
 
 ## 1. 背景
 
@@ -26,7 +26,7 @@ Mentat 仍然是一个产品，但不再自己造 agent runtime。它基于 Deep
 - `ctx.agents` / `ctx.subagents`：agent 生命周期与子代理；
 - worktree、sandbox、审批、settings、telemetry、web panel、plugin manager。
 
-这些能力不应该在 Mentat 里重写。
+这些能力不应该在 Gethen 里重写。
 
 ### 1.2 Super-agent 提供什么
 
@@ -39,18 +39,18 @@ DeepSeek 的 Super-agent（`dsh-superagent-prototype`，MIT，research prototype
 - **durable effects / outbox**：外部副作用先入队、提交后执行、失败重试；
 - **Prompt / Settings / Panel**：版本化 prompt、团队 section、技能、执行环境、只显示"需要人"的面板。
 
-它默认只面向单个 GitHub 仓库（可选 Feishu），Worker 是 DSH Session。这两点正是 Mentat 要泛化的地方。
+它默认只面向单个 GitHub 仓库（可选 Feishu），Worker 是 DSH Session。这两点正是 Gethen 要泛化的地方。
 
-### 1.3 Mentat 的现状
+### 1.3 Gethen 的现状
 
-Mentat 已有：
+Gethen 已有：
 
-- `@mentat/session`、`@mentat/host`、`@mentat/harnesses`、`transport-pi`、`transport-acp`：单会话执行与多引擎接入；
-- `@mentat/memory`、`@mentat/skills`、`memory-file`、`skills-file`：记忆与流程知识；
-- `@mentat/workspace`：Git worktree 与内容寻址候选；
-- `@mentat/observability`：轨迹、经验、receipt；
-- `@mentat/evaluation`、`@mentat/benchmark`、`@mentat/evolution`：评测、基准、制品演化；
-- `@mentat/cli`：run/chat/iterate/evolve。
+- `@gethen/session`、`@gethen/host`、`@gethen/harnesses`、`transport-pi`、`transport-acp`：单会话执行与多引擎接入；
+- `@gethen/memory`、`@gethen/skills`、`memory-file`、`skills-file`：记忆与流程知识；
+- `@gethen/workspace`：Git worktree 与内容寻址候选；
+- `@gethen/observability`：轨迹、经验、receipt；
+- `@gethen/evaluation`、`@gethen/benchmark`、`@gethen/evolution`：评测、基准、制品演化；
+- `@gethen/cli`：run/chat/iterate/evolve。
 
 缺口：常驻 Runtime、多工单、Source/Trigger/Thread、Policy/Mandate、durable effects、Router/Worker、Panel。
 
@@ -58,10 +58,10 @@ Mentat 已有：
 
 | 方案 | 问题 |
 |---|---|
-| 全量变成 DSH/Super-agent bundle | 丢掉 Mentat 的证据/进化层，产品变成 DeepSeek 应用的分支 |
-| 把 DSH 架构整体搬进 Mentat | 重造 session/tool/sandbox/UI，维护成本高且追不上 |
+| 全量变成 DSH/Super-agent bundle | 丢掉 Gethen 的证据/进化层，产品变成 DeepSeek 应用的分支 |
+| 把 DSH 架构整体搬进 Gethen | 重造 session/tool/sandbox/UI，维护成本高且追不上 |
 | 保持现有平行 runtime | 无法以合理成本提供常驻、多工单、多 Worker 的产品 |
-| **DSH 宿主 + Mentat 产品层 + 异构 Worker** | **复用生态，保留差异化，Worker 可选** |
+| **DSH 宿主 + Gethen 产品层 + 异构 Worker** | **复用生态，保留差异化，Worker 可选** |
 
 选择最后一种，并用 **控制面 / 执行面** 的边界避免两套 agent loop 打架。
 
@@ -69,7 +69,7 @@ Mentat 已有：
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│ 控制面（DSH Host + Mentat Plugins）                           │
+│ 控制面（DSH Host + Gethen Plugins）                           │
 │                                                              │
 │  Router Session        Domain Service         Panel          │
 │  Source/Trigger/Thread  Ticket/Mandate/Policy  Overview       │
@@ -93,7 +93,7 @@ Mentat 已有：
 
 ### 3.1 职责边界
 
-**控制面（DSH 里的 Mentat 插件）**
+**控制面（DSH 里的 Gethen 插件）**
 
 - 接收 Source 事件，维护 Trigger/Thread；
 - 运行 Eval（gate + assessment），产生 Decision；
@@ -120,7 +120,7 @@ Mentat 已有：
 
 ## 4. 领域模型（参考 Super-agent）
 
-| 概念 | 定义 | Mentat 的处理 |
+| 概念 | 定义 | Gethen 的处理 |
 |---|---|---|
 | Source | 事件流；kind + instance | 复用 Super-agent 的 Source 协议，新增企业内部 Source |
 | Trigger | 不可变事件 + Source 元数据 | 进入 Engine，幂等 |
@@ -132,46 +132,46 @@ Mentat 已有：
 | Assignment | Ticket 与一个 Worker 实例的绑定 | 记录 Worker id、workspace、Pack digest |
 | Subscription | Ticket 与 Thread 的关系 | 只提供上下文，不授予权限 |
 | Channel | 写回 Source 的通道 | 复用 Super-agent 的 Channel |
-| Policy | 版本化规则 + Source 允许列表 + admission + accept mode | 核心使用 Super-agent 模型；Mentat 扩展规则 |
+| Policy | 版本化规则 + Source 允许列表 + admission + accept mode | 核心使用 Super-agent 模型；Gethen 扩展规则 |
 | Input | 送给 Ticket 的上下文 | 记录是否已读、是否被 Executor 接管 |
 | Report | Assignment 的状态报告 | 统一 Worker 事件后的结构化报告 |
 
-如果 Super-agent 开源版的 domain/panel 足够通用，优先复用并扩展；如果它绑定单仓库 GitHub，Mentat 在自己的 domain 包里泛化，而不是改它的核心。
+如果 Super-agent 开源版的 domain/panel 足够通用，优先复用并扩展；如果它绑定单仓库 GitHub，Gethen 在自己的 domain 包里泛化，而不是改它的核心。
 
 ## 5. 控制面：DSH 集成点
 
-| DSH 能力 | Mentat 用法 |
+| DSH 能力 | Gethen 用法 |
 |---|---|
 | `ctx.sessions` | Router、Dream、Evolution 的会话；Worker session 的外部引用 |
 | `ctx.sessionQuery` | Dream 回放历史、Evolution 选择经验 |
 | `ctx.tools` | `memory_search`、`memory_write`、`skill_*`、`eval_*`、`dream_*`、`evolve_*`、`worker_*` |
 | `ctx.systemPrompt` | 注入 memory/skill/policy 段；按 Pack 版本组装 |
-| `ctx.skills` | Mentat 只注册 **skill provider**，不替换 registry |
+| `ctx.skills` | Gethen 只注册 **skill provider**，不替换 registry |
 | `ctx.schedule` | Dream 的每日/每周整理；Evolution 的定期评测 |
 | `ctx.jobs` | 长时评测、跨 Worker 矩阵、批量回放 |
 | `ctx.agents` / `ctx.subagents` | Router、Dream、Evolution 的"思考型"会话 |
 | settings | Pack、Worker、Policy、Dream 的配置与版本 |
 | panel | Overview / Workers / Evolution / Dream / Memory / Settings |
 | telemetry | Receipt、归因、成本、延迟 |
-| authorization | Super-agent Policy + Mentat 扩展规则；不要重写 gate |
+| authorization | Super-agent Policy + Gethen 扩展规则；不要重写 gate |
 
 ### 5.1 插件/包布局
 
 ```
-@mentat/contracts              # 纯类型：ArtifactRef / Receipt / EvalProtocol / Pack / Report
-@mentat/domain                 # 纯领域：Source/Trigger/Thread/Eval/Ticket/Mandate/Policy/Assignment
-@mentat/dsh                    # Cordis 插件/服务/工具/Panel 的适配层
-@mentat/worker                 # WorkerAdapter 协议 + FakeWorker + 能力协商
-@mentat/worker-pi              # Pi adapter
-@mentat/worker-opencode        # OpenCode/ACP adapter
-@mentat/worker-codex           # Codex adapter
-@mentat/plugin-memory          # 记忆 service + tools + 注入 + 存储 + panel
-@mentat/plugin-skill           # ctx.skills 的 provider（版本/审查/恢复）
-@mentat/plugin-eval            # 协议、receipt、归因、benchmark、panel
-@mentat/plugin-evolve          # artifact registry + propose/eval/gate/archive
-@mentat/plugin-dream           # schedule/jobs + session replay + consolidation
-@mentat/plugin-source-*        # 额外 Source
-@mentat/superagent-pack        # bundle：一次安装上述插件
+@gethen/contracts              # 纯类型：ArtifactRef / Receipt / EvalProtocol / Pack / Report
+@gethen/domain                 # 纯领域：Source/Trigger/Thread/Eval/Ticket/Mandate/Policy/Assignment
+@gethen/dsh                    # Cordis 插件/服务/工具/Panel 的适配层
+@gethen/worker                 # WorkerAdapter 协议 + FakeWorker + 能力协商
+@gethen/worker-pi              # Pi adapter
+@gethen/worker-opencode        # OpenCode/ACP adapter
+@gethen/worker-codex           # Codex adapter
+@gethen/plugin-memory          # 记忆 service + tools + 注入 + 存储 + panel
+@gethen/plugin-skill           # ctx.skills 的 provider（版本/审查/恢复）
+@gethen/plugin-eval            # 协议、receipt、归因、benchmark、panel
+@gethen/plugin-evolve          # artifact registry + propose/eval/gate/archive
+@gethen/plugin-dream           # schedule/jobs + session replay + consolidation
+@gethen/plugin-source-*        # 额外 Source
+@gethen/superagent-pack        # bundle：一次安装上述插件
 ```
 
 依赖方向：
@@ -274,8 +274,8 @@ export interface CapabilityPack {
 - Pack 可以 canary、回滚、按 Worker/任务类型分组；
 - Pack 的变更必须经过 Eval + Gate，不能直接改线上。
 
-2026-11-06 首版实现：`@mentat/pack` 定义 `CapabilityPack` 与
-`defineCapabilityPack()`，对整包做内容寻址；`MentatRuntime` 把 digest 写入
+2026-11-06 首版实现：`@gethen/pack` 定义 `CapabilityPack` 与
+`defineCapabilityPack()`，对整包做内容寻址；`GethenRuntime` 把 digest 写入
 Assignment 和 receipt；`HarnessWorker` 注入 prompt/model/MCP/executionPolicy，
 对 skills、memory 和 tool allowlist 目前显式报错，而不是静默丢弃。skills/memory
 的真实注入由后续的 Skill/Memory 插件提供。
@@ -337,17 +337,17 @@ tasks × workers × packs × protocols
 
 | 插件 | 职责 | DSH hooks | 依赖 |
 |---|---|---|---|
-| `@mentat/contracts` | 纯类型/协议 | 无（不是插件） | 无 |
-| `@mentat/domain` | 领域规则、Engine、Policy、Stage | 无（纯逻辑） | contracts |
-| `@mentat/dsh` | Cordis 插件/服务/工具/Panel 适配 | 全部 | domain/contracts |
-| `@mentat/worker` | WorkerAdapter + FakeWorker | `ctx.jobs`（可选） | contracts/workspace |
-| `@mentat/plugin-memory` | 长期记忆 | tools/systemPrompt/sessions | contracts |
-| `@mentat/plugin-skill` | 技能 provider | skills | contracts |
-| `@mentat/plugin-eval` | 评测/回执/归因 | tools/jobs/telemetry/panel | contracts |
-| `@mentat/plugin-evolve` | 制品演化 | jobs/schedule/panel | memory/eval/skill |
-| `@mentat/plugin-dream` | 离线整理 | schedule/jobs/sessionQuery/panel | memory/eval/skill |
-| `@mentat/plugin-source-*` | 额外来源 | Source 协议 | domain |
-| `@mentat/superagent-pack` | bundle | 安装入口 | 上述全部 |
+| `@gethen/contracts` | 纯类型/协议 | 无（不是插件） | 无 |
+| `@gethen/domain` | 领域规则、Engine、Policy、Stage | 无（纯逻辑） | contracts |
+| `@gethen/dsh` | Cordis 插件/服务/工具/Panel 适配 | 全部 | domain/contracts |
+| `@gethen/worker` | WorkerAdapter + FakeWorker | `ctx.jobs`（可选） | contracts/workspace |
+| `@gethen/plugin-memory` | 长期记忆 | tools/systemPrompt/sessions | contracts |
+| `@gethen/plugin-skill` | 技能 provider | skills | contracts |
+| `@gethen/plugin-eval` | 评测/回执/归因 | tools/jobs/telemetry/panel | contracts |
+| `@gethen/plugin-evolve` | 制品演化 | jobs/schedule/panel | memory/eval/skill |
+| `@gethen/plugin-dream` | 离线整理 | schedule/jobs/sessionQuery/panel | memory/eval/skill |
+| `@gethen/plugin-source-*` | 额外来源 | Source 协议 | domain |
+| `@gethen/superagent-pack` | bundle | 安装入口 | 上述全部 |
 
 ### 9.1 粒度判断
 
@@ -371,9 +371,9 @@ tasks × workers × packs × protocols
 
 ## 10. 产品形态
 
-- 安装：`dsh plugin --profile <name> add @mentat/superagent-pack`；
-- 启动：`dsh <profile>`，Mentat 作为 bundle 挂载；
-- 命令：`dsh mentat status`、`dsh mentat worker list`、`dsh mentat evolve ...`（或 panel 操作）；
+- 安装：`dsh plugin --profile <name> add @gethen/superagent-pack`；
+- 启动：`dsh <profile>`，Gethen 作为 bundle 挂载；
+- 命令：`dsh gethen status`、`dsh gethen worker list`、`dsh gethen evolve ...`（或 panel 操作）；
 - Panel：
   - **Overview**：需要人决策的 Ticket、Worker 健康、Evolution 候选；
   - **Workers**：Worker 列表、能力、负载、最近 Assignment；
@@ -399,7 +399,7 @@ tasks × workers × packs × protocols
 
 ## 12. 路线图
 
-### Phase 0：DSH spike（不改 Mentat）
+### Phase 0：DSH spike（不改 Gethen）
 
 - 安装并起 `dsh web` / `headless` / `acp`；
 - 写最小 Cordis 插件：service + tool + panel page；
@@ -412,9 +412,9 @@ tasks × workers × packs × protocols
 
 ### Phase 1：控制面
 
-- `@mentat/contracts` + `@mentat/domain`（纯逻辑 + 内存仓储测试）；
-- `@mentat/dsh` 插件骨架；
-- `@mentat/worker` + FakeWorker + OpenCode/Pi adapter；
+- `@gethen/contracts` + `@gethen/domain`（纯逻辑 + 内存仓储测试）；
+- `@gethen/dsh` 插件骨架；
+- `@gethen/worker` + FakeWorker + OpenCode/Pi adapter；
 - 一个端到端：Source → Ticket → Assignment → Worker → Report → Channel。
 
 ### Phase 2：CapabilityPack + 评测
@@ -439,7 +439,7 @@ tasks × workers × packs × protocols
 
 ## 13. 验收标准
 
-- DSH 能加载 Mentat bundle，不修改 DSH 源码；
+- DSH 能加载 Gethen bundle，不修改 DSH 源码；
 - Router 能创建 Ticket、选择 Worker、记录 Pack digest；
 - Worker 能通过 adapter 执行并返回结构化 Report；
 - Receipt 能回答"哪个 Worker、哪个 Pack、什么协议、什么信号、是否注入"；
@@ -452,10 +452,10 @@ tasks × workers × packs × protocols
 
 1. Super-agent 开源后，domain/panel 复用多少？是否直接扩展它的 bundle？
 2. DSH 版本策略：pin 到 rc，还是跟 minor？CI 是否同时测两个版本？
-3. 状态存储：Mentat 自己的 SQLite，还是复用 DSH storage？Ticket/Assignment 与 session log 如何关联？
+3. 状态存储：Gethen 自己的 SQLite，还是复用 DSH storage？Ticket/Assignment 与 session log 如何关联？
 4. Worker 能力协商的最小集是什么？哪些能力必须支持才能接入？
 5. CapabilityPack 的签名/审批：是否需要 in-toto/SLSA 式 attestation？
-6. 多租户/多用户隔离：一个 DSH profile 一个 Mentat 实例，还是多实例？
+6. 多租户/多用户隔离：一个 DSH profile 一个 Gethen 实例，还是多实例？
 7. "Dream" 的命名和产品语义是否保留？是否叫 "Consolidation" 更清晰？
 8. 旧 `run/chat/iterate/evolve` 是保留为 standalone，还是逐步移除？
 
@@ -472,4 +472,4 @@ tasks × workers × packs × protocols
 - Super-agent architecture: https://github.com/deepseek-ai/dsh-superagent-prototype/blob/main/docs/007-architecture.md
 - Cordis: https://github.com/cordiverse/cordis
 - 本仓库既有制品/回执设计：[artifact-architecture-2026-10-22.md](artifact-architecture-2026-10-22.md)
-- 本仓库既有 DSH 相关决策：[ADR-0007](../adr/0007-dsh-hosted-mentat.md)
+- 本仓库既有 DSH 相关决策：[ADR-0007](../adr/0007-dsh-hosted-gethen.md)

@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { assert, summarizeRun, validatePlan } from "@mentat/benchmark";
+import { assert, summarizeRun, validatePlan } from "@gethen/benchmark";
 import { describe, expect, it } from "vitest";
 import { defaultResultAdapters } from "./adapters";
 import { makeRun } from "./storage";

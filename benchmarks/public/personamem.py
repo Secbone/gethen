@@ -23,10 +23,10 @@ from resources import require_disk
 from upstream import load_function
 
 ROOT = Path(__file__).resolve().parents[2]
-DATA = ROOT / ".mentat/benchmark-data/personamem-v2"
-UPSTREAM = ROOT / ".mentat/upstream/personamem-v2"
+DATA = ROOT / ".gethen/benchmark-data/personamem-v2"
+UPSTREAM = ROOT / ".gethen/upstream/personamem-v2"
 BENCHMARK = DATA / "benchmark/text/benchmark.csv"
-AGENTS = ["mentat-episodic", "personamem-v2-long-context"]
+AGENTS = ["gethen-episodic", "personamem-v2-long-context"]
 SUFFIX = " Please recall my related preferences from our conversation history to give personalized responses."
 
 
@@ -70,7 +70,7 @@ def load_history(relative):
 def evidence(response):
     if "observations" in response:
         return response["observations"], str(Path(response["evidenceDir"]).parent.parent / "response.json")
-    path = Path(response["mentat"]["evidenceDir"]).parent
+    path = Path(response["gethen"]["evidenceDir"]).parent
     return json.loads((path / "verification.json").read_text()), str(path / "response.json")
 
 
@@ -161,7 +161,7 @@ def main():
             row = {"caseId": item["id"], "size": item["size"], "personaId": item["row"]["persona_id"],
                    "agent": agent, "status": "error", "correct": None, "costUsd": None, "evidence": []}
             try:
-                if agent == "mentat-episodic":
+                if agent == "gethen-episodic":
                     response = client.subject(None, item["query"], corpus_id=history["corpusId"], policy=item["policy"])
                     text = response["text"]
                 else:

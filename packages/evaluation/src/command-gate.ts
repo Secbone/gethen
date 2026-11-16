@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
-import type { JsonValue, Tracer } from "@mentat/core";
-import type { Gate, GateResult } from "@mentat/evolution";
+import type { JsonValue, Tracer } from "@gethen/core";
+import type { Gate, GateResult } from "@gethen/evolution";
 
 export interface CommandSpec {
   tracer?: Tracer;

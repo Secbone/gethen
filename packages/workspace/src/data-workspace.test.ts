@@ -7,8 +7,8 @@ import {
   createArtifact,
   createArtifactRegistry,
   type JsonValue,
-} from "@mentat/core";
-import type { Candidate } from "@mentat/evolution";
+} from "@gethen/core";
+import type { Candidate } from "@gethen/evolution";
 import { describe, expect, it } from "vitest";
 import { JsonStoreWorkspace } from "./data-workspace";
 
@@ -43,7 +43,7 @@ function rootCandidate(): Candidate {
 
 describe("JsonStoreWorkspace", () => {
   it("rejects a competing commit without rolling back the other writer", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "mentat-data-conflict-"));
+    const dir = mkdtempSync(join(tmpdir(), "gethen-data-conflict-"));
     const artifacts = registry();
     const a = new JsonStoreWorkspace(dir, rootCandidate(), artifacts),
       b = new JsonStoreWorkspace(dir, rootCandidate(), artifacts);
@@ -56,7 +56,7 @@ describe("JsonStoreWorkspace", () => {
   });
 
   it("never overwrites a resumed root, and only resumes committed candidates", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "mentat-data-resume-"));
+    const dir = mkdtempSync(join(tmpdir(), "gethen-data-resume-"));
     const artifacts = registry();
     const workspace = new JsonStoreWorkspace(dir, rootCandidate(), artifacts);
     await expect(
@@ -72,7 +72,7 @@ describe("JsonStoreWorkspace", () => {
   });
 
   it("persists candidates as content-addressed references, not inline payloads", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "mentat-data-"));
+    const dir = mkdtempSync(join(tmpdir(), "gethen-data-"));
     const artifacts = registry();
     const workspace = new JsonStoreWorkspace(dir, rootCandidate(), artifacts);
 
@@ -98,7 +98,7 @@ describe("JsonStoreWorkspace", () => {
   });
 
   it("loads the active candidate from disk and rehydrates its payload", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "mentat-data-"));
+    const dir = mkdtempSync(join(tmpdir(), "gethen-data-"));
     const artifacts = registry();
     const workspace = new JsonStoreWorkspace(dir, rootCandidate(), artifacts);
     const child = await workspace.apply({
@@ -112,12 +112,12 @@ describe("JsonStoreWorkspace", () => {
     expect(loaded?.id).toBe("c1");
     expect(rowsAdapter.parse(loaded?.artifacts[0]?.payload)).toEqual([{ id: "m1", text: "hello" }]);
 
-    const emptyDir = mkdtempSync(join(tmpdir(), "mentat-data-"));
+    const emptyDir = mkdtempSync(join(tmpdir(), "gethen-data-"));
     expect(JsonStoreWorkspace.load(emptyDir, artifacts)).toBeUndefined();
   });
 
   it("detects a payload that was modified on disk", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "mentat-data-"));
+    const dir = mkdtempSync(join(tmpdir(), "gethen-data-"));
     const artifacts = registry();
     const workspace = new JsonStoreWorkspace(dir, rootCandidate(), artifacts);
     const child = await workspace.apply({
@@ -139,7 +139,7 @@ describe("JsonStoreWorkspace", () => {
   });
 
   it("refuses code artifacts in a data workspace", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "mentat-data-"));
+    const dir = mkdtempSync(join(tmpdir(), "gethen-data-"));
     const artifacts = registry();
     const workspace = new JsonStoreWorkspace(dir, rootCandidate(), artifacts);
     const codeAdapter: ArtifactAdapter<{ commit: string }> = {

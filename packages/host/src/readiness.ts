@@ -1,4 +1,4 @@
-import type { TurnResult } from "@mentat/session";
+import type { TurnResult } from "@gethen/session";
 
 export interface ReadinessProbe {
   toolName: string;

@@ -1,5 +1,5 @@
 {
-  "name": "@mentat/source-github",
+  "name": "@gethen/source-github",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -12,9 +12,9 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@mentat/domain": "workspace:*",
-    "@mentat/effects": "workspace:*",
-    "@mentat/storage-file": "workspace:*"
+    "@gethen/domain": "workspace:*",
+    "@gethen/effects": "workspace:*",
+    "@gethen/storage-file": "workspace:*"
   },
   "description": "GitHub Source: repository events to Triggers and Channel writes"
 }

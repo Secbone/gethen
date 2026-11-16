@@ -5,7 +5,7 @@ interface LoaderEntry {
   factory(require: (name: string) => unknown): { apply(ctx: unknown): void };
 }
 
-describe("Mentat client plugin", () => {
+describe("Gethen client plugin", () => {
   it("registers a settings section that reads the overview route", async () => {
     let entry: LoaderEntry | undefined;
     (globalThis as { window?: unknown }).window = {
@@ -59,11 +59,11 @@ describe("Mentat client plugin", () => {
         },
       },
     });
-    expect(entry.id).toBe("@mentat/dsh-client");
-    expect(dictionaries).toEqual(["mentat"]);
+    expect(entry.id).toBe("@gethen/dsh-client");
+    expect(dictionaries).toEqual(["gethen"]);
     expect(registered[0]).toMatchObject({
       name: "settings.section",
-      id: "mentat",
+      id: "gethen",
       order: 80,
     });
     expect(registered[0]?.label?.()).toBe("nav");

@@ -12,7 +12,7 @@
     "n_cancelled_trials": 0,
     "n_retries": 0,
     "evals": {
-      "mentat__deepseek-v4.1-flash__adhoc": {
+      "gethen__deepseek-v4.1-flash__adhoc": {
         "n_trials": 0,
         "n_errors": 1,
         "metrics": [

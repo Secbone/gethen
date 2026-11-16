@@ -1,4 +1,4 @@
-import { defineCapabilityPack } from "@mentat/pack";
+import { defineCapabilityPack } from "@gethen/pack";
 import { describe, expect, it } from "vitest";
 import { PackChannel, type PackChannelSnapshot } from "./channel";
 

@@ -9,8 +9,8 @@ from fractions import Fraction
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-MAIN = ROOT / '.mentat/experiments/personal-assistant/expanded-1791963400008'
-DIAG = ROOT / '.mentat/experiments/personal-assistant/expanded-diagnostics-1791964672144'
+MAIN = ROOT / '.gethen/experiments/personal-assistant/expanded-1791963400008'
+DIAG = ROOT / '.gethen/experiments/personal-assistant/expanded-diagnostics-1791964672144'
 
 
 def read(path):

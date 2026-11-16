@@ -1,6 +1,6 @@
 """Small, pinned SWE-bench Pro V2 evaluation; original Harbor tasks and verifier.
 
-Runs each case sequentially: oracle, empty patch, Mentat, fresh-container replay.
+Runs each case sequentially: oracle, empty patch, Gethen, fresh-container replay.
 All attempts have separate job directories. Never turns infrastructure errors into scores.
 """
 from __future__ import annotations
@@ -113,7 +113,7 @@ def cached_calibration(source, manifest, case, image_identity):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--upstream", type=Path, default=ROOT / ".mentat/upstream/swe-bench-pro-sparse")
+    parser.add_argument("--upstream", type=Path, default=ROOT / ".gethen/upstream/swe-bench-pro-sparse")
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--model", default="opencode-go/deepseek-v4.1-flash")
     parser.add_argument("--limit", type=int, choices=[1, 2, 3], default=3)
@@ -129,7 +129,7 @@ def main():
     subject_revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
     changed = subprocess.check_output(["git", "diff", "HEAD", "--binary"], cwd=ROOT)
     (out / "subject-tracked.diff").write_bytes(changed)
-    subject_files = [ROOT / "scripts/coding-benchmark-turn.ts", Path(__file__).resolve(), Path(__file__).with_name("mentat_agent.py")]
+    subject_files = [ROOT / "scripts/coding-benchmark-turn.ts", Path(__file__).resolve(), Path(__file__).with_name("gethen_agent.py")]
     manifest = {"benchmark": "swe-bench-pro-v2", "track": "adapted-budget-development-sample", "upstreamRevision": revision, "subjectRevision": subject_revision, "subjectDirty": bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT)), "subjectDiffSha256": hashlib.sha256(changed).hexdigest(), "bridgeFiles": {str(p.relative_to(ROOT)): digest(p) for p in subject_files}, "model": args.model, "memory": "reset-disabled", "timeoutMs": args.timeout_ms, "maxSteps": args.max_steps, "selection": "First lexicographic task in each of NodeBB, ansible and openlibrary; selected before model inference, not random or representative", "ids": ids, "tasks": {}}
     manifest["runtime"] = {
         "docker": json.loads(subprocess.check_output(["docker", "info", "--format", '{{json .}}'], text=True)),
@@ -156,7 +156,7 @@ def main():
     # Task images are amd64, but the egress sidecar follows the Docker daemon's
     # native architecture. A global override incorrectly forces both to amd64.
     env.pop("DOCKER_DEFAULT_PLATFORM", None)
-    harbor = ROOT / ".mentat/venvs/swe-bench/bin/harbor"
+    harbor = ROOT / ".gethen/venvs/swe-bench/bin/harbor"
     results = []
     write(out / "results.json", {"status": "running", "cases": results})
     for index, case in enumerate(ids):
@@ -181,7 +181,7 @@ def main():
             if image_cached:
                 write(image_log, {"action": "reuse-loaded-image", **row["imageContent"]})
             cached = cached_calibration(args.calibration_from, manifest, case, row["imageIdentity"])
-            for stage, agent in [("oracle", "oracle"), ("empty", "nop"), ("mentat", "mentat_agent:MentatAgent"), ("regrade", "patch_replay:PatchReplayAgent")]:
+            for stage, agent in [("oracle", "oracle"), ("empty", "nop"), ("gethen", "gethen_agent:GethenAgent"), ("regrade", "patch_replay:PatchReplayAgent")]:
                 if stage in cached:
                     row["stages"][stage] = cached[stage]
                     write(out / "results.json", {"status": "running", "cases": results})
@@ -189,10 +189,10 @@ def main():
                     continue
                 name = f"case-{index}-{stage}"
                 cmd = [str(harbor), "run", "-p", str(upstream / "v2/tasks" / case), "-e", "docker", "-a", agent, "-n", "1", "--jobs-dir", str(out / "jobs"), "--job-name", name, "--quiet"]
-                if stage == "mentat":
+                if stage == "gethen":
                     cmd += ["-m", args.model, "--ak", f"timeout_ms={args.timeout_ms}", "--ak", f"max_steps={args.max_steps}"]
                 elif stage == "regrade":
-                    cmd += ["-m", "replay", "--ak", f"source_job={out / 'jobs' / f'case-{index}-mentat'}"]
+                    cmd += ["-m", "replay", "--ak", f"source_job={out / 'jobs' / f'case-{index}-gethen'}"]
                 started = time.monotonic()
                 print(f"{case}: {stage}", flush=True)
                 with (out / f"{name}.log").open("w") as log:
@@ -203,7 +203,7 @@ def main():
                 write(out / "results.json", {"status": "running", "cases": results})
                 if stage in ("oracle", "empty") and (result["status"] != "completed" or result["reward"] != (1 if stage == "oracle" else 0)):
                     raise RuntimeError(f"{stage} calibration failed; model not run")
-                if stage == "mentat":
+                if stage == "gethen":
                     agent_dir = Path(result.get("trial", "")).parent / "agent"
                     if not (agent_dir / "bridge.json").is_file() or not (agent_dir / "model.patch").is_file():
                         raise RuntimeError("subject did not reach patch capture; no model score")

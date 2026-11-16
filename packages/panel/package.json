@@ -1,5 +1,5 @@
 {
-  "name": "@mentat/panel",
+  "name": "@gethen/panel",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -12,7 +12,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@mentat/domain": "workspace:*"
+    "@gethen/domain": "workspace:*"
   },
-  "description": "Read-only Mentat overview for the CLI and future web panel"
+  "description": "Read-only Gethen overview for the CLI and future web panel"
 }

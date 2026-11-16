@@ -2,12 +2,12 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, statfsSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { environmentMcpSpec } from "@mentat/benchmark-file";
-import { createDefaultRegistry } from "@mentat/harnesses";
-import { createAssistantHost } from "@mentat/host";
-import { FileMemoryRepository } from "@mentat/memory-file";
-import { memoryMcpSpec } from "@mentat/memory-mcp";
-import { projectExperience, readTrajectory, resolveEventData } from "@mentat/observability";
+import { environmentMcpSpec } from "@gethen/benchmark-file";
+import { createDefaultRegistry } from "@gethen/harnesses";
+import { createAssistantHost } from "@gethen/host";
+import { FileMemoryRepository } from "@gethen/memory-file";
+import { memoryMcpSpec } from "@gethen/memory-mcp";
+import { projectExperience, readTrajectory, resolveEventData } from "@gethen/observability";
 import { benchmarkObservations } from "../packages/cli/src/lib/benchmark-observations";
 
 const [configuration, output] = process.argv.slice(2);
@@ -64,9 +64,9 @@ const probeNonce = `ready-${randomUUID()}`,
 const receiptPath = join(out, "catalog.jsonl");
 memory.env = {
   ...memory.env,
-  MENTAT_MCP_PROBE_NONCE: probeNonce,
-  MENTAT_MCP_READY_FILE: receiptPath,
-  MENTAT_MCP_READY_TOKEN: token,
+  GETHEN_MCP_PROBE_NONCE: probeNonce,
+  GETHEN_MCP_READY_FILE: receiptPath,
+  GETHEN_MCP_READY_TOKEN: token,
 };
 const enabled = [
   ...tools.map((t) => `environment_${t.name}`),

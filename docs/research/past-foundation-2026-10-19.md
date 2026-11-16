@@ -22,11 +22,11 @@
 - 补充 `<tool_call>` JSON 块漏检；保留普通协议说明文字的合法用途。
 - 新增纯领域 `skills`、文件实现 `skills-file`、传输 `skills-mcp` 三个功能包。技能具有适用条件、步骤内容、支持证据、作用域和版本，明确标记为 agent procedure，与已确认用户偏好分离。
 - 技能查询返回元数据，读取返回完整内容，写入需要精确的 expectedVersion。文件写入使用排他锁和原子替换，冲突失败而不隐式重放。
-- Host 支持 `skillsPath`，CLI 支持 `--skills <file>`。公共 Host 已完成独立原生模型集成验证：技能文件实际写入指定标记，成功执行保存与读回；包括一次不存在技能的失败读取，未当作成功。验证目录为 `.mentat/public-evaluations/opencode-host-skills-20261019-v3/`。
+- Host 支持 `skillsPath`，CLI 支持 `--skills <file>`。公共 Host 已完成独立原生模型集成验证：技能文件实际写入指定标记，成功执行保存与读回；包括一次不存在技能的失败读取，未当作成功。验证目录为 `.gethen/public-evaluations/opencode-host-skills-20261019-v3/`。
 
 ## 固定评测协议
 
-运行目录：`.mentat/public-evaluations/past-foundation-reset32-20261019-v1/`。
+运行目录：`.gethen/public-evaluations/past-foundation-reset32-20261019-v1/`。
 
 - 模型固定 `opencode-go/deepseek-v4.1-flash`，OpenCode v2.0.25；4 个原始任务族、32 道原题，其中 8 道迁移题。
 - 每题清空原生记忆、经验和程序技能，创建新引擎会话；不保留此前学习题的状态。当前任务内的原生工具正常可用。
@@ -193,7 +193,7 @@ v9 补充缺失流程的明确前置条件，禁止把新编流程视为已保�
 
 费用：reset 8 题 **$0.016145952**；保留经验全部 32 题 **$0.085573374**；合计 **$0.101719326**，不含此前独立六轮验证。保留经验全 32 题均分 **69.0778125**，仅作附属信息。
 
-复现入口：`.mentat/venvs/public/bin/python benchmarks/past-bench/foundation_probe.py --out <新目录> --arms reset memory --reset-evaluation-only --timeout 180 --port-offset 14000`；完成后依次运行 `audit_foundation.py`、`compare_rsi_foundation.py`、`review_rsi_quality.py`。审计新增 5 项反例测试，连同技能血缘共 10 项通过。
+复现入口：`.gethen/venvs/public/bin/python benchmarks/past-bench/foundation_probe.py --out <新目录> --arms reset memory --reset-evaluation-only --timeout 180 --port-offset 14000`；完成后依次运行 `audit_foundation.py`、`compare_rsi_foundation.py`、`review_rsi_quality.py`。审计新增 5 项反例测试，连同技能血缘共 10 项通过。
 
 本次完成固定开发样本上的 50+ 目标，并改善了上一轮的错改与 PC04 字段错误。它仍是单次、已观察开发题的经验迁移证据，**不证明通用可靠 RSI、盲测泛化或自主代码进化**。跨版本还同时存在 prompt、召回接入及运行日期变化，不应把所有分差归因于单一变量。后续专项为 PC03 标准字段的证据约束、真实召回归因适配、输出契约，以及未调参任务上的重复验证。
 

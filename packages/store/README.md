@@ -1,6 +1,6 @@
-# @mentat/store
+# @gethen/store
 
-Durable repositories for the Mentat control plane.
+Durable repositories for the Gethen control plane.
 
 One JSON snapshot (`state.json`) is atomically replaced under a file lock. The
 Engine is the single writer, so a snapshot per command is enough for the first

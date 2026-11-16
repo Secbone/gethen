@@ -1,4 +1,4 @@
-import type { JsonValue } from "@mentat/core";
+import type { JsonValue } from "@gethen/core";
 import {
   type Decision,
   Engine,
@@ -6,11 +6,11 @@ import {
   type Repositories,
   type SourceKind,
   type Trigger,
-} from "@mentat/domain";
-import type { EffectQueue } from "@mentat/effects";
-import { PackChannel } from "@mentat/evolve";
-import { type CapabilityPack, defineCapabilityPack, type PackRef, packRef } from "@mentat/pack";
-import type { WorkerAdapter, WorkerReport, WorkerTask } from "@mentat/worker";
+} from "@gethen/domain";
+import type { EffectQueue } from "@gethen/effects";
+import { PackChannel } from "@gethen/evolve";
+import { type CapabilityPack, defineCapabilityPack, type PackRef, packRef } from "@gethen/pack";
+import type { WorkerAdapter, WorkerReport, WorkerTask } from "@gethen/worker";
 
 /** The narrow DSH agent surface the Router uses. */
 export interface RouterAgentPort {
@@ -51,7 +51,7 @@ export interface ReceiptStore extends ReceiptSink {
   list(): RuntimeReceipt[];
 }
 
-export interface MentatRuntimeOptions {
+export interface GethenRuntimeOptions {
   repos: Repositories;
   queue: EffectQueue;
   worker: WorkerAdapter;
@@ -75,7 +75,7 @@ interface LaunchPayload {
 }
 
 const DEFAULT_WORKER_PROMPT =
-  "You are a Mentat Worker. Complete the assigned ticket, verify the result, and report honestly.";
+  "You are a Gethen Worker. Complete the assigned ticket, verify the result, and report honestly.";
 
 export interface DefaultWorkerPackOptions {
   model?: string;
@@ -100,7 +100,7 @@ export function defaultWorkerPack(options: DefaultWorkerPackOptions = {}): Capab
  * The control-plane runtime: owns the Router session, runs the Engine, and
  * executes `launch` effects through a heterogeneous WorkerAdapter.
  */
-export class MentatRuntime {
+export class GethenRuntime {
   readonly engine: Engine;
   private readonly repos: Repositories;
   private readonly queue: EffectQueue;
@@ -116,7 +116,7 @@ export class MentatRuntime {
   private routerSession?: string;
   private receipt?: RuntimeReceipt;
 
-  constructor(options: MentatRuntimeOptions) {
+  constructor(options: GethenRuntimeOptions) {
     this.repos = options.repos;
     this.queue = options.queue;
     this.worker = options.worker;

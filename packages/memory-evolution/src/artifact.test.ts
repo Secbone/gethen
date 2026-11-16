@@ -1,5 +1,5 @@
-import { Context } from "@mentat/kernel";
-import type { InMemoryMemoryStore } from "@mentat/memory";
+import { Context } from "@gethen/kernel";
+import type { InMemoryMemoryStore } from "@gethen/memory";
 import { describe, expect, it } from "vitest";
 import { MEMORY_SERVICE, memoryArtifact, memoryArtifactRegistry } from "./artifact";
 

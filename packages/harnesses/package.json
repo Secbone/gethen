@@ -1,5 +1,5 @@
 {
-  "name": "@mentat/harnesses",
+  "name": "@gethen/harnesses",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -12,8 +12,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@mentat/core": "workspace:*",
-    "@mentat/transport-pi": "workspace:*",
-    "@mentat/transport-acp": "workspace:*"
+    "@gethen/core": "workspace:*",
+    "@gethen/transport-pi": "workspace:*",
+    "@gethen/transport-acp": "workspace:*"
   }
 }

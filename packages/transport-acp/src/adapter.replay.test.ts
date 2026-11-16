@@ -2,8 +2,8 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { AgentEvent, PermissionHandler } from "@mentat/core";
-import { runOnce } from "@mentat/core/testing";
+import type { AgentEvent, PermissionHandler } from "@gethen/core";
+import { runOnce } from "@gethen/core/testing";
 import { describe, expect, it } from "vitest";
 import { createAcpAdapter } from "./adapter";
 

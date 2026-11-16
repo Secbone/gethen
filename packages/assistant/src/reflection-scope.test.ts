@@ -1,5 +1,5 @@
-import { createMemoryAccess, InMemoryMemoryStore, MemoryService } from "@mentat/memory";
-import { SessionRecorder } from "@mentat/session";
+import { createMemoryAccess, InMemoryMemoryStore, MemoryService } from "@gethen/memory";
+import { SessionRecorder } from "@gethen/session";
 import { expect, it } from "vitest";
 import { applyReflections } from "./reflect";
 import { parseEvidenceReflection } from "./reflection";

@@ -16,7 +16,7 @@ function readText(result: Awaited<ReturnType<Client["callTool"]>>): string {
 
 describe("memory MCP server", () => {
   it("exposes a read-only catalog and acknowledges actual catalog exchange", async () => {
-    const root = mkdtempSync(join(tmpdir(), "mentat-readonly-"));
+    const root = mkdtempSync(join(tmpdir(), "gethen-readonly-"));
     const receipt = join(root, "catalog.jsonl");
     const file = join(root, "memory.json");
     writeFileSync(
@@ -36,8 +36,8 @@ describe("memory MCP server", () => {
         env: {
           ...process.env,
           ...spec.env,
-          MENTAT_MCP_READY_FILE: receipt,
-          MENTAT_MCP_READY_TOKEN: "nonce",
+          GETHEN_MCP_READY_FILE: receipt,
+          GETHEN_MCP_READY_TOKEN: "nonce",
         } as Record<string, string>,
       }),
     );
@@ -78,7 +78,7 @@ describe("memory MCP server", () => {
     }
   });
   it("stores model writes as auditable candidates, even with an unverified evidence pointer", async () => {
-    const file = join(mkdtempSync(join(tmpdir(), "mentat-mcpmem-")), "memory.json");
+    const file = join(mkdtempSync(join(tmpdir(), "gethen-mcpmem-")), "memory.json");
     const spec = memoryMcpSpec(file);
     const transport = new StdioClientTransport({
       command: spec.command,
@@ -137,7 +137,7 @@ describe("memory MCP server", () => {
   });
 
   it("cannot overwrite an active rule via a model tool call", async () => {
-    const file = join(mkdtempSync(join(tmpdir(), "mentat-mcpmem-")), "memory.json");
+    const file = join(mkdtempSync(join(tmpdir(), "gethen-mcpmem-")), "memory.json");
     const original = [
       {
         id: "confirmed",
@@ -152,7 +152,7 @@ describe("memory MCP server", () => {
     const transport = new StdioClientTransport({
       command: process.execPath,
       args: [server],
-      env: { ...process.env, MENTAT_MEMORY_FILE: file } as Record<string, string>,
+      env: { ...process.env, GETHEN_MEMORY_FILE: file } as Record<string, string>,
     });
     const client = new Client({ name: "test", version: "0.0.0" });
     await client.connect(transport);
@@ -170,7 +170,7 @@ describe("memory MCP server", () => {
   });
 
   it("hides candidates from search unless includeCandidates is set", async () => {
-    const file = join(mkdtempSync(join(tmpdir(), "mentat-mcpmem-")), "memory.json");
+    const file = join(mkdtempSync(join(tmpdir(), "gethen-mcpmem-")), "memory.json");
     writeFileSync(
       file,
       JSON.stringify([
@@ -181,7 +181,7 @@ describe("memory MCP server", () => {
     const transport = new StdioClientTransport({
       command: process.execPath,
       args: [server],
-      env: { ...process.env, MENTAT_MEMORY_FILE: file } as Record<string, string>,
+      env: { ...process.env, GETHEN_MEMORY_FILE: file } as Record<string, string>,
     });
     const client = new Client({ name: "test", version: "0.0.0" });
     await client.connect(transport);
@@ -206,7 +206,7 @@ describe("memory MCP server", () => {
 });
 
 it("emits trace-linked domain fragments and transaction ids from the real MCP process", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "mentat-mcp-trace-"));
+  const dir = mkdtempSync(join(tmpdir(), "gethen-mcp-trace-"));
   const file = join(dir, "memory.json");
   const spec = memoryMcpSpec(file, "scope-a", { traceId: "trace-a", dir });
   const transport = new StdioClientTransport({

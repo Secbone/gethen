@@ -1,12 +1,12 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createFakeAdapter, type SessionOptions } from "@mentat/core";
-import { createAssistantHost } from "@mentat/host";
+import { createFakeAdapter, type SessionOptions } from "@gethen/core";
+import { createAssistantHost } from "@gethen/host";
 import { expect, it } from "vitest";
 
 it("does not register memory tools or advertise search in a closed-book host", async () => {
-  const root = mkdtempSync(join(tmpdir(), "mentat-closed-book-"));
+  const root = mkdtempSync(join(tmpdir(), "gethen-closed-book-"));
   const base = createFakeAdapter();
   let seen: SessionOptions | undefined;
   const host = createAssistantHost({
@@ -33,7 +33,7 @@ it("does not register memory tools or advertise search in a closed-book host", a
 });
 
 it("passes task MCP servers alongside memory without granting tool permissions", async () => {
-  const root = mkdtempSync(join(tmpdir(), "mentat-task-tools-"));
+  const root = mkdtempSync(join(tmpdir(), "gethen-task-tools-"));
   const base = createFakeAdapter();
   let seen: SessionOptions | undefined;
   const host = createAssistantHost({

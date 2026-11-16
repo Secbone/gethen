@@ -1,6 +1,6 @@
 /**
  * Pure Super-agent domain types. They describe authorization and work state,
- * not transport or storage. See docs/research/mentat-on-dsh-2026-11-05.md.
+ * not transport or storage. See docs/research/gethen-on-dsh-2026-11-05.md.
  */
 
 export type SourceId = string;

@@ -11,8 +11,8 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname } from "node:path";
-import { decideWrite } from "@mentat/memory/write-rules";
-import { withFileLock } from "@mentat/storage-file/lock";
+import { decideWrite } from "@gethen/memory/write-rules";
+import { withFileLock } from "@gethen/storage-file/lock";
 
 function atomic(path, value) {
   const tmp = `${path}.${randomUUID()}.tmp`;

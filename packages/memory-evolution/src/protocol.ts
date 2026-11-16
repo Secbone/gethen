@@ -1,5 +1,5 @@
-import { digestOf, type JsonValue } from "@mentat/core";
-import { defineEvalProtocol, type EvalProtocol } from "@mentat/evolution";
+import { digestOf, type JsonValue } from "@gethen/core";
+import { defineEvalProtocol, type EvalProtocol } from "@gethen/evolution";
 import type { RecallQuery } from "./evolution";
 
 /**

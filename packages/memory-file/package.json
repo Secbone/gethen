@@ -1,5 +1,5 @@
 {
-  "name": "@mentat/memory-file",
+  "name": "@gethen/memory-file",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -12,8 +12,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@mentat/memory": "workspace:*",
-    "@mentat/storage-file": "workspace:*"
+    "@gethen/memory": "workspace:*",
+    "@gethen/storage-file": "workspace:*"
   },
   "description": "File-backed memory, audit persistence and migration"
 }

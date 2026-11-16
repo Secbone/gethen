@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Worker-local OpenCode native permission guard. Not an OS sandbox.
-No global config or Mentat checkout mutation. Inputs are immutable, model result
+No global config or Gethen checkout mutation. Inputs are immutable, model result
 is the only allowlisted tool mutation. Host traces live outside worker scope.
 """
 import argparse,hashlib,json,os,signal,subprocess,time
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
-LAUNCHER='/Users/soar/code/mentat/mentat'
+LAUNCHER='/Users/soar/code/gethen/gethen'
 MODEL='opencode-go/deepseek-v4.1-flash'
 def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
 def save(p,x):p.write_text(json.dumps(x,ensure_ascii=False,indent=2)+'\n')

@@ -1,5 +1,5 @@
 {
-  "name": "@mentat/worker",
+  "name": "@gethen/worker",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -12,10 +12,10 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@mentat/core": "workspace:*",
-    "@mentat/domain": "workspace:*",
-    "@mentat/pack": "workspace:*",
-    "@mentat/session": "workspace:*"
+    "@gethen/core": "workspace:*",
+    "@gethen/domain": "workspace:*",
+    "@gethen/pack": "workspace:*",
+    "@gethen/session": "workspace:*"
   },
   "description": "WorkerAdapter contract for heterogeneous agent executors"
 }

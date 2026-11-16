@@ -1,6 +1,6 @@
-import type { Signal } from "@mentat/core";
-import type { Candidate, Evaluator } from "@mentat/evolution";
-import { validateSignals } from "@mentat/evolution";
+import type { Signal } from "@gethen/core";
+import type { Candidate, Evaluator } from "@gethen/evolution";
+import { validateSignals } from "@gethen/evolution";
 import { type CommandSpec, runCommand } from "./command-gate";
 
 /** Runs a check command and reports pass(1)/fail(0) as one signal. */

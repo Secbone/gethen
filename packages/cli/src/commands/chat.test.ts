@@ -2,9 +2,9 @@ import { EventEmitter } from "node:events";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AgentEventListener, HarnessAdapter, UserInput } from "@mentat/core";
-import { JsonFileMemoryStore } from "@mentat/memory-file";
-import { ExperienceStore } from "@mentat/observability";
+import type { AgentEventListener, HarnessAdapter, UserInput } from "@gethen/core";
+import { JsonFileMemoryStore } from "@gethen/memory-file";
+import { ExperienceStore } from "@gethen/observability";
 import { afterEach, expect, it, vi } from "vitest";
 import { chatCommand } from "./chat";
 
@@ -29,7 +29,7 @@ afterEach(() => vi.restoreAllMocks());
 
 it("reflects chat corrections with earlier answers and reloads tool-written memory next turn", async () => {
   vi.spyOn(process.stdout, "write").mockReturnValue(true);
-  const dir = mkdtempSync(join(tmpdir(), "mentat-chat-"));
+  const dir = mkdtempSync(join(tmpdir(), "gethen-chat-"));
   const memory = join(dir, "memory.json");
   const sends: UserInput[] = [];
   const reflectionEvidence: Array<{ records: unknown[]; sources: unknown[] }> = [];

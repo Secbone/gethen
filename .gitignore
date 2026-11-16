@@ -6,8 +6,9 @@ __pycache__/
 *.pyc
 *.log
 .DS_Store
-.mentat/
+.gethen/
 .runtime_cache/
 .env
 .env.*
 !.env.example
+.mentat/

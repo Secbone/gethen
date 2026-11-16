@@ -39,7 +39,7 @@ export function describeHarnessContract(
     it("streams text and settles exactly once with reason done", async () => {
       const adapter = await create();
       const session = await adapter.createSession({ cwd: process.cwd() });
-      const { events, end } = await runOnce(session, { text: "hello mentat" });
+      const { events, end } = await runOnce(session, { text: "hello gethen" });
 
       expect(end).toMatchObject({ type: "run.settled", reason: "done" });
       expect(events.filter((e) => e.type === "run.settled")).toHaveLength(1);

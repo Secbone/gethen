@@ -15,7 +15,7 @@ function event(overrides: Partial<GitHubEvent> = {}): GitHubEvent {
     number: 12,
     actor: "alice",
     bot: false,
-    body: "please fix @mentat",
+    body: "please fix @gethen",
     title: "Bug",
     url: "https://github.com/acme/app/issues/12",
     ...overrides,
@@ -52,7 +52,7 @@ describe("GitHubSource", () => {
       ]),
       state: new MemorySourceState(),
       repo: "acme/app",
-      agentLogin: "mentat",
+      agentLogin: "gethen",
     });
 
     const triggers = await source.poll();
@@ -82,7 +82,7 @@ describe("GitHubSource", () => {
       api: api(events),
       state,
       repo: "acme/app",
-      agentLogin: "mentat",
+      agentLogin: "gethen",
     });
     expect(await source.poll()).toHaveLength(1);
     expect(await source.poll()).toHaveLength(0);
@@ -95,7 +95,7 @@ describe("GitHubSource", () => {
       api: api([], sent),
       state: new MemorySourceState(),
       repo: "acme/app",
-      agentLogin: "mentat",
+      agentLogin: "gethen",
     });
     await expect(
       source.channel().send({
@@ -113,7 +113,7 @@ describe("GitHubSource", () => {
 
 describe("FileSourceState", () => {
   it("persists read positions across instances", () => {
-    const path = join(mkdtempSync(join(tmpdir(), "mentat-source-state-")), "state.json");
+    const path = join(mkdtempSync(join(tmpdir(), "gethen-source-state-")), "state.json");
     const state = new FileSourceState(path);
     state.set("since", "2026-11-06T00:00:00.000Z");
     const reloaded = new FileSourceState(path);

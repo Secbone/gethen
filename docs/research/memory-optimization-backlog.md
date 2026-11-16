@@ -39,16 +39,16 @@
 ## LongMemEval 驱动的改进（2026-10-18）
 
 依据 [公开评测首轮](public-evaluation-2026-10-16.md) 与 [修复复测协议](longmemeval-repair-2026-10-16.md)：
-全量 500 题（Mentat 历史检索 45.80% vs 上游 BM25 13.20%），但 **210/500 回答含未执行的
+全量 500 题（Gethen 历史检索 45.80% vs 上游 BM25 13.20%），但 **210/500 回答含未执行的
 DSML 工具协议文本、209 被判错（约占全部错误的 77%）**，真实工具事件为 0；弃答题仅
 16.67%（对照 96.67%）；跨会话整合 20.30%、时间推理 33.83% 是真弱项。
 
 按损失排序的改进计划：
 
 1. **输出契约（已实现一部分）。** `requireFinalAnswer` 原本把泄漏协议的一次回答直接判
-   `error`，不重试。现增加**有界纠正式重问**：`@mentat/core` 的 `correctiveInstruction`、
-   `@mentat/session` 的 `TurnOptions.correctiveRetries`（默认 0，关闭时行为不变），并把
-   次数写入 `TurnResult.correctiveTurns` 与 `output.corrective` 轨迹；`@mentat/host` 新增
+   `error`，不重试。现增加**有界纠正式重问**：`@gethen/core` 的 `correctiveInstruction`、
+   `@gethen/session` 的 `TurnOptions.correctiveRetries`（默认 0，关闭时行为不变），并把
+   次数写入 `TurnResult.correctiveTurns` 与 `output.corrective` 轨迹；`@gethen/host` 新增
    `HostConfig.correctiveRetries`；LongMemEval 传输（`public-model-server.ts`，宿主与闭卷
    两条路径）开启 1 次。目标：把约 77% 的格式失败转为可恢复，而不是直接记错。
 2. **弃答校准。** 检索无证据/低于阈值时强制走"说不知道/澄清"，用 30 道无答案子集做回归；
@@ -60,8 +60,8 @@ DSML 工具协议文本、209 被判错（约占全部错误的 77%）**，真�
    dataset/scorer/protocol 版本，不把新旧分算成提升。
 5. **反思有证据触发 + 归因。** 反思改为由重复纠正/可复用失败经验触发，并暴露 memory
    read/write/injection 计数（同时补上 PAST-Bench 的 `dispatch` 归因）。
-   **已实现（2026-10-18）**：`@mentat/observability` 的 `memoryAttribution` 聚合
-   injections/reads/writes/reflections/history 命中；`@mentat/assistant` 的
+   **已实现（2026-10-18）**：`@gethen/observability` 的 `memoryAttribution` 聚合
+   injections/reads/writes/reflections/history 命中；`@gethen/assistant` 的
    `reflectionTrigger` 纯函数（显式请求必反思，否则仅在用户纠正或可复用工具失败时触发，
    不在"任务正常结束"时触发）；CLI `run --reflect-auto`；PAST-Bench 桥输出 `memory`
    归因块并由适配器记入 trial 日志。PAST-Bench 自身的 `dispatch` 指标仍解析 agent 工具

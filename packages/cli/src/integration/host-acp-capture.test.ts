@@ -2,13 +2,13 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createDefaultRegistry } from "@mentat/harnesses";
-import { createAssistantHost } from "@mentat/host";
-import { inspectTrajectory, projectExperience, recallAttribution } from "@mentat/observability";
+import { createDefaultRegistry } from "@gethen/harnesses";
+import { createAssistantHost } from "@gethen/host";
+import { inspectTrajectory, projectExperience, recallAttribution } from "@gethen/observability";
 import { expect, it } from "vitest";
 
 it("audits captured ACP fields and reconstructs updated experience from durable host logs", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "mentat-acp-capture-"));
+  const dir = mkdtempSync(join(tmpdir(), "gethen-acp-capture-"));
   const stub = fileURLToPath(
     new URL("../../../transport-acp/src/__fixtures__/replay-acp-agent.mjs", import.meta.url),
   );

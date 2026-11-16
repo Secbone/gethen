@@ -1,4 +1,4 @@
-import type { RememberInput } from "@mentat/assistant";
+import type { RememberInput } from "@gethen/assistant";
 
 /** Human-declared splits of already visible confirmation text. No model classification or future rubric. */
 const rules: Record<

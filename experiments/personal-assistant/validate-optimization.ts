@@ -8,17 +8,17 @@ import {
   assistantPromptOptions,
   parseReflectedMemories,
   reflectMemories,
-} from "@mentat/assistant";
-import type { AgentEvent, HarnessAdapter, SessionHandle } from "@mentat/core";
-import { rememberFact } from "@mentat/memory";
-import { JsonFileMemoryStore } from "@mentat/memory-file";
-import { memoryMcpSpec } from "@mentat/memory-mcp";
-import { SessionRecorder } from "@mentat/observability";
-import { createAcpAdapter } from "@mentat/transport-acp";
+} from "@gethen/assistant";
+import type { AgentEvent, HarnessAdapter, SessionHandle } from "@gethen/core";
+import { rememberFact } from "@gethen/memory";
+import { JsonFileMemoryStore } from "@gethen/memory-file";
+import { memoryMcpSpec } from "@gethen/memory-mcp";
+import { SessionRecorder } from "@gethen/observability";
+import { createAcpAdapter } from "@gethen/transport-acp";
 import { saveReflections, taskContext } from "./memory";
 import { acpPermission } from "./runner";
 
-const root = resolve(".mentat/experiments/personal-assistant");
+const root = resolve(".gethen/experiments/personal-assistant");
 const out = join(root, `optimization-validation-${Date.now()}`);
 mkdirSync(out);
 const model = "opencode-go/deepseek-v4.1-flash";
@@ -179,8 +179,8 @@ function adapterFor(cwd: string, metrics: string, reflection = false) {
     binary: process.execPath,
     baseArgs: [fileURLToPath(new URL("./acp-observer.mjs", import.meta.url))],
     env: {
-      MENTAT_OPENCODE_BIN: "/opt/homebrew/bin/opencode",
-      MENTAT_EXPERIMENT_METRICS: metrics,
+      GETHEN_OPENCODE_BIN: "/opt/homebrew/bin/opencode",
+      GETHEN_EXPERIMENT_METRICS: metrics,
       OPENCODE_CONFIG_CONTENT: JSON.stringify({
         model,
         small_model: model,
@@ -233,7 +233,7 @@ function save(record: Record<string, unknown>, metrics: string) {
 
 async function taskTrial(item: (typeof trials)[number], arm: Arm, repetition: number) {
   const id = `${item.id}-${arm}-${repetition}`;
-  const cwd = mkdtempSync(join(tmpdir(), "mentat-validation-"));
+  const cwd = mkdtempSync(join(tmpdir(), "gethen-validation-"));
   const memoryPath = join(cwd, "memory.json");
   write(memoryPath, item.seed);
   const metrics = join(out, `${id}.usage.jsonl`);
@@ -290,7 +290,7 @@ function replay(scenario: string, cwd: string) {
 
 async function reflectionTrial(scenario: string, arm: Arm, repetition: number) {
   const id = `${scenario}-reflection-${arm}-${repetition}`;
-  const cwd = mkdtempSync(join(tmpdir(), "mentat-validation-"));
+  const cwd = mkdtempSync(join(tmpdir(), "gethen-validation-"));
   const metrics = join(out, `${id}.usage.jsonl`);
   const memoryPath = join(cwd, "memory.json");
   write(memoryPath, []);

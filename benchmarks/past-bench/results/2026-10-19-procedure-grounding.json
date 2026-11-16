@@ -46,6 +46,6 @@
   "model": "opencode-go/deepseek-v4.1-flash",
   "promptVersion": "personal-assistant-v8",
   "costUsd": 0.0054475619999999995,
-  "runDirectory": ".mentat/public-evaluations/procedure-grounding-20261019-v1",
+  "runDirectory": ".gethen/public-evaluations/procedure-grounding-20261019-v1",
   "scriptSha256": "3751b0d9cb4ae4177cd382cb778b151f25e3d406db81b687427b0b42efeba872"
 }

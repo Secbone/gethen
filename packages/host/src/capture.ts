@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { JsonValue } from "@mentat/core";
+import type { JsonValue } from "@gethen/core";
 
 export function createFragmentIngestor(
   directory: string | undefined,

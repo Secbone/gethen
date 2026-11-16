@@ -1,5 +1,5 @@
 {
-  "name": "@mentat/host",
+  "name": "@gethen/host",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -12,13 +12,13 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@mentat/core": "workspace:*",
-    "@mentat/session": "workspace:*",
-    "@mentat/assistant": "workspace:*",
-    "@mentat/memory": "workspace:*",
-    "@mentat/memory-file": "workspace:*",
-    "@mentat/memory-mcp": "workspace:*",
-    "@mentat/observability": "workspace:*",
-    "@mentat/skills-mcp": "workspace:*"
+    "@gethen/core": "workspace:*",
+    "@gethen/session": "workspace:*",
+    "@gethen/assistant": "workspace:*",
+    "@gethen/memory": "workspace:*",
+    "@gethen/memory-file": "workspace:*",
+    "@gethen/memory-mcp": "workspace:*",
+    "@gethen/observability": "workspace:*",
+    "@gethen/skills-mcp": "workspace:*"
   }
 }

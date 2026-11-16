@@ -6,10 +6,10 @@ import {
   runEpisodes,
   type SubjectFactory,
   summarizeRun,
-} from "@mentat/benchmark";
-import type { Signal } from "@mentat/core";
-import type { PackEvaluator } from "@mentat/evolve";
-import { type CapabilityPack, packRef } from "@mentat/pack";
+} from "@gethen/benchmark";
+import type { Signal } from "@gethen/core";
+import type { PackEvaluator } from "@gethen/evolve";
+import { type CapabilityPack, packRef } from "@gethen/pack";
 
 export interface BenchmarkPackEvaluatorOptions {
   plan: RunPlan;
@@ -53,7 +53,7 @@ export class BenchmarkPackEvaluator implements PackEvaluator {
       createdAt: this.clock().toISOString(),
       plan,
       provenance: {
-        adapter: "mentat-benchmark",
+        adapter: "gethen-benchmark",
         adapterVersion: "1",
         artifactSha256: hex(JSON.stringify(plan)),
         execution: results.every((row) => row.status === "completed") ? "completed" : "failed",

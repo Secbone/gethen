@@ -5,7 +5,7 @@ import {
   type MemoryQuery,
   type MemoryStore,
   type WriteRequest,
-} from "@mentat/memory";
+} from "@gethen/memory";
 import { JsonlMemoryAudit } from "./audit";
 import { commitMemory, mutateMemory, readMemory } from "./transaction.mjs";
 
@@ -13,7 +13,7 @@ import { commitMemory, mutateMemory, readMemory } from "./transaction.mjs";
 export class JsonFileMemoryStore implements MemoryStore {
   constructor(private readonly path: string) {}
   transaction<T>(apply: (view: MemoryStore, audit: MemoryAudit) => T, auditPath?: string): T {
-    const records: import("@mentat/memory").MemoryAuditRecord[] = [];
+    const records: import("@gethen/memory").MemoryAuditRecord[] = [];
     return mutateMemory(
       this.path,
       (entries) => {

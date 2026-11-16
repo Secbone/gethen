@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Thread, Trigger } from "@mentat/domain";
+import type { Thread, Trigger } from "@gethen/domain";
 import { describe, expect, it } from "vitest";
 import { FileRepositories } from "./index";
 
@@ -20,7 +20,7 @@ function trigger(): Trigger {
 
 describe("FileRepositories", () => {
   it("persists and reloads domain records", () => {
-    const dir = mkdtempSync(join(tmpdir(), "mentat-store-"));
+    const dir = mkdtempSync(join(tmpdir(), "gethen-store-"));
     const store = new FileRepositories(dir);
     store.triggers.save(trigger());
     const thread: Thread = {
@@ -39,7 +39,7 @@ describe("FileRepositories", () => {
   });
 
   it("rejects a corrupt collection instead of silently dropping it", () => {
-    const dir = mkdtempSync(join(tmpdir(), "mentat-store-"));
+    const dir = mkdtempSync(join(tmpdir(), "gethen-store-"));
     const store = new FileRepositories(dir);
     store.persist();
     writeFileSync(store.path, JSON.stringify({ triggers: "nope" }));

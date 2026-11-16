@@ -1,22 +1,22 @@
-"""PAST-Bench runtime adapter that runs Mentat as the subject agent.
+"""PAST-Bench runtime adapter that runs Gethen as the subject agent.
 
-This is the upstream side of the minimal Mentat <-> PAST-Bench bridge. It is a
+This is the upstream side of the minimal Gethen <-> PAST-Bench bridge. It is a
 one-shot CLI adapter (like the built-in codex/claude adapters) that shells out
-to ``scripts/past-bench-agent.ts`` in the Mentat checkout, passing the task
+to ``scripts/past-bench-agent.ts`` in the Gethen checkout, passing the task
 prompt on stdin and reading a single JSON result back.
 
 It deliberately:
-  * keeps the real ``HOME`` (so Mentat's Pi/OpenCode credential discovery works),
+  * keeps the real ``HOME`` (so Gethen's Pi/OpenCode credential discovery works),
     unlike the stock CLI adapters which isolate HOME;
-  * ignores PAST-Bench's provider model/key wiring and lets Mentat resolve the
-    model from ``MENTAT_MODEL`` / MENTAT's own registry.
+  * ignores PAST-Bench's provider model/key wiring and lets Gethen resolve the
+    model from ``GETHEN_MODEL`` / GETHEN's own registry.
 
 Required environment:
-  MENTAT_ROOT   path to the Mentat checkout (contains scripts/past-bench-agent.ts)
+  GETHEN_ROOT   path to the Gethen checkout (contains scripts/past-bench-agent.ts)
 Optional:
-  MENTAT_NODE       node binary (default: "node")
-  MENTAT_HARNESS    Mentat harness id: pi | acp | fake (default: "pi")
-  MENTAT_MODEL      Mentat model id (default: this adapter entry's model_id)
+  GETHEN_NODE       node binary (default: "node")
+  GETHEN_HARNESS    Gethen harness id: pi | acp | fake (default: "pi")
+  GETHEN_MODEL      Gethen model id (default: this adapter entry's model_id)
 """
 
 from __future__ import annotations
@@ -34,22 +34,22 @@ from past_bench.runtime.adapters.cli_agent import _OneShotCliAdapter
 from past_bench.runtime.protocol import StepResponse
 
 
-class MentatCliAdapter(_OneShotCliAdapter):
-    """Drive one Mentat host turn per PAST-Bench task."""
+class GethenCliAdapter(_OneShotCliAdapter):
+    """Drive one Gethen host turn per PAST-Bench task."""
 
-    cli_name = "mentat"
+    cli_name = "gethen"
 
     def _run_cli(self, prompt: str) -> StepResponse:
-        root = os.environ.get("MENTAT_ROOT")
+        root = os.environ.get("GETHEN_ROOT")
         if not root:
-            return StepResponse(status="error", error="MENTAT_ROOT is required for the Mentat adapter")
+            return StepResponse(status="error", error="GETHEN_ROOT is required for the Gethen adapter")
         script = Path(root) / "scripts" / "past-bench-agent.ts"
         if not script.exists():
-            return StepResponse(status="error", error=f"Mentat bridge script not found: {script}")
+            return StepResponse(status="error", error=f"Gethen bridge script not found: {script}")
 
-        node = os.environ.get("MENTAT_NODE", "node")
-        harness = os.environ.get("MENTAT_HARNESS", "pi")
-        model = os.environ.get("MENTAT_MODEL") or self.request.model.model_id or ""
+        node = os.environ.get("GETHEN_NODE", "node")
+        harness = os.environ.get("GETHEN_HARNESS", "pi")
+        model = os.environ.get("GETHEN_MODEL") or self.request.model.model_id or ""
 
         command = [
             node,
@@ -66,7 +66,7 @@ class MentatCliAdapter(_OneShotCliAdapter):
         if model:
             command += ["--model", model]
 
-        # Real HOME so Mentat finds its own credentials; run node from the Mentat
+        # Real HOME so Gethen finds its own credentials; run node from the Gethen
         # root so the bare `tsx` loader resolves from its node_modules, while the
         # host work dir is passed explicitly via --cwd above.
         env = os.environ.copy()
@@ -92,7 +92,7 @@ class MentatCliAdapter(_OneShotCliAdapter):
                 continue
         if not isinstance(payload, dict):
             detail = (proc.stderr or proc.stdout or "").strip()[-1000:]
-            return StepResponse(status="error", error=f"mentat returned no JSON result: {detail}")
+            return StepResponse(status="error", error=f"gethen returned no JSON result: {detail}")
 
         usage_payload = payload.get("usage") or {}
         usage = TokenUsage(
@@ -104,10 +104,10 @@ class MentatCliAdapter(_OneShotCliAdapter):
 
         memory = payload.get("memory")
         if isinstance(memory, dict):
-            # Substrate attribution: surface Mentat's memory operations in the
+            # Substrate attribution: surface Gethen's memory operations in the
             # trial log. PAST-Bench's own dispatch metrics parse agent tool calls,
             # so this is exposed for audit rather than folded into its counters.
-            print(f"[mentat-memory] {json.dumps(memory, sort_keys=True)}", file=sys.stderr, flush=True)
+            print(f"[gethen-memory] {json.dumps(memory, sort_keys=True)}", file=sys.stderr, flush=True)
 
         text = str(payload.get("final_output") or "").strip()
         return StepResponse(

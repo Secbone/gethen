@@ -6,7 +6,7 @@ import { createOpenCodeAdapter } from "./opencode";
 import { opencodeFilePolicy } from "./opencode-policy";
 
 it("overrides inherited permissive agent rules with an exact default-deny file policy", async () => {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), "mentat-native-policy-")));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "gethen-native-policy-")));
   const capture = join(root, "capture.json"),
     fixture = join(root, "wire.mjs");
   writeFileSync(join(root, "input.txt"), "source");
@@ -52,7 +52,7 @@ it("overrides inherited permissive agent rules with an exact default-deny file p
 });
 
 it("replaces the native agent system prompt while preserving tool and permission configuration", async () => {
-  const root = mkdtempSync(join(tmpdir(), "mentat-opencode-config-"));
+  const root = mkdtempSync(join(tmpdir(), "gethen-opencode-config-"));
   const capture = join(root, "capture.json");
   const fixture = join(root, "wire.mjs");
   writeFileSync(

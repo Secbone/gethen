@@ -1,5 +1,5 @@
-import type { TaskAcceptance } from "@mentat/core";
-import type { TaskInput, TurnResult } from "@mentat/session";
+import type { TaskAcceptance } from "@gethen/core";
+import type { TaskInput, TurnResult } from "@gethen/session";
 
 export interface ResultEvaluator {
   id: string;

@@ -1,9 +1,9 @@
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { TrialUnit } from "@mentat/benchmark";
-import { defineCapabilityPack } from "@mentat/pack";
-import type { WorkerAdapter, WorkerTask } from "@mentat/worker";
+import type { TrialUnit } from "@gethen/benchmark";
+import { defineCapabilityPack } from "@gethen/pack";
+import type { WorkerAdapter, WorkerTask } from "@gethen/worker";
 import { describe, expect, it } from "vitest";
 import { workerSubjectFactory } from "./worker-subject";
 
@@ -62,7 +62,7 @@ const pack = defineCapabilityPack({
 describe("workerSubjectFactory", () => {
   it("runs turns through the worker and replays explicit memory", async () => {
     const tasks: WorkerTask[] = [];
-    const out = mkdtempSync(join(tmpdir(), "mentat-worker-subject-"));
+    const out = mkdtempSync(join(tmpdir(), "gethen-worker-subject-"));
     const createSubject = workerSubjectFactory({ worker: worker(tasks), cwd: out, out });
     const subject = await createSubject(pack)({ stateKey: "state", unit, memory: "explicit" });
     const first = await subject.turn({ text: "hello" });

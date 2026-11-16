@@ -5,11 +5,11 @@ from client import ModelClient
 from upstream import load_function
 
 root = Path(__file__).resolve().parents[2]
-out = root / ".mentat/public-evaluations/preflight-v1"
+out = root / ".gethen/public-evaluations/preflight-v1"
 out.mkdir()
 client = ModelClient()
 prompt, scorer_hash = load_function(
-    root / ".mentat/upstream/longmemeval/src/evaluation/evaluate_qa.py", "get_anscheck_prompt"
+    root / ".gethen/upstream/longmemeval/src/evaluation/evaluate_qa.py", "get_anscheck_prompt"
 )
 results = []
 for hypothesis, expected in [("Luna", "yes"), ("Nori", "no")]:

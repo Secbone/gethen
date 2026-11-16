@@ -48,7 +48,7 @@ function onPrompt(command) {
       type: "extension_ui_request",
       id: "perm-1",
       method: "confirm",
-      title: "mentat: tool",
+      title: "gethen: tool",
       message: JSON.stringify({ toolName: "bash", input: { command: "rm -rf /" } }),
     });
     return;

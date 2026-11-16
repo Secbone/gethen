@@ -4,7 +4,7 @@
 
 ## 1. 问题
 
-项目宣称"一切皆可迭代"，但 `@mentat/core` 原有的 `IterableArtifact` 只在名义上成立：
+项目宣称"一切皆可迭代"，但 `@gethen/core` 原有的 `IterableArtifact` 只在名义上成立：
 
 - 只有 memory 和 model catalog 两个实现，model catalog 还没有生产调用方；
 - `snapshot(): JsonValue` 丢失类型，调用方只能用 `as unknown as`；
@@ -181,29 +181,29 @@ interface EvalProtocol {
 
 已实现：
 
-- `@mentat/core`
+- `@gethen/core`
   - `digest.ts`：`canonicalJson` + `digestOf`（sha256，排序键）。
   - `artifact.ts`：`ArtifactRef` / `Artifact` / `ArtifactAdapter` / `ArtifactRegistry` / `createArtifact` / `sameArtifact` / `manifestOf`。
   - 移除 `IterableArtifact`、`EvalSpec`、`EvalResult`。
-- `@mentat/evolution`
+- `@gethen/evolution`
   - `Candidate.artifacts: Artifact[]`；`Proposal.artifacts?: Artifact[]`。
   - `FunctionEvaluator(tasks, registry)` 只物化 data 制品。
   - `touchesProtected` 改为 `kind:id + digest + protected` 比较。
-  - `IterationRecord.outcome`；`protocol.ts`（外部冻结协议）；`receipt.ts`（回执）；`@mentat/observability` 的 `ReceiptStore` 追加写入 `receipts.jsonl`。
+  - `IterationRecord.outcome`；`protocol.ts`（外部冻结协议）；`receipt.ts`（回执）；`@gethen/observability` 的 `ReceiptStore` 追加写入 `receipts.jsonl`。
   - `Archive` 支持 `niche`，先按 niche 均匀采样，再在 niche 内按分数/子代加权。
-- `@mentat/memory-evolution`
+- `@gethen/memory-evolution`
   - `memoryAdapter` + `memoryArtifact` + `memoryEntries` + `memoryArtifactRegistry`。
   - 校验逻辑收敛到 `parseMemoryEntries`，adapter/gate/磁盘加载共用。
-- `@mentat/models`
+- `@gethen/models`
   - `modelAdapter` + `modelCatalogArtifact`。
-- `@mentat/workspace`
+- `@gethen/workspace`
   - `ArtifactStore`（内容寻址、读取校验）。
   - `JsonStoreWorkspace` 只存 refs，payload 存 `<dir>/artifacts/<sha256>.json`；`load(dir, registry)` 直接重建，无 rebuild 回调。
   - `GitWorkspace` 为每个提交附加 `form: "code"` 的 artifact（`digest: git:<commit>`）。
-- `@mentat/cli`
+- `@gethen/cli`
   - `evolutionArtifacts()` 组合 adapter；`evolve memory` 走新 workspace / evaluator，删除 `ArtifactSnapshot` 与 rebuild。
-- `@mentat/memory-evolution`：`memoryEvalProtocol()` 把查询集纳入协议 digest；CLI `evolve` 写入协议与回执。
-- `@mentat/cli`：`iterate` 为命令评测生成协议并持久化回执；`run.json` 记录协议 digest 与回执路径。
+- `@gethen/memory-evolution`：`memoryEvalProtocol()` 把查询集纳入协议 digest；CLI `evolve` 写入协议与回执。
+- `@gethen/cli`：`iterate` 为命令评测生成协议并持久化回执；`run.json` 记录协议 digest 与回执路径。
 - 测试：新增 digest、adapter、CAS、receipt、niche、代码制品身份、磁盘篡改检测；全仓 `pnpm check` 通过（96 个测试文件，392 passed / 1 skipped）。
 
 ## 8. 尚未落地

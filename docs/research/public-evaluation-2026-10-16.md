@@ -4,13 +4,13 @@
 
 ## 测到了什么
 
-Mentat 方法命名为 `mentat-episodic`：宿主先将该题原始历史保存到经验库，作答时按问题进行词项检索，将引用片段送入模型。保存、检索都是宿主直接执行，因此不计为 Agent 工具调用。这条路径确实使用历史资料，但没有调用 Agent 的 `memory_add` / `memory_search`，没有偏好提炼、长期记忆激活、反思或自迭代。因此不能把该成绩叫作完整记忆系统或 RSI 的成绩。
+Gethen 方法命名为 `gethen-episodic`：宿主先将该题原始历史保存到经验库，作答时按问题进行词项检索，将引用片段送入模型。保存、检索都是宿主直接执行，因此不计为 Agent 工具调用。这条路径确实使用历史资料，但没有调用 Agent 的 `memory_add` / `memory_search`，没有偏好提炼、长期记忆激活、反思或自迭代。因此不能把该成绩叫作完整记忆系统或 RSI 的成绩。
 
-对照是上游原始 session BM25 索引、检索和 reader 提示函数，使用同一 DeepSeek。Mentat 限制为 12,000 字符，上游 BM25 为 top-10 session、4,000 cl100k_base token，预算并不相等。这是两个完整配置的比较，不是等预算算法消融，也不是与其他完整记忆项目的排名。
+对照是上游原始 session BM25 索引、检索和 reader 提示函数，使用同一 DeepSeek。Gethen 限制为 12,000 字符，上游 BM25 为 top-10 session、4,000 cl100k_base token，预算并不相等。这是两个完整配置的比较，不是等预算算法消融，也不是与其他完整记忆项目的排名。
 
 ## 完整覆盖后的分数
 
-| 指标 | Mentat 历史检索 | 上游 session BM25 | 差值，百分点 |
+| 指标 | Gethen 历史检索 | 上游 session BM25 | 差值，百分点 |
 | --- | ---: | ---: | ---: |
 | 全部 500 题 | 45.80%（229/500） | 13.20%（66/500） | +32.60 |
 | 单会话用户信息 | 68.57%（48/70） | 18.57%（13/70） | +50.00 |
@@ -27,7 +27,7 @@ Mentat 方法命名为 `mentat-episodic`：宿主先将该题原始历史保存�
 
 ### 逐题输出复核补充
 
-对原始结果及 13 条已记录恢复结果合并后的 500×2 个回答进行字面 `DSML` 检测：Mentat 有 210/500 个回答包含工具调用文本，其中 209 个被裁判判错，约占其 271 个错误的 77.1%。对照为 2/500。检测的是输出文本，不是工具执行事件；全 transport 的真实工具事件仍为 0。分项中，跨会话 81/133、时间推理 75/133、偏好 13/30 个回答出现此文本。完整审计及逐题证据指针见 [output-audit.json](../../benchmarks/public/results/2026-10-16-longmemeval-output-audit.json)。
+对原始结果及 13 条已记录恢复结果合并后的 500×2 个回答进行字面 `DSML` 检测：Gethen 有 210/500 个回答包含工具调用文本，其中 209 个被裁判判错，约占其 271 个错误的 77.1%。对照为 2/500。检测的是输出文本，不是工具执行事件；全 transport 的真实工具事件仍为 0。分项中，跨会话 81/133、时间推理 75/133、偏好 13/30 个回答出现此文本。完整审计及逐题证据指针见 [output-audit.json](../../benchmarks/public/results/2026-10-16-longmemeval-output-audit.json)。
 
 30 道无答案题中有 24 道输出 DSML，全部判错；只有 6 道未包含该文本，其中 5 道正确拒答。因此不能将其余 25 个拒答错误统称为幻觉。少量未包含 DSML 的题是输出条件筛选后的样本，不能将其正确率替代原全量成绩，也不能预测修复后效果。题 `75832dbd` 只有 memory_search 调用文本仍被裁判判对，说明官方语义判定在本轮 DeepSeek 替代裁判下还需要增加输出完整性复核；原成绩保留，不事后修改判分或删题。
 
@@ -49,7 +49,7 @@ V1 保存了 revision 与实际工作区内容摘要、输入、选中上下文�
 
 后续修复及预先固定的 50 道错题复测协议见 [longmemeval-repair-2026-10-16.md](longmemeval-repair-2026-10-16.md)。目录回执单独不足以放行工具任务，新增无副作用原生探测后已连续两次零固定等待完成候选写入与跨会话读回。原 full-500 成绩保持不变。
 
-任务工具接入已通过额外验收：认证 Unix socket 的 SDK 契约拒绝未知工具及错误 token；两种方法均用真实模型调用 lookup 并读回未预先提供的随机结果；AgentDojo v1.2.2 的公开 `banking/user_task_0` 上，Mentat 实际执行 6 次、OpenCode 对照方法执行 5 次官方工具调用，两者均通过原始状态 utility 检查。对照使用上游任务、系统提示和工具，但 Agent 循环来自 OpenCode，并非上游 provider-native basic 实现。见 [AgentDojo 预检](../../benchmarks/public/results/2026-10-16-agentdojo-preflight.json)。只有一题，不报全量或安全分数。
+任务工具接入已通过额外验收：认证 Unix socket 的 SDK 契约拒绝未知工具及错误 token；两种方法均用真实模型调用 lookup 并读回未预先提供的随机结果；AgentDojo v1.2.2 的公开 `banking/user_task_0` 上，Gethen 实际执行 6 次、OpenCode 对照方法执行 5 次官方工具调用，两者均通过原始状态 utility 检查。对照使用上游任务、系统提示和工具，但 Agent 循环来自 OpenCode，并非上游 provider-native basic 实现。见 [AgentDojo 预检](../../benchmarks/public/results/2026-10-16-agentdojo-preflight.json)。只有一题，不报全量或安全分数。
 
 另修复 ACP 的显式模型选择：遇到默认模型不符时，先选择指定模型并核验返回值，选择被忽略则在任务提示前失败。原始失败及既有 LongMemEval/PersonaMem 运行保持原貌。后续长工具任务已增加完整源码快照、TSX 解析路径和依赖锁摘要检查；AgentDojo 固定数据及评分器摘要，并准备 97 个干净任务和 949 个固定攻击组合，均运行两种方法。攻击指标区分任务成功率、攻击成功率和安全完成率。
 

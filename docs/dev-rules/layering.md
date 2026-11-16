@@ -6,32 +6,34 @@
 
 | 包 | 职责 | 生产 workspace 依赖 |
 |---|---|---|
-| `@mentat/assistant` | 通用策略、上下文装配、反思和显式确认 | core、memory、session |
-| `@mentat/benchmark` | 纯评测契约、计划校验、配对分析 | 无 |
-| `@mentat/benchmark-file` | 上游结果接入、冻结源码、结果发布与报告 | benchmark、evaluation、storage-file |
-| `@mentat/cli` | 命令解析、终端交互及应用流程装配 | benchmark、benchmark-file、assistant、core、evaluation、evolution、memory、memory-evolution、memory-file、observability、transport-pi、workspace、session、host、harnesses |
-| `@mentat/core` | 统一协议、事件、制品与 harness 契约 | 无 |
-| `@mentat/evaluation` | 命令/进程组执行、容器回收与评测器 | core、evolution |
-| `@mentat/evolution` | 提案、门、完整指标比较、探索归档与发布选择 | core、kernel |
-| `@mentat/harnesses` | 引擎特有策略、MCP 配置与默认注册 | core、transport-pi、transport-acp |
-| `@mentat/host` | 宿主装配、访问边界、召回、执行与资源关闭 | core、session、assistant、memory、memory-file、memory-mcp、observability、skills-mcp |
-| `@mentat/kernel` | 插件、作用域与服务注册生命周期 | core |
-| `@mentat/memory` | 记忆规则、状态、访问策略与上下文选择 | 无 |
-| `@mentat/memory-evolution` | 记忆制品、召回代理评估及演化结果应用 | core、evolution、memory |
-| `@mentat/memory-file` | 记忆事务日志、审计与恢复 | memory、storage-file |
-| `@mentat/memory-mcp` | 记忆工具协议与子进程入口 | core、memory、memory-file |
-| `@mentat/models` | 模型目录与成本/上下文选择策略 | core |
-| `@mentat/observability` | 轨迹、经验、内容存储、审计与召回归因 | core、session、storage-file |
-| `@mentat/session` | 会话执行、超时取消、轨迹与经验契约 | core |
-| `@mentat/skills` | 流程知识契约、状态和排序 | 无 |
-| `@mentat/skills-file` | 流程知识版本、宿主审查、恢复与持久化 | skills、storage-file |
-| `@mentat/skills-mcp` | 流程工具；模型只能保存草稿，不能发布验证状态 | core、skills、skills-file |
-| `@mentat/storage-file` | 通用文件锁、死进程恢复与原子 JSON 写入，不承载领域规则 | 无 |
-| `@mentat/transport-acp` | ACP 连接、内容翻译、会话与权限 | core |
-| `@mentat/transport-pi` | Pi 协议、事件翻译与权限桥 | core |
-| `@mentat/workspace` | 隔离 Git 工作区与不可变候选快照 | core、evolution、storage-file |
+| `@gethen/assistant` | 通用策略、上下文装配、反思和显式确认 | core、memory、session |
+| `@gethen/benchmark` | 纯评测契约、计划校验、配对分析 | 无 |
+| `@gethen/benchmark-file` | 上游结果接入、冻结源码、结果发布与报告 | benchmark、evaluation、storage-file |
+| `@gethen/cli` | 命令解析、终端交互及应用流程装配 | benchmark、benchmark-file、assistant、core、evaluation、evolution、memory、memory-evolution、memory-file、observability、transport-pi、workspace、session、host、harnesses |
+| `@gethen/core` | 统一协议、事件、制品与 harness 契约 | 无 |
+| `@gethen/evaluation` | 命令/进程组执行、容器回收与评测器 | core、evolution |
+| `@gethen/evolution` | 提案、门、完整指标比较、探索归档与发布选择 | core、kernel |
+| `@gethen/harnesses` | 引擎特有策略、MCP 配置与默认注册 | core、transport-pi、transport-acp |
+| `@gethen/host` | 宿主装配、访问边界、召回、执行与资源关闭 | core、session、assistant、memory、memory-file、memory-mcp、observability、skills-mcp |
+| `@gethen/kernel` | 插件、作用域与服务注册生命周期 | core |
+| `@gethen/memory` | 记忆规则、状态、访问策略与上下文选择 | 无 |
+| `@gethen/memory-evolution` | 记忆制品、召回代理评估及演化结果应用 | core、evolution、memory |
+| `@gethen/memory-file` | 记忆事务日志、审计与恢复 | memory、storage-file |
+| `@gethen/memory-mcp` | 记忆工具协议与子进程入口 | core、memory、memory-file |
+| `@gethen/models` | 模型目录与成本/上下文选择策略 | core |
+| `@gethen/observability` | 轨迹、经验、内容存储、审计与召回归因 | core、session、storage-file |
+| `@gethen/router` | 路由、阻塞升级策略与 Assignment 生命周期 | worker-bridge |
+| `@gethen/session` | 会话执行、超时取消、轨迹与经验契约 | core |
+| `@gethen/skills` | 流程知识契约、状态和排序 | 无 |
+| `@gethen/skills-file` | 流程知识版本、宿主审查、恢复与持久化 | skills、storage-file |
+| `@gethen/skills-mcp` | 流程工具；模型只能保存草稿，不能发布验证状态 | core、skills、skills-file |
+| `@gethen/storage-file` | 通用文件锁、死进程恢复与原子 JSON 写入，不承载领域规则 | 无 |
+| `@gethen/transport-acp` | ACP 连接、内容翻译、会话与权限 | core |
+| `@gethen/transport-pi` | Pi 协议、事件翻译与权限桥 | core |
+| `@gethen/worker-bridge` | Master 与 Worker 之间的传输契约与校验 | 无 |
+| `@gethen/workspace` | 隔离 Git 工作区与不可变候选快照 | core、evolution、storage-file |
 
-表中的名称省略 `@mentat/` 前缀。`models` 和 `memory-evolution` 的测试使用kernel验证制品应用，但生产代码不依赖kernel；依赖放在 `devDependencies`，由检查脚本限制用途。
+表中的名称省略 `@gethen/` 前缀。`models` 和 `memory-evolution` 的测试使用kernel验证制品应用，但生产代码不依赖kernel；依赖放在 `devDependencies`，由检查脚本限制用途。
 
 ## 必须保持的边界
 
@@ -40,7 +42,7 @@
 3. **记忆规则共用实现。** MCP和宿主共用MemoryAccess及FileMemoryRepository。Node入口显式注册其运行时依赖tsx加载器；不依赖调用者传入加载参数。
 4. **演化与存储分离。** memory-evolution表达如何评价和修改记忆，memory-file负责保存；workspace负责候选版本，evaluation负责执行检查；二者不能互相反向依赖。
 5. **只从公开入口导入。** 禁止跨包相对路径、未导出的私有子路径和依赖循环；生产代码不能借用仅声明在devDependencies中的包。测试也不能制造反向循环，跨领域集成测试放在CLI装配层。
-6. **不保留聚合大包。** 原 `@mentat/runtime` 已移除。core和memory不转导出已迁走的领域实现，否则物理拆包仍会保留原来的依赖耦合。
+6. **不保留聚合大包。** 原 `@gethen/runtime` 已移除。core和memory不转导出已迁走的领域实现，否则物理拆包仍会保留原来的依赖耦合。
 
 CLI的纯函数和领域策略应归相应功能包；命令解析、输出、引擎注册与权限交互留在CLI。单个协议适配器内部文件不按函数数量继续拆包。
 
@@ -48,18 +50,18 @@ CLI的纯函数和领域策略应归相应功能包；命令解析、输出、�
 
 | 旧入口或位置 | 新入口 |
 |---|---|
-| core的 `Kernel`、`Context`、`Plugin` | `@mentat/kernel` |
-| core的 `SelfIterationLoop`、`Candidate`、`Gate`、`Evaluator`、`Archive` | `@mentat/evolution` |
-| core的 `ModelCatalog`、`modelCatalogArtifact` | `@mentat/models` |
-| memory的 `JsonFileMemoryStore`、`JsonlMemoryAudit`、迁移工具 | `@mentat/memory-file` |
-| memory的 `ExperienceStore`、`SessionRecorder`、经验摘要 | `@mentat/observability` |
-| memory的制品、提案、recall评测和演化演示 | `@mentat/memory-evolution` |
-| memory的反思解析及CLI的prompt、reflection、remember辅助逻辑 | `@mentat/assistant` |
-| CLI私有的 `memoryMcpSpec` 与memory的MCP脚本 | `@mentat/memory-mcp` |
-| runtime的 `GitWorkspace`、`JsonStoreWorkspace` | `@mentat/workspace` |
-| runtime的命令门、命令评测器、容器运行器 | `@mentat/evaluation` |
-| runtime的 `AgentProposer`、`AgentDataProposer` | `@mentat/evolution` |
-| runtime的 `JsonlTracer` | `@mentat/observability` |
+| core的 `Kernel`、`Context`、`Plugin` | `@gethen/kernel` |
+| core的 `SelfIterationLoop`、`Candidate`、`Gate`、`Evaluator`、`Archive` | `@gethen/evolution` |
+| core的 `ModelCatalog`、`modelCatalogArtifact` | `@gethen/models` |
+| memory的 `JsonFileMemoryStore`、`JsonlMemoryAudit`、迁移工具 | `@gethen/memory-file` |
+| memory的 `ExperienceStore`、`SessionRecorder`、经验摘要 | `@gethen/observability` |
+| memory的制品、提案、recall评测和演化演示 | `@gethen/memory-evolution` |
+| memory的反思解析及CLI的prompt、reflection、remember辅助逻辑 | `@gethen/assistant` |
+| CLI私有的 `memoryMcpSpec` 与memory的MCP脚本 | `@gethen/memory-mcp` |
+| runtime的 `GitWorkspace`、`JsonStoreWorkspace` | `@gethen/workspace` |
+| runtime的命令门、命令评测器、容器运行器 | `@gethen/evaluation` |
+| runtime的 `AgentProposer`、`AgentDataProposer` | `@gethen/evolution` |
+| runtime的 `JsonlTracer` | `@gethen/observability` |
 
 这些私有workspace包的旧聚合导出已移除，调用方需更新导入。CLI命令、记忆文件结构、权限行为及harness契约保持不变。实验执行器同步改用公开入口，不再导入CLI私有源码。
 
@@ -79,7 +81,7 @@ CLI的纯函数和领域策略应归相应功能包；命令解析、输出、�
 pnpm check:layering
 pnpm test:architecture
 pnpm -r typecheck
-pnpm --filter @mentat/memory typecheck
+pnpm --filter @gethen/memory typecheck
 pnpm check
 node --import tsx --test experiments/personal-assistant/runner.test.ts
 node_modules/.bin/tsc --noEmit -p experiments/personal-assistant/tsconfig.json
@@ -93,7 +95,7 @@ node_modules/.bin/tsc --noEmit -p experiments/personal-assistant/tsconfig.json
 
 执行与可观测性重构阶段形成17个功能包；上面的2026-10-15验证记录是此前15包拆分基线，重构实现和验证见 [执行、记忆与可观测性重构](../refactor-execution-observability.md)。assistant禁止依赖文件实现和终端，session只依赖core，observability实现session契约；host负责默认装配。不要让领域包反向导入host。
 
-2026-10-16新增 benchmark 与 benchmark-file 后为19个功能包。benchmark 保持纯契约与分析，benchmark-file 负责运行文件和外部执行；Mentat Subject 的 host 装配在 CLI，两个新包均不依赖 host 或 transport。公开评测集环境和 scorer 留在上游框架，接入说明见 [评测框架](../benchmark-framework.md)。
+2026-10-16新增 benchmark 与 benchmark-file 后为19个功能包。benchmark 保持纯契约与分析，benchmark-file 负责运行文件和外部执行；Gethen Subject 的 host 装配在 CLI，两个新包均不依赖 host 或 transport。公开评测集环境和 scorer 留在上游框架，接入说明见 [评测框架](../benchmark-framework.md)。
 
 ## 2026-10-21 正确性与恢复边界
 
@@ -110,3 +112,14 @@ iterate 默认使用独立 detached worktree，开始时拒绝脏目录，发布
 pnpm check 同时运行 TypeScript 行为测试和 PAST Python 审计测试。历史验证记录保留其日期及包数量，不能替代当前检查。
 
 2026-10-21 验证：24 包分层检查、8 项架构规则测试、360 项行为测试及 18 项 Python 审计通过；Docker 实机测试按原开关跳过。全部 24 包独立类型检查及旧个人助理实验的 7 项回归/类型检查通过，格式检查通过，无真实模型调用。故障复现现已进入持续回归，详见 [当前架构评审](../architecture-review.md)。
+
+## 2026-11-16 Master/Worker 控制面
+
+[ADR-0008](../adr/0008-master-worker-control-plane.md) 决定只保留一个 Master 引擎：`@gethen/router-core`（vendor superagent core，MIT，固定上游提交）承担领域状态机，`@gethen/domain` 迁移后降为兼容 facade 再移除；`@gethen/dsh` 现有极简 ticket 引擎下线。
+
+本次先落两个纯包，当前共 36 个功能包：
+
+- `@gethen/worker-bridge`：Master 与 Worker 之间唯一的传输契约（Worker 清单、派工、会话状态、升级/答复、receipt）与边界校验。不得引入 DSH、Cordis 或网络依赖；Remote 与 stdio 适配器实现在其外。
+- `@gethen/router`：硬过滤 + 加权打分路由、阻塞升级的判定策略、Assignment 生命周期（`running → waiting → running → ended`，另有 `parked`）。纯函数，无 IO。
+
+未经 ADR-0008 修订不得在 `router` 中引入 DSH 类型或直接发网络请求；引擎与传输的边界见该 ADR 第 3、4 条。

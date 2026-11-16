@@ -1,11 +1,11 @@
 import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Candidate } from "@mentat/evolution";
+import type { Candidate } from "@gethen/evolution";
 import { describe, expect, it } from "vitest";
 import { commandGate, runCommand } from "./command-gate";
 
-const cwd = mkdtempSync(join(tmpdir(), "mentat-cmd-"));
+const cwd = mkdtempSync(join(tmpdir(), "gethen-cmd-"));
 const candidate: Candidate = { id: "x", version: "x", artifacts: [] };
 
 describe("commandGate", () => {

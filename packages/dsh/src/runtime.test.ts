@@ -7,15 +7,15 @@ import type {
   HarnessAdapter,
   SessionHandle,
   SessionOptions,
-} from "@mentat/core";
-import type { SourceKind } from "@mentat/domain";
-import { PackChannel } from "@mentat/evolve";
-import { defineCapabilityPack } from "@mentat/pack";
-import { FileRepositories } from "@mentat/store";
-import { FakeWorker, HarnessWorker, type WorkerAdapter, type WorkerTask } from "@mentat/worker";
+} from "@gethen/core";
+import type { SourceKind } from "@gethen/domain";
+import { PackChannel } from "@gethen/evolve";
+import { defineCapabilityPack } from "@gethen/pack";
+import { FileRepositories } from "@gethen/store";
+import { FakeWorker, HarnessWorker, type WorkerAdapter, type WorkerTask } from "@gethen/worker";
 import { describe, expect, it } from "vitest";
 import type { ReceiptSink, RouterAgentPort, RuntimeReceipt } from "./runtime";
-import { createMentatService } from "./service";
+import { createGethenService } from "./service";
 
 function fakeHarness(captured: SessionOptions[] = []): HarnessAdapter {
   return {
@@ -82,9 +82,9 @@ function router(): RouterAgentPort & { created: string[]; disposed: string[] } {
   };
 }
 
-describe("MentatRuntime vertical slice", () => {
+describe("GethenRuntime vertical slice", () => {
   it("starts a Router, dispatches through HarnessWorker, persists and records a receipt", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "mentat-runtime-"));
+    const dir = mkdtempSync(join(tmpdir(), "gethen-runtime-"));
     const agents = router();
     const receipts = memorySink();
     const captured: SessionOptions[] = [];
@@ -94,7 +94,7 @@ describe("MentatRuntime vertical slice", () => {
       prompt: { system: "pack prompt", role: "worker" },
       model: { model: "pack/model" },
     });
-    const service = createMentatService({
+    const service = createGethenService({
       dir,
       agents,
       receipts,
@@ -149,7 +149,7 @@ describe("MentatRuntime vertical slice", () => {
   });
 
   it("routes an Assignment through the canary pack and records the channel", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "mentat-runtime-canary-"));
+    const dir = mkdtempSync(join(tmpdir(), "gethen-runtime-canary-"));
     const stable = defineCapabilityPack({
       id: "stable",
       version: 1,
@@ -171,7 +171,7 @@ describe("MentatRuntime vertical slice", () => {
       },
     };
     const receipts = memorySink();
-    const service = createMentatService({
+    const service = createGethenService({
       dir,
       receipts,
       worker,
@@ -199,8 +199,8 @@ describe("MentatRuntime vertical slice", () => {
   });
 
   it("polls a Source into the Engine", async () => {
-    const service = createMentatService({
-      dir: mkdtempSync(join(tmpdir(), "mentat-runtime-source-")),
+    const service = createGethenService({
+      dir: mkdtempSync(join(tmpdir(), "gethen-runtime-source-")),
     });
     const source: SourceKind = {
       id: "fake",

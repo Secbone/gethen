@@ -2,7 +2,7 @@
 
 后续更新：NodeBB 已通过独立 VZ/Rosetta 复验，见 [后续报告](nodebb-swe-bench-validation-2026-10-21.md)。本文保留首轮原始结果，不将不同环境和源码快照混为同一批次。
 
-日期：2026-10-21。结论：真实 Mentat 主体已接入官方 Harbor 任务与独立补丁重评分；预选三题中，两题产生有效分数且均通过，一题因本机环境校准失败保持未评分。不能报告完整三题通过率，也不能据此推断全量成绩或 RSI 增益。
+日期：2026-10-21。结论：真实 Gethen 主体已接入官方 Harbor 任务与独立补丁重评分；预选三题中，两题产生有效分数且均通过，一题因本机环境校准失败保持未评分。不能报告完整三题通过率，也不能据此推断全量成绩或 RSI 增益。
 
 ## 固定配置
 
@@ -46,14 +46,14 @@ Ansible 主体为映射对象补充正向/反向 union 支持，并增加自己�
 
 ## 原始证据和复现入口
 
-统一三题汇总：`.mentat/swe-bench/pilot3-summary-v1-unified/report.md`，其中包含全部三题的计划和未评分分母。
+统一三题汇总：`.gethen/swe-bench/pilot3-summary-v1-unified/report.md`，其中包含全部三题的计划和未评分分母。
 
-- NodeBB 校准失败：`.mentat/swe-bench/pilot1-v2/`。
-- 两道有效 Python 题：`.mentat/swe-bench/pilot-python2-v5/`。
-- Ansible 校准来源：`.mentat/swe-bench/pilot-python2-v4/` 的 oracle/empty 两个 job。旧主体未运行的结果在该目录 `invalidation.json` 中明确失效；没有复用旧主体分数。
+- NodeBB 校准失败：`.gethen/swe-bench/pilot1-v2/`。
+- 两道有效 Python 题：`.gethen/swe-bench/pilot-python2-v5/`。
+- Ansible 校准来源：`.gethen/swe-bench/pilot-python2-v4/` 的 oracle/empty 两个 job。旧主体未运行的结果在该目录 `invalidation.json` 中明确失效；没有复用旧主体分数。
 - 每个有效模型 job 的 `agent/host/response.json`：ACP 模型确认、原生账目、主体耗时、源码指纹；`agent/tool-calls.jsonl` 保存全部实际命令/输出；`agent/model.patch` 为提交补丁；job 根目录的 `subject-source.json` 为完整主体源码存档，位于容器可见挂载之外。
 - 独立重评分的 `verifier/test-stdout.txt`、`output.json`、`reward.txt`：原版测试及奖励证据。
-- 合成桥接检查在 `.mentat/swe-bench/bridge-smoke-v1/`，不计入正式成绩。
+- 合成桥接检查在 `.gethen/swe-bench/bridge-smoke-v1/`，不计入正式成绩。
 
 操作说明见 [接入 README](../../benchmarks/swe-bench/README.md)。不同批次通过 `merge.py` 合并不重叠题目，拒绝重复题的择优选择和配置不一致；汇总保留源 manifest/results 的摘要。
 

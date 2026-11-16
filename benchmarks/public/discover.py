@@ -26,7 +26,7 @@ def fetch(item):
         try:
             with urllib.request.urlopen(url, timeout=60) as response:
                 data = json.load(response)
-            directory = ROOT / ".mentat/benchmark-data/metadata"
+            directory = ROOT / ".gethen/benchmark-data/metadata"
             directory.mkdir(parents=True, exist_ok=True)
             (directory / (name + ".json")).write_text(json.dumps(data, ensure_ascii=False, indent=2)+"\n")
             files = data.get("siblings", [])

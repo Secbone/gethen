@@ -21,7 +21,7 @@ from upstream import load_function
 
 IDS = ["561fabcd", "6e984302", "2b8f3739", "0edc2aef", "57f827a0",
        "09ba9854", "f685340e_abs", "031748ae_abs", "cc5ded98", "95228167"]
-ARMS = ["mentat-current", "openviking-context-full", "openviking-dialogue-expand"]
+ARMS = ["gethen-current", "openviking-context-full", "openviking-dialogue-expand"]
 
 
 class Viking:
@@ -187,7 +187,7 @@ def evaluate(args):
                 result = {"question_id":entry["question_id"],"question_type":entry["question_type"],"arm":arm,"status":"error"}
                 try:
                     selected = None
-                    if arm == "mentat-current":
+                    if arm == "gethen-current":
                         response = client.subject(history, question)
                     else:
                         text, selected = (native,native_selected) if arm == ARMS[1] else (expanded,expanded_selected)

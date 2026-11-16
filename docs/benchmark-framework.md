@@ -4,25 +4,25 @@
 
 日期：2026-10-16。目标是持续观察同一项目在不同公开评测集、能力维度和代码版本上的变化，并区分执行完成、评分覆盖和实际学习收益。
 
-本次交付统一计划、原生连续任务执行、外部运行器委托、逐样本结果接入、不可覆盖记录、分维度报告及配对比较。没有下载或运行公开评测集，没有产生新的真实模型效果结论。公开集的 Mentat agent/environment 桥接均仍待逐项实现与验证；结果格式已支持不代表业务环境已接通。
+本次交付统一计划、原生连续任务执行、外部运行器委托、逐样本结果接入、不可覆盖记录、分维度报告及配对比较。没有下载或运行公开评测集，没有产生新的真实模型效果结论。公开集的 Gethen agent/environment 桥接均仍待逐项实现与验证；结果格式已支持不代表业务环境已接通。
 
 ## 社区框架调研与复用决定
 
 | 框架 | 已核查的能力 | 在本项目中的用途 | 边界 |
 |---|---|---|---|
-| [Harbor](https://github.com/harbor-framework/harbor) | 多 benchmark、agent 接口、沙箱 provider、逐 trial verifier reward | 首选可执行任务后端；RSI-Exam、终端及代码演化 | 单任务默认隔离不能自动替代跨任务记忆与锚点协议；需封装 Mentat agent |
+| [Harbor](https://github.com/harbor-framework/harbor) | 多 benchmark、agent 接口、沙箱 provider、逐 trial verifier reward | 首选可执行任务后端；RSI-Exam、终端及代码演化 | 单任务默认隔离不能自动替代跨任务记忆与锚点协议；需封装 Gethen agent |
 | [Inspect AI](https://inspect.aisi.org.uk/agent-bridge.html) / [Inspect Evals](https://github.com/UKGovernmentBEIS/inspect_evals) | dataset/solver/scorer、日志、第三方 agent 与沙箱 bridge | QA、个性化及自定义评分后端 | 原生 API bridge 会改变模型调用路径；需验证是否忠实保留 OpenCode/Pi 行为 |
 | [BenchFlow](https://github.com/benchflow-ai/benchflow) | 统一环境协议、ACP agent、多轮和技能评测 | SkillsBench 及后续有状态环境 | 接口持续演进；当前通过 normalized-v1 exporter 接入，未实现专用结果适配器 |
 | [PAST-Bench](https://github.com/Gen-Verse/PAST-Bench) | 顺序任务族、fresh session、持久化开关、anchor 与机制证据 | 个人助手学习主协议与公开任务来源 | 部分初始 fixture 与 telemetry 针对特定框架；改编后标为 adapted |
 | [LifelongAgentBench](https://github.com/caixd-220529/LifelongAgentBench) | 连续任务流、经验 callback、技术环境 | 后续方法迁移专项的可选后端 | 不作为当前统一报告层的硬依赖 |
 
-选择复用上游任务环境和评分器，由本项目维护跨版本、跨能力的观测层。不复刻容器调度平台，也不把所有任务降为文本问答。三个接口分别是 Subject（被测 Mentat）、Dataset/运行协议、ResultAdapter（上游结果），互不绑定具体模型。
+选择复用上游任务环境和评分器，由本项目维护跨版本、跨能力的观测层。不复刻容器调度平台，也不把所有任务降为文本问答。三个接口分别是 Subject（被测 Gethen）、Dataset/运行协议、ResultAdapter（上游结果），互不绑定具体模型。
 
 本次核查了官方说明、[Harbor TrialResult](https://github.com/harbor-framework/harbor/blob/main/src/harbor/models/trial/result.py) 和 [Inspect 日志模型](https://github.com/UKGovernmentBEIS/inspect_ai/blob/main/src/inspect_ai/log/_log.py)。适配器带独立版本；仓库契约样本是人工合成相关字段，不宣称已经通过已安装上游版本的端到端验收。本机没有安装这些外部评测框架。
 
 ## 确定采用的公开评测集
 
-程序化清单由 `@mentat/benchmark` 的 `BENCHMARK_CATALOG` 提供，`pnpm bench list --json` 可导出来源、优先级、选题规则、运行器与集成状态。清单确定的是评测集和选样策略；每次实际评测仍须固定下载内容、任务选择和 scorer 的 revision/hash，不能用 main/latest 运行后再补版本。
+程序化清单由 `@gethen/benchmark` 的 `BENCHMARK_CATALOG` 提供，`pnpm bench list --json` 可导出来源、优先级、选题规则、运行器与集成状态。清单确定的是评测集和选样策略；每次实际评测仍须固定下载内容、任务选择和 scorer 的 revision/hash，不能用 main/latest 运行后再补版本。
 
 | 批次 | 公开集及来源 | 能力维度 | 首轮选择和判定 |
 |---|---|---|---|
@@ -38,14 +38,14 @@
 | 扩展 | [SkillsBench](https://github.com/benchflow-ai/skillsbench) | transfer、task-quality、efficiency | 固定 v1.1 roster；办公、财务、工程，区分专家技能与自行学得技能 |
 | 扩展 | [RSI-Exam](https://github.com/aiming-lab/RSI-Exam) | self-improvement、transfer、task-quality、efficiency | 先公开 memory/workflow 任务；冻结开发/验证/隐藏测试与提交制品；私有全量需上游访问 |
 
-另保留 Mentat 自建跨职业连续任务（adapted 轨道），不替代公开集。observability 与 efficiency 是跨集维度：每个运行都报告执行状态、评分覆盖、成本覆盖，不能只算答案准确率。LongMemEval-V2 和 Mem2ActBench 留为下一批调查对象，当前不扩大核心接入范围。
+另保留 Gethen 自建跨职业连续任务（adapted 轨道），不替代公开集。observability 与 efficiency 是跨集维度：每个运行都报告执行状态、评分覆盖、成本覆盖，不能只算答案准确率。LongMemEval-V2 和 Mem2ActBench 留为下一批调查对象，当前不扩大核心接入范围。
 
 ## 包边界
 
-- `@mentat/benchmark`：纯契约、运行时数据校验、能力清单、连续任务调度、规则评分、聚合和配对分析；无 Node、host、模型、文件或容器依赖。
-- `@mentat/benchmark-file`：上游结果适配器注册、文件与摘要、外部命令委托、Markdown/CSV；依赖 benchmark 与现有 evaluation 执行器。
-- CLI：`bench` 命令和 Mentat Subject 装配；从公开 host 入口运行，使用新类型确认接口。
-- `@mentat/evaluation`：原有演化门和命令/容器执行职责不变，不承载公开数据集语义。
+- `@gethen/benchmark`：纯契约、运行时数据校验、能力清单、连续任务调度、规则评分、聚合和配对分析；无 Node、host、模型、文件或容器依赖。
+- `@gethen/benchmark-file`：上游结果适配器注册、文件与摘要、外部命令委托、Markdown/CSV；依赖 benchmark 与现有 evaluation 执行器。
+- CLI：`bench` 命令和 Gethen Subject 装配；从公开 host 入口运行，使用新类型确认接口。
+- `@gethen/evaluation`：原有演化门和命令/容器执行职责不变，不承载公开数据集语义。
 
 ## 运行计划与数据契约
 
@@ -69,14 +69,14 @@ pnpm bench validate --plan benchmarks/examples/native-plan.json --dataset benchm
 pnpm bench:smoke
 ```
 
-`bench:smoke` 默认创建新的 `.mentat/benchmarks/smoke-<时间戳>`。只使用 fake，运行两次八任务原生序列、导入两种上游契约样本，验证同版本比较、报告与趋势。它不证明个性化收益。
+`bench:smoke` 默认创建新的 `.gethen/benchmarks/smoke-<时间戳>`。只使用 fake，运行两次八任务原生序列、导入两种上游契约样本，验证同版本比较、报告与趋势。它不证明个性化收益。
 
 单独运行原生序列：
 
 ```bash
-pnpm bench run --plan benchmarks/examples/native-plan.json --dataset benchmarks/examples/episodes.json --out .mentat/benchmarks/native-001
-pnpm bench report --run .mentat/benchmarks/native-001
-pnpm bench arms --run .mentat/benchmarks/native-001 --baseline reset --treatment explicit
+pnpm bench run --plan benchmarks/examples/native-plan.json --dataset benchmarks/examples/episodes.json --out .gethen/benchmarks/native-001
+pnpm bench report --run .gethen/benchmarks/native-001
+pnpm bench arms --run .gethen/benchmarks/native-001 --baseline reset --treatment explicit
 ```
 
 原生 runner 每任务新建 host/session，同一 arm/family/repetition 复用独立状态；reset 每任务独立。任务内的显式用户确认三组都可使用，重置只改变跨任务保留。`explicit` 不反思，`reflect` 使用完整历史反思且保持生产候选隔离。确认必须提供 kind，不能从评分标签推断用户规则。
@@ -88,8 +88,8 @@ pnpm bench arms --run .mentat/benchmarks/native-001 --baseline reset --treatment
 导入上游逐样本输出：
 
 ```bash
-pnpm bench import --plan benchmarks/examples/harbor-plan.json --adapter harbor-trials-v1 --input benchmarks/examples/harbor-trials.json --out .mentat/benchmarks/harbor-fixture-001
-pnpm bench import --plan benchmarks/examples/inspect-plan.json --adapter inspect-json-v1 --input benchmarks/examples/inspect-log.json --out .mentat/benchmarks/inspect-fixture-001
+pnpm bench import --plan benchmarks/examples/harbor-plan.json --adapter harbor-trials-v1 --input benchmarks/examples/harbor-trials.json --out .gethen/benchmarks/harbor-fixture-001
+pnpm bench import --plan benchmarks/examples/inspect-plan.json --adapter inspect-json-v1 --input benchmarks/examples/inspect-log.json --out .gethen/benchmarks/inspect-fixture-001
 ```
 
 - Harbor：读取单步 TrialResult 数组、单个 trial 或 job 目录下的 `*/result.json`。忽略 job aggregate；`trial_name` 显式匹配唯一 sourceId，同时核对 task_name/caseId；reward 字段由 metric.source 指定。官方默认 trial_name 带随机后缀，桥接器应在执行前构造/保存 resolved TrialConfig，固定名称并生成计划；不能看分数后改 trial 绑定或挑选重试。异常记录不能贡献成功分。多步 trial 尚未支持，明确拒绝，不能把 step 平均当作任务成功。
@@ -101,7 +101,7 @@ pnpm bench import --plan benchmarks/examples/inspect-plan.json --adapter inspect
 ```json
 {
   "command": "harbor",
-  "args": ["run", "--config", "/absolute/path/pinned-mentat-job.yaml", "--jobs-dir", "{runDir}/upstream"],
+  "args": ["run", "--config", "/absolute/path/pinned-gethen-job.yaml", "--jobs-dir", "{runDir}/upstream"],
   "cwd": "/absolute/path/upstream-checkout",
   "timeoutMs": 600000,
   "adapter": "harbor-trials-v1",
@@ -109,10 +109,10 @@ pnpm bench import --plan benchmarks/examples/inspect-plan.json --adapter inspect
 }
 ```
 
-以上是 job 结构示意；Harbor CLI 参数需对安装的固定版本使用 `harbor run --help` 核对，Mentat agent/config 需先完成桥接。没有预置一个可直接运行官方集的 Mentat Harbor agent。
+以上是 job 结构示意；Harbor CLI 参数需对安装的固定版本使用 `harbor run --help` 核对，Gethen agent/config 需先完成桥接。没有预置一个可直接运行官方集的 Gethen Harbor agent。
 
 ```bash
-pnpm bench external --plan /path/to/plan.json --job /path/to/job.json --out .mentat/benchmarks/public-001
+pnpm bench external --plan /path/to/plan.json --job /path/to/job.json --out .gethen/benchmarks/public-001
 ```
 
 使用 argv 执行，不提供 shell 字符串；凭据由环境继承，不写进 job/plan。仅替换 `{runDir}`。结果路径必须位于本次新建运行目录，防止旧成绩误充本次输出；同时留存 stdout、stderr、命令元数据与事件。超时或缺少输出也生成失败记录，所有计划任务保持可见。job 指纹参与可比性判断。外部框架负责它自己的模型/token/费用预算；本层只实施进程 timeout，不假称能限制其内部 API 调用。
@@ -122,8 +122,8 @@ pnpm bench external --plan /path/to/plan.json --job /path/to/job.json --out .men
 每个运行目录保存 `plan.json`、`source.json`、`run.json`、`report.md`、`integrity.json` 与事件；原生运行另存完整输出、轨迹、记忆前后快照和反思操作。独占创建目录，不覆盖、静默续跑或挑最好的一次。文件摘要用于发现意外损坏，不是签名或防篡改安全保证。
 
 ```bash
-pnpm bench compare --before .mentat/benchmarks/release-a --after .mentat/benchmarks/release-b
-pnpm bench history --root .mentat/benchmarks --csv > /tmp/mentat-benchmark-trends.csv
+pnpm bench compare --before .gethen/benchmarks/release-a --after .gethen/benchmarks/release-b
+pnpm bench history --root .gethen/benchmarks --csv > /tmp/gethen-benchmark-trends.csv
 ```
 
 history 的 root 直接包含运行子目录；冒烟的外层目录是集合，应将其作为 root 单独查看。无法读取或不完整的运行会报错，不在导出中静默消失。CSV 一行对应 benchmark/arm/metric/run，含能力维度、覆盖与兼容 cohort；不同 cohort 不应连成同一优化曲线。
@@ -134,7 +134,7 @@ history 的 root 直接包含运行子目录；冒烟的外层目录是集合，
 
 ## 后续接入验收
 
-每接一个公开集，依次完成：固定任务内容与哈希 → 接入 Mentat subject/tool/environment → 保留原始 scorer → 检查 oracle 能通过、错误输出会失败 → 验证隐藏材料不可读 → 保存完整原生结果 → 转换并校验 trial 覆盖 → 小样本对齐上游结果 → 才把清单状态改为已接入。不能仅因安装成功或 importer 能解析就标记完成。
+每接一个公开集，依次完成：固定任务内容与哈希 → 接入 Gethen subject/tool/environment → 保留原始 scorer → 检查 oracle 能通过、错误输出会失败 → 验证隐藏材料不可读 → 保存完整原生结果 → 转换并校验 trial 覆盖 → 小样本对齐上游结果 → 才把清单状态改为已接入。不能仅因安装成功或 importer 能解析就标记完成。
 
 主对照为 reset / explicit / reflect。反思候选未激活时，先评价候选证据质量、污染和成本；需要验证生效后的潜在收益时另设审核确认组，记入审核成本，并标为辅助确认学习。普通偏好与高风险规则不能共享一个自动激活门槛。代码演化另设冻结开发/验证/隐藏测试、版本制品和回滚；两个以上代际才讨论改进下一轮自改的能力。
 

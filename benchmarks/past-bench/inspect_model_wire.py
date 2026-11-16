@@ -25,7 +25,7 @@ class Handler(BaseHTTPRequestHandler):
         tools=body.get('tools',[])
         record({'type':'request','model':body.get('model'),'toolNames':[t.get('function',{}).get('name') for t in tools],
                 'toolChoice':body.get('tool_choice'),'messageRoles':[m['role'] for m in body.get('messages',[])],
-                'mentatSystem':any(m.get('role')=='system' and 'Mentat personal assistant policy' in str(m.get('content','')) for m in body.get('messages',[]))})
+                'gethenSystem':any(m.get('role')=='system' and 'Gethen personal assistant policy' in str(m.get('content','')) for m in body.get('messages',[]))})
         headers={k:v for k,v in self.headers.items() if k.lower() not in {'host','content-length','connection','accept-encoding'}}
         content=[];calls=[];finish=[]
         try:

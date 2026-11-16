@@ -3,19 +3,19 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, statfsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { environmentMcpSpec } from "@mentat/benchmark-file";
-import { createDefaultRegistry } from "@mentat/harnesses";
-import { createAssistantHost } from "@mentat/host";
-import { FileMemoryRepository } from "@mentat/memory-file";
-import { memoryMcpSpec } from "@mentat/memory-mcp";
+import { environmentMcpSpec } from "@gethen/benchmark-file";
+import { createDefaultRegistry } from "@gethen/harnesses";
+import { createAssistantHost } from "@gethen/host";
+import { FileMemoryRepository } from "@gethen/memory-file";
+import { memoryMcpSpec } from "@gethen/memory-mcp";
 import {
   ExperienceStore,
   projectExperience,
   readTrajectory,
   resolveEventData,
-} from "@mentat/observability";
-import { FileSkillRepository } from "@mentat/skills-file";
-import { skillsMcpSpec } from "@mentat/skills-mcp";
+} from "@gethen/observability";
+import { FileSkillRepository } from "@gethen/skills-file";
+import { skillsMcpSpec } from "@gethen/skills-mcp";
 import { benchmarkObservations } from "../packages/cli/src/lib/benchmark-observations";
 
 const [configuration, output] = process.argv.slice(2);
@@ -48,7 +48,7 @@ if (disk.bavail * disk.bsize < 30n * 1024n ** 3n) throw new Error("disk reserve 
 mkdirSync(out);
 mkdirSync(state, { recursive: true });
 // The engine may expose cwd to the model. Keep family/bucket/arm names out of it.
-const cwd = mkdtempSync(join(tmpdir(), "mentat-task-"));
+const cwd = mkdtempSync(join(tmpdir(), "gethen-task-"));
 const model = "opencode-go/deepseek-v4.1-flash";
 const timeoutMs = config.timeoutMs ?? 180000;
 const maxSteps = config.maxSteps ?? 25;
@@ -86,9 +86,9 @@ const probeNonce = `ready-${randomUUID()}`,
 const receiptPath = join(out, "catalog.jsonl");
 memory.env = {
   ...memory.env,
-  MENTAT_MCP_PROBE_NONCE: probeNonce,
-  MENTAT_MCP_READY_FILE: receiptPath,
-  MENTAT_MCP_READY_TOKEN: token,
+  GETHEN_MCP_PROBE_NONCE: probeNonce,
+  GETHEN_MCP_READY_FILE: receiptPath,
+  GETHEN_MCP_READY_TOKEN: token,
 };
 const skillToolNames = ["procedures_skills_list", "procedures_skill_view", "procedures_skill_save"];
 const enabled = [
@@ -108,20 +108,20 @@ const environmentReceipt = join(out, "environment-catalog.jsonl");
 const skillsReceipt = join(out, "skills-catalog.jsonl");
 environment.env = {
   ...environment.env,
-  MENTAT_MCP_READY_FILE: environmentReceipt,
-  MENTAT_MCP_READY_TOKEN: token,
+  GETHEN_MCP_READY_FILE: environmentReceipt,
+  GETHEN_MCP_READY_TOKEN: token,
 };
-skills.env = { ...skills.env, MENTAT_MCP_READY_FILE: skillsReceipt, MENTAT_MCP_READY_TOKEN: token };
+skills.env = { ...skills.env, GETHEN_MCP_READY_FILE: skillsReceipt, GETHEN_MCP_READY_TOKEN: token };
 const base = {
   model: { providerID: "opencode-go", model: "deepseek-v4.1-flash" },
   agents: {
     title: { model: { providerID: "opencode-go", model: "deepseek-v4.1-flash" } },
     build: { steps: maxSteps },
   },
-  ...(process.env.MENTAT_DIAGNOSTIC_API_BASE
+  ...(process.env.GETHEN_DIAGNOSTIC_API_BASE
     ? {
         providers: {
-          "opencode-go": { settings: { baseURL: process.env.MENTAT_DIAGNOSTIC_API_BASE } },
+          "opencode-go": { settings: { baseURL: process.env.GETHEN_DIAGNOSTIC_API_BASE } },
         },
       }
     : {}),

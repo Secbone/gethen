@@ -31,13 +31,13 @@ class SubjectBoundaryTest(unittest.TestCase):
             new_subject_scopes(self.families * 2)
 
     def test_checks_actual_engine_and_experience_workspaces(self):
-        workspace = str(Path(tempfile.gettempdir()) / "mentat-task-Ab12cd")
+        workspace = str(Path(tempfile.gettempdir()) / "gethen-task-Ab12cd")
         experience = [{"cwd": workspace}]
         self.assertEqual(validate_workspace(workspace, [workspace], experience), [])
         self.assertTrue(validate_workspace(workspace, [], experience))
         self.assertTrue(validate_workspace(workspace, ["/somewhere/SM02"], experience))
         self.assertTrue(validate_workspace(workspace, [workspace], [{"cwd": "/other"}]))
-        labelled = str(Path(tempfile.gettempdir()) / "SM02_constraint_retention" / "mentat-task-Ab12cd")
+        labelled = str(Path(tempfile.gettempdir()) / "SM02_constraint_retention" / "gethen-task-Ab12cd")
         self.assertTrue(validate_workspace(labelled, [labelled], [{"cwd": labelled}]))
 
 

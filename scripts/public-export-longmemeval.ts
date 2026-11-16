@@ -1,9 +1,9 @@
 /** Import actual per-question output into the unified framework, never aggregate-only scores. */
 import { readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { canonical, compareSubjects, type RunPlan, type TrialResult } from "@mentat/benchmark";
-import { createRunDirectory, makeRun, saveRun, sha256 } from "@mentat/benchmark-file";
-import { readTrajectory, resolveEventData } from "@mentat/observability";
+import { canonical, compareSubjects, type RunPlan, type TrialResult } from "@gethen/benchmark";
+import { createRunDirectory, makeRun, saveRun, sha256 } from "@gethen/benchmark-file";
+import { readTrajectory, resolveEventData } from "@gethen/observability";
 
 const [inputArg, outputArg, ...recoveryArgs] = process.argv.slice(2);
 if (!inputArg || !outputArg)
@@ -131,9 +131,9 @@ for (const agent of manifest.agents as string[]) {
     subject: {
       id: agent,
       revision:
-        agent === "mentat-episodic" ? manifest.transport.revision : manifest.upstreamRevision,
+        agent === "gethen-episodic" ? manifest.transport.revision : manifest.upstreamRevision,
       codeSha256:
-        agent === "mentat-episodic"
+        agent === "gethen-episodic"
           ? manifest.transport.codeSha256
           : sha256(
               `${manifest.retrievalFunctionSha256}:${manifest.corpusFunctionSha256}:${manifest.readerFunctionSha256}`,
@@ -145,7 +145,7 @@ for (const agent of manifest.agents as string[]) {
       config: {
         study,
         method:
-          agent === "mentat-episodic"
+          agent === "gethen-episodic"
             ? {
                 history: "host.ingestHistory + lexical quoted observation retrieval",
                 budgetChars: manifest.nativeHistoryBudgetChars,
@@ -228,7 +228,7 @@ if (runs.length !== 2) throw new Error("expected two controlled subjects");
 const first = runs[0],
   second = runs[1];
 if (!first || !second) throw new Error("comparison subjects missing");
-// Positive deltas mean Mentat exceeds the upstream BM25 comparator.
+// Positive deltas mean Gethen exceeds the upstream BM25 comparator.
 const comparison = compareSubjects(second, first);
 writeFileSync(join(out, "comparison.json"), JSON.stringify(comparison, null, 2), { flag: "wx" });
 process.stdout.write(

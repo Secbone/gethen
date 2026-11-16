@@ -46,11 +46,11 @@
 
 ## 证据与验证
 
-- 完整结果：`.mentat/swe-bench/nodebb-rosetta-2g-v2/results.json`。
-- 原始模型、工具轨迹和补丁：该目录 `jobs/case-0-mentat/*/agent/`。
+- 完整结果：`.gethen/swe-bench/nodebb-rosetta-2g-v2/results.json`。
+- 原始模型、工具轨迹和补丁：该目录 `jobs/case-0-gethen/*/agent/`。
 - 原始补丁重评：`jobs/case-0-regrade/*/verifier/`。
 - 源码补丁审计：`controller-patch-audit.json`，附加重评 `jobs/tracked-source-only-regrade/*/verifier/`。
-- 统一报告：`.mentat/swe-bench/nodebb-rosetta-2g-v2-unified/report.md`，已通过 CLI 独立读取。
-- 超时诊断：`.mentat/swe-bench/nodebb-diagnostics/timeout-confirmation.json`。
+- 统一报告：`.gethen/swe-bench/nodebb-rosetta-2g-v2-unified/report.md`，已通过 CLI 独立读取。
+- 超时诊断：`.gethen/swe-bench/nodebb-diagnostics/timeout-confirmation.json`。
 
 `pnpm check` 通过：Vitest 361 passed、1 skipped，PAST Python 18 项，SWE 边界审计 11 项，并通过类型、分层和格式检查；仅有既存 Biome 配置迁移提示。专用虚拟机测试后停止，保留环境缓存以便后续复现。

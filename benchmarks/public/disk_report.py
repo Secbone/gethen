@@ -21,7 +21,7 @@ def snapshot(incoming_bytes=0, docker_incoming_bytes=None):
     metadata = json.loads((ROOT / "benchmarks/public/dataset-metadata.json").read_text())
     datasets = metadata["datasets"]
     rsi = []
-    for path in sorted((ROOT / ".mentat/benchmark-data/rsi-exam").glob("*/task.toml")):
+    for path in sorted((ROOT / ".gethen/benchmark-data/rsi-exam").glob("*/task.toml")):
         task = tomllib.loads(path.read_text())
         agent = task.get("environment", {})
         verifier = task.get("verifier", {}).get("environment", {})
@@ -49,7 +49,7 @@ def snapshot(incoming_bytes=0, docker_incoming_bytes=None):
     return {
         "measuredAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "host": disk_budget(ROOT, incoming_bytes), "docker": docker,
-        "allocatedLocalBytes": {name: allocated_bytes(ROOT / ".mentat" / name) for name in
+        "allocatedLocalBytes": {name: allocated_bytes(ROOT / ".gethen" / name) for name in
                                 ("benchmark-data", "upstream", "public-evaluations", "venvs", "tools")},
         "knownDatasetRepositoryBytes": sum(d["repositoryFileBytesKnown"] for d in datasets.values()),
         "knownDatasetRepositories": list(datasets),

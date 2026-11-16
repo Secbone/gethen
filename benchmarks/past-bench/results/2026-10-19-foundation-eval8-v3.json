@@ -213,6 +213,6 @@
     "issues": [],
     "coverage": "Frozen file hashes, allowlisted controller fields and tools, native tool calls versus real upstream dispatch receipts, effective model, fresh engine sessions, accounting completeness, empty reset memory/procedures and real skill writes/reads. Not OS isolation or training contamination proof."
   },
-  "runDirectory": ".mentat/public-evaluations/past-foundation-eval8-20261019-v3",
+  "runDirectory": ".gethen/public-evaluations/past-foundation-eval8-20261019-v3",
   "planSha256": "f6c4960391ef91ee2f9f185b16492bcd4a14bd16a8fb60dce96a41613f105fce"
 }

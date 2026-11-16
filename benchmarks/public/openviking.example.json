@@ -6,7 +6,7 @@
     "with_bot": false
   },
   "storage": {
-    "workspace": ".mentat/openviking-new-store"
+    "workspace": ".gethen/openviking-new-store"
   },
   "embedding": {
     "max_concurrent": 1,

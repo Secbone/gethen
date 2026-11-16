@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Single source of truth for workspace package aliases.
 //
-// Derives every `@mentat/*` alias from each package's `package.json` `exports`
-// map (so a new package, or a new subpath like `@mentat/core/testing`, is
+// Derives every `@gethen/*` alias from each package's `package.json` `exports`
+// map (so a new package, or a new subpath like `@gethen/core/testing`, is
 // registered in one place), then emits:
 //   - tsconfig.paths.json          (consumed via `extends` in tsconfig.json)
 //   - scripts/workspace-aliases.mjs (consumed by vitest.config.ts)
@@ -39,11 +39,11 @@ for (const pkgDir of readdirSync(packagesDir).sort()) {
   } catch {
     continue;
   }
-  if (!manifest.name?.startsWith("@mentat/")) continue;
+  if (!manifest.name?.startsWith("@gethen/")) continue;
   entries.push(...aliasesFor(pkgDir, manifest));
 }
 
-// Longest alias first so `@mentat/core/testing` wins over `@mentat/core`.
+// Longest alias first so `@gethen/core/testing` wins over `@gethen/core`.
 entries.sort((a, b) => b[0].length - a[0].length || a[0].localeCompare(b[0]));
 
 const tsconfig = {

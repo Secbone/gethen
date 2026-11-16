@@ -7,8 +7,8 @@ import {
   type Dimension,
   type RunPlan,
   type TrialResult,
-} from "@mentat/benchmark";
-import { createRunDirectory, makeRun, saveRun, sha256 } from "@mentat/benchmark-file";
+} from "@gethen/benchmark";
+import { createRunDirectory, makeRun, saveRun, sha256 } from "@gethen/benchmark-file";
 
 const [inputArg, outputArg] = process.argv.slice(2);
 if (!inputArg || !outputArg)
@@ -51,7 +51,7 @@ const metrics = [
 ];
 const runs = [];
 for (const method of manifest.agents as string[]) {
-  const subjectId = method === "mentat" ? "mentat-on-opencode" : "opencode-agentdojo-task-baseline";
+  const subjectId = method === "gethen" ? "gethen-on-opencode" : "opencode-agentdojo-task-baseline";
   const plan: RunPlan = {
     schemaVersion: 1,
     benchmark: { id: "agentdojo", version: manifest.version, track: "adapted" },
@@ -97,14 +97,14 @@ for (const method of manifest.agents as string[]) {
       config: {
         study,
         method:
-          method === "mentat"
+          method === "gethen"
             ? {
                 implementation:
-                  "Mentat host on OpenCode; own memory candidate tools plus official task tools; fresh task state",
+                  "Gethen host on OpenCode; own memory candidate tools plus official task tools; fresh task state",
               }
             : {
                 implementation:
-                  "OpenCode agent with AgentDojo task/system/tools; no Mentat policy or memory. Not the upstream provider-native basic agent loop.",
+                  "OpenCode agent with AgentDojo task/system/tools; no Gethen policy or memory. Not the upstream provider-native basic agent loop.",
               },
       },
     },

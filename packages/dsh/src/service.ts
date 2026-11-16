@@ -1,6 +1,6 @@
 import { join } from "node:path";
-import type { Policy, SourceKind } from "@mentat/domain";
-import { EffectQueue } from "@mentat/effects";
+import type { Policy, SourceKind } from "@gethen/domain";
+import { EffectQueue } from "@gethen/effects";
 import {
   DreamService,
   EvolutionLoop,
@@ -8,27 +8,27 @@ import {
   type PackChannel,
   type PackEvaluator,
   RulePackProposer,
-} from "@mentat/evolve";
-import type { CapabilityPack } from "@mentat/pack";
-import { FileRepositories } from "@mentat/store";
-import type { WorkerAdapter } from "@mentat/worker";
-import { FakeWorker } from "@mentat/worker";
+} from "@gethen/evolve";
+import type { CapabilityPack } from "@gethen/pack";
+import { FileRepositories } from "@gethen/store";
+import type { WorkerAdapter } from "@gethen/worker";
+import { FakeWorker } from "@gethen/worker";
 import { type CanaryAssessment, CanaryMonitor, type CanaryPolicy } from "./canary-monitor";
 import { CanaryScheduler } from "./canary-scheduler";
 import { EvolutionScheduler } from "./evolution-scheduler";
-import { MentatEvolver } from "./evolver";
+import { GethenEvolver } from "./evolver";
 import { FileReceiptSink } from "./file-receipts";
 import { loadPackChannel } from "./pack-channel-store";
 import { SourcePoller } from "./poller";
 import {
   defaultWorkerPack,
-  MentatRuntime,
+  GethenRuntime,
   type ReceiptSink,
   type ReceiptStore,
   type RouterAgentPort,
 } from "./runtime";
 
-export interface MentatServiceOptions {
+export interface GethenServiceOptions {
   dir: string;
   worker?: WorkerAdapter;
   agents?: RouterAgentPort;
@@ -53,15 +53,15 @@ export interface MentatServiceOptions {
   onCanaryError?: (error: unknown) => void;
 }
 
-export interface MentatService {
-  runtime: MentatRuntime;
+export interface GethenService {
+  runtime: GethenRuntime;
   repos: FileRepositories;
   queue: EffectQueue;
   receipts: ReceiptSink;
   packs: PackArchive;
   packChannel: PackChannel;
   dream?: DreamService;
-  evolver?: MentatEvolver;
+  evolver?: GethenEvolver;
   evolutionScheduler?: EvolutionScheduler;
   canaryMonitor?: CanaryMonitor;
   canaryScheduler?: CanaryScheduler;
@@ -86,7 +86,7 @@ const DEFAULT_POLICY: Policy = {
 };
 
 /** Compose the control plane used by the DSH plugin and its tests. */
-export function createMentatService(options: MentatServiceOptions): MentatService {
+export function createGethenService(options: GethenServiceOptions): GethenService {
   const repos = new FileRepositories(join(options.dir, "state"));
   const queue = new EffectQueue({ path: join(options.dir, "effects.json") });
   const receipts = options.receipts ?? new FileReceiptSink(join(options.dir, "receipts.jsonl"));
@@ -97,7 +97,7 @@ export function createMentatService(options: MentatServiceOptions): MentatServic
       join(options.dir, "pack-channel.json"),
       options.pack ?? defaultWorkerPack(options),
     );
-  const runtime = new MentatRuntime({
+  const runtime = new GethenRuntime({
     repos,
     queue,
     worker: options.worker ?? new FakeWorker(),
@@ -119,9 +119,9 @@ export function createMentatService(options: MentatServiceOptions): MentatServic
         }),
       )
     : undefined;
-  let evolver: MentatEvolver | undefined;
+  let evolver: GethenEvolver | undefined;
   if (dream && receipts.list) {
-    evolver = new MentatEvolver({
+    evolver = new GethenEvolver({
       receipts: receipts as ReceiptStore,
       packs,
       dream,

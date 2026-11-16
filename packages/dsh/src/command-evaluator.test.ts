@@ -1,4 +1,4 @@
-import { defineCapabilityPack } from "@mentat/pack";
+import { defineCapabilityPack } from "@gethen/pack";
 import { describe, expect, it } from "vitest";
 import { CommandPackEvaluator } from "./command-evaluator";
 
@@ -12,7 +12,7 @@ describe("CommandPackEvaluator", () => {
   it("passes the pack to the operator command and parses signals", async () => {
     const evaluator = new CommandPackEvaluator({
       shell:
-        "node -e \"console.log(JSON.stringify([{name:'quality',value:Number(process.env.MENTAT_PACK_VERSION),direction:'higher-better'}]))\"",
+        "node -e \"console.log(JSON.stringify([{name:'quality',value:Number(process.env.GETHEN_PACK_VERSION),direction:'higher-better'}]))\"",
       cwd: "/tmp",
       timeoutMs: 10_000,
     });

@@ -2,124 +2,130 @@
   "compilerOptions": {
     "baseUrl": ".",
     "paths": {
-      "@mentat/dsh-client/package.json": [
+      "@gethen/dsh-client/package.json": [
         "packages/dsh-client/package.json"
       ],
-      "@mentat/memory/write-rules": [
+      "@gethen/memory/write-rules": [
         "packages/memory/src/write-rules.mjs"
       ],
-      "@mentat/dsh-client/client": [
+      "@gethen/dsh-client/client": [
         "packages/dsh-client/client.js"
       ],
-      "@mentat/storage-file/lock": [
+      "@gethen/storage-file/lock": [
         "packages/storage-file/src/lock.mjs"
       ],
-      "@mentat/memory-evolution": [
+      "@gethen/memory-evolution": [
         "packages/memory-evolution/src/index.ts"
       ],
-      "@mentat/benchmark-file": [
+      "@gethen/benchmark-file": [
         "packages/benchmark-file/src/index.ts"
       ],
-      "@mentat/observability": [
+      "@gethen/observability": [
         "packages/observability/src/index.ts"
       ],
-      "@mentat/source-github": [
+      "@gethen/source-github": [
         "packages/source-github/src/index.ts"
       ],
-      "@mentat/transport-acp": [
+      "@gethen/transport-acp": [
         "packages/transport-acp/src/index.ts"
       ],
-      "@mentat/core/testing": [
+      "@gethen/worker-bridge": [
+        "packages/worker-bridge/src/index.ts"
+      ],
+      "@gethen/core/testing": [
         "packages/core/src/testing/contract.ts"
       ],
-      "@mentat/storage-file": [
+      "@gethen/storage-file": [
         "packages/storage-file/src/index.ts"
       ],
-      "@mentat/transport-pi": [
+      "@gethen/transport-pi": [
         "packages/transport-pi/src/index.ts"
       ],
-      "@mentat/memory-file": [
+      "@gethen/memory-file": [
         "packages/memory-file/src/index.ts"
       ],
-      "@mentat/skills-file": [
+      "@gethen/skills-file": [
         "packages/skills-file/src/index.ts"
       ],
-      "@mentat/dsh-client": [
+      "@gethen/dsh-client": [
         "packages/dsh-client/index.js"
       ],
-      "@mentat/evaluation": [
+      "@gethen/evaluation": [
         "packages/evaluation/src/index.ts"
       ],
-      "@mentat/memory-mcp": [
+      "@gethen/memory-mcp": [
         "packages/memory-mcp/src/index.ts"
       ],
-      "@mentat/skills-mcp": [
+      "@gethen/skills-mcp": [
         "packages/skills-mcp/src/index.ts"
       ],
-      "@mentat/assistant": [
+      "@gethen/assistant": [
         "packages/assistant/src/index.ts"
       ],
-      "@mentat/benchmark": [
+      "@gethen/benchmark": [
         "packages/benchmark/src/index.ts"
       ],
-      "@mentat/dsh/panel": [
+      "@gethen/dsh/panel": [
         "packages/dsh/src/panel.ts"
       ],
-      "@mentat/evolution": [
+      "@gethen/evolution": [
         "packages/evolution/src/index.ts"
       ],
-      "@mentat/harnesses": [
+      "@gethen/harnesses": [
         "packages/harnesses/src/index.ts"
       ],
-      "@mentat/workspace": [
+      "@gethen/workspace": [
         "packages/workspace/src/index.ts"
       ],
-      "@mentat/effects": [
+      "@gethen/effects": [
         "packages/effects/src/index.ts"
       ],
-      "@mentat/session": [
+      "@gethen/session": [
         "packages/session/src/index.ts"
       ],
-      "@mentat/domain": [
+      "@gethen/domain": [
         "packages/domain/src/index.ts"
       ],
-      "@mentat/evolve": [
+      "@gethen/evolve": [
         "packages/evolve/src/index.ts"
       ],
-      "@mentat/kernel": [
+      "@gethen/kernel": [
         "packages/kernel/src/index.ts"
       ],
-      "@mentat/memory": [
+      "@gethen/memory": [
         "packages/memory/src/index.ts"
       ],
-      "@mentat/models": [
+      "@gethen/models": [
         "packages/models/src/index.ts"
       ],
-      "@mentat/skills": [
+      "@gethen/router": [
+        "packages/router/src/index.ts"
+      ],
+      "@gethen/skills": [
         "packages/skills/src/index.ts"
       ],
-      "@mentat/worker": [
+      "@gethen/worker": [
         "packages/worker/src/index.ts"
       ],
-      "@mentat/panel": [
+      "@gethen/panel": [
         "packages/panel/src/index.ts"
       ],
-      "@mentat/store": [
+      "@gethen/store": [
         "packages/store/src/index.ts"
       ],
-      "@mentat/core": [
+      "@gethen/core": [
         "packages/core/src/index.ts"
       ],
-      "@mentat/host": [
+      "@gethen/host": [
         "packages/host/src/index.ts"
       ],
-      "@mentat/pack": [
+      "@gethen/pack": [
         "packages/pack/src/index.ts"
       ],
-      "@mentat/cli": [
+      "@gethen/cli": [
         "packages/cli/src/index.ts"
       ],
-      "@mentat/dsh": [
+      "@gethen/dsh": [
         "packages/dsh/src/index.ts"
       ]
     }

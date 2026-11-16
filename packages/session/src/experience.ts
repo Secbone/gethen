@@ -6,7 +6,7 @@ import type {
   StopReason,
   TaskAcceptance,
   Usage,
-} from "@mentat/core";
+} from "@gethen/core";
 import { type EvidenceFragment, inputFragments, type TaskInput } from "./input";
 export type RecordedToolCall =
   | {

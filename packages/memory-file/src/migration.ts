@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import type { MemoryAudit, MemoryAuditRecord, MemoryEntry, MemoryStore } from "@mentat/memory";
-import { normalizeKey } from "@mentat/memory";
+import type { MemoryAudit, MemoryAuditRecord, MemoryEntry, MemoryStore } from "@gethen/memory";
+import { normalizeKey } from "@gethen/memory";
 import { JsonlMemoryAudit } from "./audit";
 import { JsonFileMemoryStore } from "./json-memory-store";
 

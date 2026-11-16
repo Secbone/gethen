@@ -4,7 +4,7 @@ import {
   type HarnessAdapter,
   MemoryTracer,
   type SessionHandle,
-} from "@mentat/core";
+} from "@gethen/core";
 import { describe, expect, it, vi } from "vitest";
 import { openSession, runOnce, runTurn } from "./turn";
 

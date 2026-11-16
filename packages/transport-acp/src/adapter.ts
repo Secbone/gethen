@@ -12,8 +12,8 @@ import type {
   SessionHandle,
   SessionOptions,
   UserInput,
-} from "@mentat/core";
-import { renderTurnInput } from "@mentat/core";
+} from "@gethen/core";
+import { renderTurnInput } from "@gethen/core";
 import { AcpConnection } from "./connection";
 import { acpCompletion, acpTermination, blockText, mapStopReason, readContent } from "./content";
 
@@ -89,7 +89,7 @@ class AcpSession implements SessionHandle {
     await this.connection.request("initialize", {
       protocolVersion: 1,
       clientCapabilities: {},
-      clientInfo: { name: "mentat", version: "0.0.0" },
+      clientInfo: { name: "gethen", version: "0.0.0" },
     });
     const result = await this.connection.request("session/new", {
       cwd: this.cwd,

@@ -1,4 +1,4 @@
-# Mentat — 自迭代 Agent 框架 · 实施计划 v1.0
+# Gethen — 自迭代 Agent 框架 · 实施计划 v1.0
 
 > 状态：work in progress
 > 北极星：实践 agent 框架的**自迭代**。
@@ -12,7 +12,7 @@
 
 ## 0. 定位
 
-Mentat 不是「又一个 Cindy」。它是一个**自迭代试验台**：
+Gethen 不是「又一个 Cindy」。它是一个**自迭代试验台**：
 
 - **迭代对象 = 框架的全部**，而不只是"多引擎接入"。记忆、工具、skill、模型、
   prompt、策略、适配器、核心代码、乃至自迭代管线本身，都是可被 agent 修改的制品。
@@ -63,7 +63,7 @@ interface IterableArtifact {
 ## 2. 架构
 
 ```
-┌──────────────────────── mentat: 自迭代试验台 ────────────────────────┐
+┌──────────────────────── gethen: 自迭代试验台 ────────────────────────┐
 │                                                                      │
 │  ② 制品注册表 (code + data, git 支撑)                                 │
 │        │                                                             │
@@ -87,21 +87,21 @@ interface IterableArtifact {
 
 | 包 | 职责 |
 |---|---|
-| `@mentat/core` | 协议、事件、制品契约、JSON工具与harness测试契约 |
-| `@mentat/kernel` | 服务容器、插件生命周期与作用域 |
-| `@mentat/evolution` | 提案、门、评测接口、选择、归档和演化循环 |
-| `@mentat/models` | 模型目录、模型选择与模型制品 |
-| `@mentat/memory` | 纯记忆领域规则、状态转换、检索与上下文选择 |
-| `@mentat/memory-file` | 记忆文件、审计与迁移 |
-| `@mentat/memory-mcp` | 记忆MCP服务与启动配置 |
-| `@mentat/memory-evolution` | 记忆制品、演化提案与评测 |
-| `@mentat/observability` | 经验、交互轨迹、摘要与JSONL日志 |
-| `@mentat/workspace` | Git及JSON候选工作区、持久化与回滚 |
-| `@mentat/evaluation` | 本地命令、容器、外部评测与执行门 |
-| `@mentat/assistant` | 个人助理策略、动态上下文、完整反思与显式确认 |
-| `@mentat/transport-pi` | Pi RPC适配器与权限bridge |
-| `@mentat/transport-acp` | 通用ACP适配器 |
-| `@mentat/cli` | 命令、终端交互和引擎装配 |
+| `@gethen/core` | 协议、事件、制品契约、JSON工具与harness测试契约 |
+| `@gethen/kernel` | 服务容器、插件生命周期与作用域 |
+| `@gethen/evolution` | 提案、门、评测接口、选择、归档和演化循环 |
+| `@gethen/models` | 模型目录、模型选择与模型制品 |
+| `@gethen/memory` | 纯记忆领域规则、状态转换、检索与上下文选择 |
+| `@gethen/memory-file` | 记忆文件、审计与迁移 |
+| `@gethen/memory-mcp` | 记忆MCP服务与启动配置 |
+| `@gethen/memory-evolution` | 记忆制品、演化提案与评测 |
+| `@gethen/observability` | 经验、交互轨迹、摘要与JSONL日志 |
+| `@gethen/workspace` | Git及JSON候选工作区、持久化与回滚 |
+| `@gethen/evaluation` | 本地命令、容器、外部评测与执行门 |
+| `@gethen/assistant` | 个人助理策略、动态上下文、完整反思与显式确认 |
+| `@gethen/transport-pi` | Pi RPC适配器与权限bridge |
+| `@gethen/transport-acp` | 通用ACP适配器 |
+| `@gethen/cli` | 命令、终端交互和引擎装配 |
 
 依赖方向与导入迁移见 [子包职责与依赖规则](dev-rules/layering.md)。core与memory是独立基础包，kernel与evolution提供通用机制，文件存储、MCP、观测、评测和领域演化各自独立；CLI负责最终装配。
 
@@ -245,42 +245,42 @@ Archive 保留**非支配的多样变体**（开放探索），而非只留最�
 ## 11. 进度
 
 > 以下为**历史里程碑记录**（含旧的包数与命名）。当前状态以 [`CHANGELOG.md`](../CHANGELOG.md)、
-> [`docs/adr/`](adr/) 和各专项报告为准；当前为 **19 个功能包**，`@mentat/runtime` 已拆分移除。
+> [`docs/adr/`](adr/) 和各专项报告为准；当前为 **19 个功能包**，`@gethen/runtime` 已拆分移除。
 
 
-- **M0** 完成：pnpm monorepo（`@mentat/core`、`@mentat/cli`），tsc/biome/vitest。
+- **M0** 完成：pnpm monorepo（`@gethen/core`、`@gethen/cli`），tsc/biome/vitest。
 - **M1** 完成：`AgentEvent` 统一事件流、`HarnessAdapter` 接入缝、`IterableArtifact` 契约、
   cordis 风格 kernel、FakeAdapter、共享 harness 契约测试套件。
-- **M2** 完成：`@mentat/transport-pi`（`pi --mode rpc` + 事件翻译 + bridge 扩展），
+- **M2** 完成：`@gethen/transport-pi`（`pi --mode rpc` + 事件翻译 + bridge 扩展），
   CLI 支持 `--harness pi` 与 ask/auto/full 权限三档。
 - **M5 骨架** 完成（用假件跑通闭环，真件待接）：
   - `loop/`：`SelfIterationLoop`（observe→propose→materialize→gate→evaluate→select→archive）、
     `Workspace`/`InMemoryWorkspace`、`Proposer`/`ScriptedProposer`、`Evaluator`/`FunctionEvaluator`、
     `Gate`/`GateChain`、`Archive`（谱系 + DGM 式父代选择）、Pareto `dominates`。
   - 保护机制：`protected` artifact 不可被修改（安全门/管线）。
-  - 可观察：`mentat loop demo` 打印 accept/rollback/archive 轨迹。
-- **M5 真件** 完成：`@mentat/iterate` 提供 `GitWorkspace`（commit=候选、reset=回滚、
+  - 可观察：`gethen loop demo` 打印 accept/rollback/archive 轨迹。
+- **M5 真件** 完成：`@gethen/iterate` 提供 `GitWorkspace`（commit=候选、reset=回滚、
   `changedFiles`）、`AgentProposer`（把任意 session runner 变成 proposer）、`commandGate`、
-  `CheckEvaluator`/`JsonCommandEvaluator`；`mentat iterate` 串起真闭环。
+  `CheckEvaluator`/`JsonCommandEvaluator`；`gethen iterate` 串起真闭环。
   Pi 自动复用 opencode 凭据（`OPENCODE_API_KEY` 或 opencode auth.json）。
   实测：Pi（`opencode-go/deepseek-v4.1-flash`）在隔离 git repo 上改代码 → 提交 → 门 → 评测 →
   accept，产出可回滚的候选提交。
 
-- **可观测性** 完成：`@mentat/core` 的 `Tracer`（循环每步发出结构化事件），
-  `@mentat/iterate` 的 `JsonlTracer`；`mentat iterate` 把每次运行落盘到
-  `.mentat/runs/<runId>/`（`trace.jsonl` 事件流 + `run.json` 摘要 + `iter-<n>.diff`），
-  `mentat trace` 回看。这是"用日志驱动自迭代"的原料。
+- **可观测性** 完成：`@gethen/core` 的 `Tracer`（循环每步发出结构化事件），
+  `@gethen/iterate` 的 `JsonlTracer`；`gethen iterate` 把每次运行落盘到
+  `.gethen/runs/<runId>/`（`trace.jsonl` 事件流 + `run.json` 摘要 + `iter-<n>.diff`），
+  `gethen trace` 回看。这是"用日志驱动自迭代"的原料。
 
 - **M6** 完成：`LoopConfig.parentSelection: "current" | "archive"`，archive 模式下
   `SelfIterationLoop` 用 `Archive.selectParent()` 采样父代并经 `Workspace.checkout()` 分支，
   实现 DGM 式 open-ended 探索（垫脚石可再分支）。
-- **M3** 完成（`@mentat/core`）：`MemoryStore`/`InMemoryMemoryStore`（关键词召回、标签过滤、
+- **M3** 完成（`@gethen/core`）：`MemoryStore`/`InMemoryMemoryStore`（关键词召回、标签过滤、
   遗忘）+ `memoryArtifact`（data 制品，可被循环迭代）；`ModelCatalog`（按上下文/成本/供应商
   选择）+ `modelCatalogArtifact`。
-- **M4** 完成：`TaskSuite` 抽象；`@mentat/iterate` 的 `ContainerRunner`（Docker：`--rm`、
+- **M4** 完成：`TaskSuite` 抽象；`@gethen/iterate` 的 `ContainerRunner`（Docker：`--rm`、
   挂载 workdir、默认 `--network none`）+ `containerGate`/`ContainerEvaluator` + `dockerRunArgs`
-  纯构造器。真实 Docker（alpine:3）集成测试通过（默认跳过，`MENTAT_DOCKER=1` 启用）。
-- **M7** 完成：`@mentat/transport-acp`（ACP 客户端），由 agent 在**冻结契约测试 + 保护路径**
+  纯构造器。真实 Docker（alpine:3）集成测试通过（默认跳过，`GETHEN_DOCKER=1` 启用）。
+- **M7** 完成：`@gethen/transport-acp`（ACP 客户端），由 agent 在**冻结契约测试 + 保护路径**
   下自迭代实现（见下）。
 - **M9** 暂缓（用户决定）。
 - **数据制品离线演化** 完成：`SelfIterationLoop` 本就能演化任意 `IterableArtifact`。
@@ -288,28 +288,28 @@ Archive 保留**非支配的多样变体**（开放探索），而非只留最�
     （规则变异：去重追加）、`memoryGate`（schema/类型/重复 id 校验）。
   - `iterate`：`JsonStoreWorkspace`（数据制品的版本化持久化 + 回滚 + `load` 恢复）、
     `AgentDataProposer`（agent 输出 JSON → 制品，含 `extractJson`）。
-  - CLI：`mentat loop memory`（演示）、`mentat evolve memory --facts|--agent --queries [--store]`
+  - CLI：`gethen loop memory`（演示）、`gethen evolve memory --facts|--agent --queries [--store]`
     （规则/agent 驱动、跨运行持久化）。
 
-- **在线"边干活边进化" P1–P4** 完成（`mentat run` 现在会学习）：
+- **在线"边干活边进化" P1–P4** 完成（`gethen run` 现在会学习）：
   - P1 持久化记忆 `JsonFileMemoryStore` + `buildMemoryContext`；Pi 用
     `--append-system-prompt`、ACP 前缀注入 → `run` 任务前检索并注入。
-  - P1b 记忆 MCP server `@mentat/memory-mcp`（`memory_search`/`memory_add`）；
+  - P1b 记忆 MCP server `@gethen/memory-mcp`（`memory_search`/`memory_add`）；
     `SessionOptions.mcpServers` 经 bridge（Pi）与 `session/new`（ACP）注入。
   - P2 经验采集 `ExperienceStore`/`SessionRecorder`；`run` 每次落盘
-    `.mentat/experience/*.jsonl`（outcome/usage/tools/toolErrors）。
+    `.gethen/experience/*.jsonl`（outcome/usage/tools/toolErrors）。
   - P3 规则在线写：`run --remember "<fact>"`（`rememberFact` 去重）。
   - P4 按需 agent 反射：`run --reflect`（`reflectionPrompt`/`parseReflectedMemories`），
     仅在 `run.settled === "done"` 时蒸馏并写入记忆。
 - 信号：在线仅用 `run.settled`（生命周期），不引入额外 `--check`。
 
-- **离线消费经验** 完成：`@mentat/iterate` 的 `buildExperienceDigest`（把 `ExperienceStore`
-  的近期记录压成可读摘要）；`mentat evolve memory --agent --from-experience [--experience <dir>]
+- **离线消费经验** 完成：`@gethen/iterate` 的 `buildExperienceDigest`（把 `ExperienceStore`
+  的近期记录压成可读摘要）；`gethen evolve memory --agent --from-experience [--experience <dir>]
   [--recent <n>]` 把该摘要喂给 agent 提案器 → 离线 loop 评测/保留。实测：agent 依据经验摘要
   产出命中 held-out 查询的记忆（recall 1）。
 
-- **经验驱动代码进化** 完成：`AgentProposer` 增加 `extraContext`；`mentat iterate
+- **经验驱动代码进化** 完成：`AgentProposer` 增加 `extraContext`；`gethen iterate
   --from-experience [--experience <dir>] [--recent <n>]` 把经验摘要喂给代码提案 prompt。
   实测：`iterate` 的 `agent.prompt` 里带上了经验摘要，任务仍被接受。
 
-**下一步**：用 `mentat iterate` 对 mentat 自身的 worktree 做更多 agent 自迭代任务。
+**下一步**：用 `gethen iterate` 对 gethen 自身的 worktree 做更多 agent 自迭代任务。

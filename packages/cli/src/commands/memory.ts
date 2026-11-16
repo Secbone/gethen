@@ -1,11 +1,11 @@
-import { JsonFileMemoryStore, JsonlMemoryAudit, migrateLegacyMemory } from "@mentat/memory-file";
+import { JsonFileMemoryStore, JsonlMemoryAudit, migrateLegacyMemory } from "@gethen/memory-file";
 import { defaultMemoryPath } from "../lib/paths";
 
 export async function memoryCommand(args: string[]): Promise<number> {
   const sub = args[0];
   if (sub !== "migrate") {
     process.stderr.write(
-      "usage: mentat memory migrate [--memory <file>] [--snapshot <file>] [--audit <file>]\n",
+      "usage: gethen memory migrate [--memory <file>] [--snapshot <file>] [--audit <file>]\n",
     );
     return 1;
   }

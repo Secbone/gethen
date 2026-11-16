@@ -32,7 +32,7 @@ def main():
                   for j,m in enumerate(s) if m.get('has_answer')}
         response = json.loads(Path(row['evidence'][0]).read_text())
         observed = response['observations']
-        if row['arm']=='mentat-current':
+        if row['arm']=='gethen-current':
             selected = set()
             directory = Path(response['evidenceDir'])
             for line in (directory/'events.jsonl').read_text().splitlines():

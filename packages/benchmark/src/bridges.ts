@@ -29,7 +29,7 @@ export interface BenchmarkBridge {
   runner: BridgeRunner;
   /** Repo-relative directory holding assets and the subject adapter. */
   home?: string;
-  /** Result adapter id (see @mentat/benchmark-file) used to import results. */
+  /** Result adapter id (see @gethen/benchmark-file) used to import results. */
   resultAdapter?: string;
   integration: BridgeIntegration;
   notes?: string;
@@ -69,7 +69,7 @@ export function defaultBridges(): BridgeRegistry {
         "Pro V2 development samples: two Python cases passed fresh-sandbox replay; NodeBB separately passed on isolated VZ/Rosetta, including tracked-source-only replay. Different runtime snapshots are not pooled. Not a full run or RSI result. See benchmarks/swe-bench/README.md",
     },
     {
-      id: "mentat-longitudinal",
+      id: "gethen-longitudinal",
       source: "experiments/personal-assistant",
       runner: "native",
       home: "benchmarks/pilots",
@@ -82,7 +82,7 @@ export function defaultBridges(): BridgeRegistry {
       runner: "upstream",
       home: "benchmarks/public",
       integration: "full-run",
-      notes: "cleaned-S 500; closed-book host retrieval (mentat-episodic) vs BM25",
+      notes: "cleaned-S 500; closed-book host retrieval (gethen-episodic) vs BM25",
     },
     {
       id: "past-bench",
@@ -91,7 +91,7 @@ export function defaultBridges(): BridgeRegistry {
       runner: "upstream",
       home: "benchmarks/past-bench",
       integration: "pipeline-smoke",
-      notes: "Mentat CLI adapter; SM01 family smoke; dispatch attribution pending",
+      notes: "Gethen CLI adapter; SM01 family smoke; dispatch attribution pending",
     },
     {
       id: "rsi-exam",
@@ -100,7 +100,7 @@ export function defaultBridges(): BridgeRegistry {
       runner: "harbor",
       home: "benchmarks/rsi-exam",
       integration: "pipeline-smoke",
-      notes: "nop-agent pipeline passes; Mentat agent blocked on sandbox provisioning",
+      notes: "nop-agent pipeline passes; Gethen agent blocked on sandbox provisioning",
     },
     {
       id: "agentdojo",

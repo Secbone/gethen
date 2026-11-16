@@ -37,7 +37,7 @@ run 可以选择执行文件权限策略、结构化输出验收，或同时启�
 }
 ```
 
-在 Mentat 仓库执行：
+在 Gethen 仓库执行：
 
 ```bash
 pnpm dev run '读取 input.txt，将实际内容写入 result.json 的 answer 字段。' \
@@ -110,7 +110,7 @@ Schema 验证使用 Ajv 8 的 JSON Schema 2020-12 模式，严格检查，不转
 
 业务拒绝应返回 `{"accepted":false,"issues":["具体原因"]}`；退出码为 0 却没有合法结论也属于验收错误。非零退出、超时、取消、坏 JSON 不会被当作接受。stdout/stderr、返回码、契约摘要、输出摘要和目录审计报告留在证据中。验收后还会核对结果文件与输入目录，检查验收期间是否改变。
 
-商品 ID/字段覆盖、重复字段、证据 SHA/原文锚点、单位换算、属性角色等均由商品项目的 validator 实现，不加入 Mentat 核心。Schema 与 validator 不会替调用方建立人工金标或证明领域准确率。
+商品 ID/字段覆盖、重复字段、证据 SHA/原文锚点、单位换算、属性角色等均由商品项目的 validator 实现，不加入 Gethen 核心。Schema 与 validator 不会替调用方建立人工金标或证明领域准确率。
 
 ## 状态与退出码
 
@@ -149,7 +149,7 @@ const host = createAssistantHost(config, {
 const { result, record, acceptance } = await host.turn(session, task);
 ```
 
-受限 API 调用必须显式把 logDir、experienceDir 和可选 memoryPath 放在任务目录之外；使用空的记忆仓库，不注入历史。文件审计与标准输出契约可复用 `@mentat/evaluation` 的 `prepareFilePolicy`、`prepareOutputContract`。注入的 JS 验收器是可信代码，超时取消只能中断等待并发出 signal，不能强制终止忽略 signal 的回调；CLI 外部程序则复用进程组超时清理。
+受限 API 调用必须显式把 logDir、experienceDir 和可选 memoryPath 放在任务目录之外；使用空的记忆仓库，不注入历史。文件审计与标准输出契约可复用 `@gethen/evaluation` 的 `prepareFilePolicy`、`prepareOutputContract`。注入的 JS 验收器是可信代码，超时取消只能中断等待并发出 signal，不能强制终止忽略 signal 的回调；CLI 外部程序则复用进程组超时清理。
 
 本次没有新增通用并发调度器或自动续跑。调用方可按一个商品/任务一个目录组织 checkpoint，仅在验收通过后合并；重试应创建新目录并保留旧证据。作为 ACP 服务端供其他工具调用是独立后续工作，当前仍通过 CLI/Host API 使用这些能力。
 

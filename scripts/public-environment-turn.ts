@@ -4,12 +4,12 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, statfsSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { environmentMcpSpec, sha256, verifySourceArchive } from "@mentat/benchmark-file";
-import { createDefaultRegistry } from "@mentat/harnesses";
-import { createAssistantHost } from "@mentat/host";
-import { memoryMcpSpec } from "@mentat/memory-mcp";
-import { FileTrajectoryStore, projectExperience, readTrajectory } from "@mentat/observability";
-import { closeSession, openSession, runTurn } from "@mentat/session";
+import { environmentMcpSpec, sha256, verifySourceArchive } from "@gethen/benchmark-file";
+import { createDefaultRegistry } from "@gethen/harnesses";
+import { createAssistantHost } from "@gethen/host";
+import { memoryMcpSpec } from "@gethen/memory-mcp";
+import { FileTrajectoryStore, projectExperience, readTrajectory } from "@gethen/observability";
+import { closeSession, openSession, runTurn } from "@gethen/session";
 import { benchmarkObservations } from "../packages/cli/src/lib/benchmark-observations";
 import { checkoutIdentity } from "../packages/cli/src/lib/benchmark-subject";
 
@@ -33,7 +33,7 @@ if (
   ) ||
   typeof config.query !== "string" ||
   typeof config.system !== "string" ||
-  !["mentat", "upstream-basic"].includes(config.method)
+  !["gethen", "upstream-basic"].includes(config.method)
 )
   throw new Error("invalid controller fields; private labels must remain in upstream runner");
 const timeoutMs = config.timeoutMs ?? 180000,
@@ -61,13 +61,13 @@ const probeNonce = `ready-${randomUUID()}`,
   receiptPath = join(out, "mcp-catalog.jsonl");
 memory.env = {
   ...memory.env,
-  MENTAT_MCP_PROBE_NONCE: probeNonce,
-  MENTAT_MCP_READY_FILE: receiptPath,
-  MENTAT_MCP_READY_TOKEN: readyToken,
+  GETHEN_MCP_PROBE_NONCE: probeNonce,
+  GETHEN_MCP_READY_FILE: receiptPath,
+  GETHEN_MCP_READY_TOKEN: readyToken,
 };
 const enabled = [
   ...tools.map((t) => `environment_${t.name}`),
-  ...(config.method === "mentat"
+  ...(config.method === "gethen"
     ? ["direct_memory_memory_add", "direct_memory_memory_search", "direct_memory_memory_ready"]
     : []),
 ];
@@ -94,7 +94,7 @@ const engineConfig = {
   mcp: {
     servers: {
       environment: local(environment),
-      ...(config.method === "mentat"
+      ...(config.method === "gethen"
         ? {
             direct_memory: {
               type: "local",
@@ -107,7 +107,7 @@ const engineConfig = {
     },
   },
 };
-const sourceArchive = process.env.MENTAT_BENCH_FROZEN_ARCHIVE;
+const sourceArchive = process.env.GETHEN_BENCH_FROZEN_ARCHIVE;
 if (sourceArchive) {
   const frozen = JSON.parse(readFileSync(join(dirname(sourceArchive), "manifest.json"), "utf8"));
   if (
@@ -118,11 +118,11 @@ if (sourceArchive) {
   )
     throw new Error("frozen checkout/dependency identity mismatch");
   for (const name of [
-    "@mentat/host",
-    "@mentat/session",
-    "@mentat/memory-file",
-    "@mentat/memory-mcp",
-    "@mentat/benchmark-file",
+    "@gethen/host",
+    "@gethen/session",
+    "@gethen/memory-file",
+    "@gethen/memory-mcp",
+    "@gethen/benchmark-file",
   ])
     if (!import.meta.resolve(name).startsWith(pathToFileURL(`${process.cwd()}/`).href))
       throw new Error(`workspace module escaped frozen source: ${name}`);
@@ -143,7 +143,7 @@ writeFileSync(
       timeoutMs,
       enabled,
       startupReadiness:
-        config.method === "mentat"
+        config.method === "gethen"
           ? "catalog-receipt-and-native-read-only-probe"
           : "compatibility-delay-only",
       network: "only declared Unix-socket tools; model service required; OS isolation unverified",
@@ -156,8 +156,8 @@ const adapter = createDefaultRegistry("ask", {
   acp: {
     binary: "opencode",
     baseArgs: ["acp"],
-    startupSettleMs: config.method === "mentat" ? 0 : 2000,
-    ...(config.method === "mentat"
+    startupSettleMs: config.method === "gethen" ? 0 : 2000,
+    ...(config.method === "gethen"
       ? {
           startupReadiness: {
             receiptPath,
@@ -174,7 +174,7 @@ const adapter = createDefaultRegistry("ask", {
 }).get("acp");
 const permission = { request: () => "deny" as const };
 let text: string, reason: string, evidenceDir: string | undefined;
-if (config.method === "mentat") {
+if (config.method === "gethen") {
   const host = createAssistantHost({
     cwd,
     adapter,

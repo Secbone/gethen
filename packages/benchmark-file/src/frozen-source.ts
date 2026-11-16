@@ -8,7 +8,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
-import { assert } from "@mentat/benchmark";
+import { assert } from "@gethen/benchmark";
 import { sha256 } from "./digest";
 
 interface SourceArchive {

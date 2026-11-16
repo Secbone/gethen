@@ -3,7 +3,7 @@
   "model": "opencode-go/deepseek-v4.1-flash",
   "purpose": "Mechanism verification only; not a new full PAST or paired performance result.",
   "genericProbe": {
-    "runDirectory": ".mentat/public-evaluations/recall-attribution-20261020-v1",
+    "runDirectory": ".gethen/public-evaluations/recall-attribution-20261020-v1",
     "summary": {
       "protocol": "native-recall-longitudinal-v1",
       "passed": true,
@@ -973,7 +973,7 @@
     "costUsd": 0.003001008
   },
   "pastSmoke": {
-    "runDirectory": ".mentat/public-evaluations/past-recall-attribution-smoke-20261020-v1",
+    "runDirectory": ".gethen/public-evaluations/past-recall-attribution-smoke-20261020-v1",
     "protocol": "past-foundation-diagnostic-v8",
     "planSha256": "c4928cdd188b451f72d820c5b364c1191b950b2ff67c6bd82c7e34965ed5dde5",
     "recallProtocol": {

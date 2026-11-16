@@ -15,7 +15,7 @@
       "cc5ded98",
       "95228167"
     ],
-    "arms": ["mentat-current", "openviking-context-full", "openviking-dialogue-expand"],
+    "arms": ["gethen-current", "openviking-context-full", "openviking-dialogue-expand"],
     "datasetSha256": "d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442",
     "judgeFunctionSha256": "90413115ed06dd07135f9d9ed53b14238776029eeb1a32a87ccbfbc0e2730482",
     "model": "opencode-go/deepseek-v4.1-flash",
@@ -29,7 +29,7 @@
       "tools": "unsupported; requests with tools are rejected",
       "historyProtocol": "shared-corpus-v2",
       "externalHistoryProtocol": "host-materials-v1; caller records retrieval evidence",
-      "sourceArchive": "/Users/soar/Code/mentat/.mentat/public-evaluations/transport-openviking-pilot10-en-20261019/checkout-source.json",
+      "sourceArchive": "/Users/soar/Code/gethen/.gethen/public-evaluations/transport-openviking-pilot10-en-20261019/checkout-source.json",
       "correctiveRetries": 1,
       "correctionPolicy": "one format-only re-ask for empty/protocol output; no grader feedback or retry of a valid wrong answer",
       "active": 0,
@@ -49,7 +49,7 @@
   "resultsSha256": "c40c773a9ce82c1dccdb2f1c84f8944b5ac63058a93f777d6ff6bd01d6238753",
   "modelsVerified": ["opencode-go/deepseek-v4.1-flash"],
   "toolAudit": {
-    "transport": "/Users/soar/Code/mentat/.mentat/public-evaluations/transport-openviking-pilot10-en-20261019",
+    "transport": "/Users/soar/Code/gethen/.gethen/public-evaluations/transport-openviking-pilot10-en-20261019",
     "counts": {
       "requests": 60,
       "traces": 60,
@@ -64,7 +64,7 @@
     "scope": "Recorded ACP frames, normalized tool events, artifact integrity and trace completion. No packet capture or OS filesystem/network sandbox proof; no proof of absence of model training contamination."
   },
   "arms": {
-    "mentat-current": {
+    "gethen-current": {
       "completed": 10,
       "correct": 5,
       "usableCorrect": 5,
@@ -111,7 +111,7 @@
     {
       "question_id": "561fabcd",
       "question_type": "single-session-assistant",
-      "arm": "mentat-current",
+      "arm": "gethen-current",
       "correct": false,
       "durationMs": 12422,
       "finalAnswerValid": true,
@@ -159,7 +159,7 @@
     {
       "question_id": "6e984302",
       "question_type": "temporal-reasoning",
-      "arm": "mentat-current",
+      "arm": "gethen-current",
       "correct": false,
       "durationMs": 18650,
       "finalAnswerValid": true,
@@ -207,7 +207,7 @@
     {
       "question_id": "2b8f3739",
       "question_type": "multi-session",
-      "arm": "mentat-current",
+      "arm": "gethen-current",
       "correct": false,
       "durationMs": 14205,
       "finalAnswerValid": true,
@@ -255,7 +255,7 @@
     {
       "question_id": "0edc2aef",
       "question_type": "single-session-preference",
-      "arm": "mentat-current",
+      "arm": "gethen-current",
       "correct": true,
       "durationMs": 24709,
       "finalAnswerValid": true,
@@ -303,7 +303,7 @@
     {
       "question_id": "57f827a0",
       "question_type": "single-session-preference",
-      "arm": "mentat-current",
+      "arm": "gethen-current",
       "correct": true,
       "durationMs": 18569,
       "finalAnswerValid": true,
@@ -351,7 +351,7 @@
     {
       "question_id": "09ba9854",
       "question_type": "multi-session",
-      "arm": "mentat-current",
+      "arm": "gethen-current",
       "correct": true,
       "durationMs": 29062,
       "finalAnswerValid": true,
@@ -399,7 +399,7 @@
     {
       "question_id": "f685340e_abs",
       "question_type": "knowledge-update",
-      "arm": "mentat-current",
+      "arm": "gethen-current",
       "correct": false,
       "durationMs": 15717,
       "finalAnswerValid": true,
@@ -447,7 +447,7 @@
     {
       "question_id": "031748ae_abs",
       "question_type": "knowledge-update",
-      "arm": "mentat-current",
+      "arm": "gethen-current",
       "correct": false,
       "durationMs": 11695,
       "finalAnswerValid": true,
@@ -495,7 +495,7 @@
     {
       "question_id": "cc5ded98",
       "question_type": "knowledge-update",
-      "arm": "mentat-current",
+      "arm": "gethen-current",
       "correct": true,
       "durationMs": 8559,
       "finalAnswerValid": true,
@@ -543,7 +543,7 @@
     {
       "question_id": "95228167",
       "question_type": "single-session-preference",
-      "arm": "mentat-current",
+      "arm": "gethen-current",
       "correct": true,
       "durationMs": 25622,
       "finalAnswerValid": true,

@@ -6,7 +6,7 @@ import { sha256 } from "./digest";
 import { materializeSourceArchive, verifySourceArchive } from "./frozen-source";
 
 it("restores captured bytes and rejects source drift before task execution", () => {
-  const root = mkdtempSync(join(tmpdir(), "mentat-frozen-")),
+  const root = mkdtempSync(join(tmpdir(), "gethen-frozen-")),
     live = join(root, "live.ts");
   writeFileSync(live, "captured");
   const mode = lstatSync(live).mode;

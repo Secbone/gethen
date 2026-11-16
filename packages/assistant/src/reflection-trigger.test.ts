@@ -1,4 +1,4 @@
-import type { ExperienceRecord } from "@mentat/session";
+import type { ExperienceRecord } from "@gethen/session";
 import { describe, expect, it } from "vitest";
 import { reflectionTrigger } from "./reflection-trigger";
 

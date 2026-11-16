@@ -2,8 +2,8 @@
   "protocol": "offline-loss-analysis-v1",
   "modelCalls": 0,
   "sources": {
-    ".mentat/public-evaluations/past-rsi-20261019-v2/results.jsonl": "1dce56a1308943074fb65691fa8023de4a12af4fad8bcd59aaa91b8c300c3cef",
-    ".mentat/public-evaluations/past-rsi-corrective1-20261019-v1/results.jsonl": "bc9c01f4470563f7f493609830f5a04f4f1eea4c1e807d6874471ca7373d67bc"
+    ".gethen/public-evaluations/past-rsi-20261019-v2/results.jsonl": "1dce56a1308943074fb65691fa8023de4a12af4fad8bcd59aaa91b8c300c3cef",
+    ".gethen/public-evaluations/past-rsi-corrective1-20261019-v1/results.jsonl": "bc9c01f4470563f7f493609830f5a04f4f1eea4c1e807d6874471ca7373d67bc"
   },
   "all": {
     "n": 32,

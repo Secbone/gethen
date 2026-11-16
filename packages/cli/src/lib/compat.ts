@@ -5,10 +5,10 @@ import {
   type RememberInput,
   rememberUserFact as remember,
   saveReflections as save,
-} from "@mentat/assistant";
-import { createMemoryAccess } from "@mentat/memory";
-import { FileMemoryRepository, JsonFileMemoryStore } from "@mentat/memory-file";
-import { ExperienceStore } from "@mentat/observability";
+} from "@gethen/assistant";
+import { createMemoryAccess } from "@gethen/memory";
+import { FileMemoryRepository, JsonFileMemoryStore } from "@gethen/memory-file";
+import { ExperienceStore } from "@gethen/observability";
 export function taskContext(path: string, task: string) {
   return context(new JsonFileMemoryStore(path), task);
 }

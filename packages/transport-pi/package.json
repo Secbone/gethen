@@ -1,5 +1,5 @@
 {
-  "name": "@mentat/transport-pi",
+  "name": "@gethen/transport-pi",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -9,7 +9,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@mentat/core": "workspace:*"
+    "@gethen/core": "workspace:*"
   },
   "description": "Pi RPC transport and permission bridge",
   "scripts": {

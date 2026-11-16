@@ -1,4 +1,4 @@
-import type { Disposable, MaybePromise } from "@mentat/core";
+import type { Disposable, MaybePromise } from "@gethen/core";
 import type { Context } from "./context";
 
 export type PluginSetup = (ctx: Context) => MaybePromise<void | Disposable>;

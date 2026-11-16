@@ -31,7 +31,7 @@ merge只给未确认候选补充证据，保留原正文、稳定身份、类型
 
 ## 验证过程
 
-全量检查通过：59个测试文件、213项行为测试通过，1项Docker测试默认跳过；7项架构测试、17个包独立类型检查、多轮实验6项测试及实验TypeScript检查均通过。日志在本机 `/tmp/mentat-scope-merge-check.log` 与 `/tmp/mentat-scope-merge-packages.log`。
+全量检查通过：59个测试文件、213项行为测试通过，1项Docker测试默认跳过；7项架构测试、17个包独立类型检查、多轮实验6项测试及实验TypeScript检查均通过。日志在本机 `/tmp/gethen-scope-merge-check.log` 与 `/tmp/gethen-scope-merge-packages.log`。
 
 新增测试覆盖单次要求被扩大概括、未知范围保持未确认、不同受众隔离、证据并集合并、规范正文不变、重复重放、数值变化、旧版本新证据拒绝、有效规则保护及长期上下文排除。文件测试使用两个独立仓库实例提交同一旧版本，验证实际事务中的版本门控；现有多进程存储测试继续保留。
 
@@ -57,9 +57,9 @@ merge只给未确认候选补充证据，保留原正文、稳定身份、类型
 
 详见[结构化结果](../../experiments/personal-assistant/results/scope-merge-validation-2026-10-15.json)。本机原始目录：
 
-- `.mentat/experiments/multiturn-scope-merge-20261015/`：完整复跑及被拒绝的操作。
-- `.mentat/experiments/reflection-operations-20261015/`：沙箱启动失败现场。
-- `.mentat/experiments/reflection-operations-20261015-v2/`：最终3次独立回放、快照、轨迹与账目。
+- `.gethen/experiments/multiturn-scope-merge-20261015/`：完整复跑及被拒绝的操作。
+- `.gethen/experiments/reflection-operations-20261015/`：沙箱启动失败现场。
+- `.gethen/experiments/reflection-operations-20261015-v2/`：最终3次独立回放、快照、轨迹与账目。
 
 ## 尚未证明的能力
 
@@ -74,8 +74,8 @@ pnpm check
 pnpm -r typecheck
 node --import tsx --test experiments/personal-assistant/multiturn.test.ts
 pnpm exec tsc --noEmit -p experiments/personal-assistant/tsconfig.json
-node --import tsx experiments/personal-assistant/multiturn.ts --roles=household --out=.mentat/experiments/scope-new
-node --import tsx experiments/personal-assistant/reflection-operations.ts --source=.mentat/experiments/scope-new --out=.mentat/experiments/replay-new
+node --import tsx experiments/personal-assistant/multiturn.ts --roles=household --out=.gethen/experiments/scope-new
+node --import tsx experiments/personal-assistant/reflection-operations.ts --source=.gethen/experiments/scope-new --out=.gethen/experiments/replay-new
 ```
 
 独立回放最多3次模型调用，输出目录必须新建，只读取指定运行的真实交互；源码与策略版本变化必须使用新实验目录。不会修改旧运行的业务答案或记忆快照。

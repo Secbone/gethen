@@ -4,11 +4,11 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdirSync, readdirSync, readFileSync, statfsSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { type Candidate, FunctionEvaluator } from "@mentat/evolution";
-import { createMemoryAccess } from "@mentat/memory";
-import { memoryArtifact, memoryArtifactRegistry, recallTask } from "@mentat/memory-evolution";
-import { FileMemoryRepository } from "@mentat/memory-file";
-import { ExperienceStore, projectExperience } from "@mentat/observability";
+import { type Candidate, FunctionEvaluator } from "@gethen/evolution";
+import { createMemoryAccess } from "@gethen/memory";
+import { memoryArtifact, memoryArtifactRegistry, recallTask } from "@gethen/memory-evolution";
+import { FileMemoryRepository } from "@gethen/memory-file";
+import { ExperienceStore, projectExperience } from "@gethen/observability";
 import { evolveCommand } from "../packages/cli/src/commands/evolve";
 import { benchmarkObservations } from "../packages/cli/src/lib/benchmark-observations";
 import { checkoutIdentity } from "../packages/cli/src/lib/benchmark-subject";
@@ -78,8 +78,8 @@ save("plan.json", {
 });
 const work = join(out, "work");
 mkdirSync(work);
-process.env.MENTAT_ACP_BIN = "opencode";
-process.env.MENTAT_ACP_ARGS = "acp";
+process.env.GETHEN_ACP_BIN = "opencode";
+process.env.GETHEN_ACP_ARGS = "acp";
 process.env.OPENCODE_DISABLE_AUTOUPDATE = "true";
 process.env.OPENCODE_CONFIG_CONTENT = JSON.stringify({
   model: { providerID: "opencode-go", model: "deepseek-v4.1-flash" },

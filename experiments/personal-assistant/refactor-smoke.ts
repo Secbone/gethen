@@ -1,18 +1,18 @@
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { createFakeAdapter } from "@mentat/core";
-import { createAssistantHost } from "@mentat/host";
-import { inspectTrajectory, readTrajectory } from "@mentat/observability";
-import { createAcpAdapter } from "@mentat/transport-acp";
+import { createFakeAdapter } from "@gethen/core";
+import { createAssistantHost } from "@gethen/host";
+import { inspectTrajectory, readTrajectory } from "@gethen/observability";
+import { createAcpAdapter } from "@gethen/transport-acp";
 
 // Bounded smoke, never a benchmark. All task state is confined to a fresh directory.
 const real = process.argv.includes("--real");
-const cwd = mkdtempSync(join(tmpdir(), "mentat-refactor-smoke-"));
+const cwd = mkdtempSync(join(tmpdir(), "gethen-refactor-smoke-"));
 const output = resolve(
   process.argv.find((arg) => arg.startsWith("--output="))?.slice(9) ?? join(cwd, "report.json"),
 );
-const model = process.env.MENTAT_SMOKE_MODEL ?? "opencode-go/deepseek-v4.1-flash";
+const model = process.env.GETHEN_SMOKE_MODEL ?? "opencode-go/deepseek-v4.1-flash";
 const adapter = real
   ? createAcpAdapter({
       binary: "opencode",

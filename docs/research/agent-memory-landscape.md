@@ -88,7 +88,7 @@
 
 ---
 
-## 4. 对 Mentat 的具体建议（映射到现有代码与阶段）
+## 4. 对 Gethen 的具体建议（映射到现有代码与阶段）
 
 结合我们现状（关键词 `MemoryStore` + 精确去重 + `recall/noise` + `reflect/evolve`），优先级：
 

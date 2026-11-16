@@ -22,7 +22,7 @@ def derived_sources():
     runner = (ROOT / "benchmarks/past-bench/rsi_probe.py").read_text()
     replacements = [
         ("Path(__file__).resolve().parents[2]", "Path(__file__).resolve().parents[1]"),
-        ("scripts/past-rsi-turn.ts", ".mentat/past-rsi-turn-corrected.ts"),
+        ("scripts/past-rsi-turn.ts", ".gethen/past-rsi-turn-corrected.ts"),
         ("past-native-rsi-diagnostic-v2", "past-native-rsi-diagnostic-corrective1-v1"),
         ("four-complete-families", "complete-selected-families"),
         ('validFinalAnswer=response["reason"] == "done",', 'validFinalAnswer=response["reason"] == "done", correctiveTurns=response["correctiveTurns"], firstAnswerValid=response["firstAnswerValid"],'),
@@ -31,8 +31,8 @@ def derived_sources():
     for old, new in replacements:
         assert old in runner, f"source contract changed: {old}"
         runner = runner.replace(old, new)
-    return {ROOT / ".mentat/past-rsi-turn-corrected.ts": subject,
-            ROOT / ".mentat/past-rsi-corrected.py": runner}
+    return {ROOT / ".gethen/past-rsi-turn-corrected.ts": subject,
+            ROOT / ".gethen/past-rsi-corrected.py": runner}
 
 
 if __name__ == "__main__":

@@ -15,7 +15,7 @@
 
 [冻结案例](multiturn-cases.json)、[执行器](multiturn.ts)、[分析器](analyze-multiturn.py)、[可读分析与证据索引](results/multiturn-analysis-2026-10-15.json)。
 
-原始对话、完整轨迹、记忆快照和原生账目保留在本地忽略目录 `.mentat/experiments/multiturn-20261015-v2/`。`review.md` 汇总96轮回答，`analysis.json` 为机械分析，`manual-review.json` 为非盲复核，`pressure.json` 为离线反例。
+原始对话、完整轨迹、记忆快照和原生账目保留在本地忽略目录 `.gethen/experiments/multiturn-20261015-v2/`。`review.md` 汇总96轮回答，`analysis.json` 为机械分析，`manual-review.json` 为非盲复核，`pressure.json` 为离线反例。
 
 ## 结果
 
@@ -113,7 +113,7 @@
 
 ## 预检与权限边界
 
-初次预检保存在 `.mentat/experiments/multiturn-20261015-v1/`，未并入主结果。第一轮模型调用OpenCode的question工具，被实验权限策略拒绝后取消。之后统一让两组用普通文本澄清，并保留原失败轨迹。
+初次预检保存在 `.gethen/experiments/multiturn-20261015-v1/`，未并入主结果。第一轮模型调用OpenCode的question工具，被实验权限策略拒绝后取消。之后统一让两组用普通文本澄清，并保留原失败轨迹。
 
 主实验的仅记忆权限处理器还发现：OpenCode code-mode通过execute包装memory调用，请求层只看到execute，因而被拒。两组条件相同，宿主上下文和反思写入可用，但**本轮不能证明MCP工具学习通道正常，也不代表默认CLI权限下MCP必然失败**。后续要单独验证网关能力和权限映射，并给交互提问明确的宿主协议。
 
@@ -129,10 +129,10 @@
 
 ```bash
 node --import tsx --test experiments/personal-assistant/multiturn.test.ts
-node --import tsx experiments/personal-assistant/multiturn.ts --fake --out=/tmp/mentat-multiturn-dry
-node --import tsx experiments/personal-assistant/multiturn.ts --out=.mentat/experiments/multiturn-new
-python3 experiments/personal-assistant/analyze-multiturn.py .mentat/experiments/multiturn-new
-node --import tsx experiments/personal-assistant/multiturn-pressure.ts .mentat/experiments/multiturn-new
+node --import tsx experiments/personal-assistant/multiturn.ts --fake --out=/tmp/gethen-multiturn-dry
+node --import tsx experiments/personal-assistant/multiturn.ts --out=.gethen/experiments/multiturn-new
+python3 experiments/personal-assistant/analyze-multiturn.py .gethen/experiments/multiturn-new
+node --import tsx experiments/personal-assistant/multiturn-pressure.ts .gethen/experiments/multiturn-new
 ```
 
 真实模式使用已授权OpenCode，调用上限120、每轮90秒；已观测费用达到$1时停止，费用缺失明确标记。两条并行通道仅用于独立角色，角色内部任务顺序固定。结果不是长期真实用户研究、跨模型对比或自主进化准确率。

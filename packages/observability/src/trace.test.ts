@@ -6,7 +6,7 @@ import { JsonlTracer } from "./trace";
 
 describe("JsonlTracer", () => {
   it("appends one JSON line per event with metadata", () => {
-    const dir = mkdtempSync(join(tmpdir(), "mentat-trace-"));
+    const dir = mkdtempSync(join(tmpdir(), "gethen-trace-"));
     const path = join(dir, "nested", "trace.jsonl");
     const tracer = new JsonlTracer(path, { runId: "r1" });
     tracer.emit("loop.start", { root: "x" });

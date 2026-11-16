@@ -45,7 +45,7 @@ await host.turn(session, {
 
 定向测试覆盖来源对照、引用材料伪装、批次错配、前缀和摘录伪造、整批拒绝、失败与反馈证据、候选隔离、落盘重建以及重复反思。真实确认与MCP候选边界沿用上一阶段测试。
 
-最终检查：`pnpm check`通过，56个测试文件中201项行为测试通过、1项Docker测试默认跳过，7项架构测试通过；17个包独立类型检查通过，多轮实验6项测试及实验TypeScript检查通过。文档链接及结构化结果回读检查通过。完整检查输出在本机 `/tmp/mentat-stage-b-check.log` 与 `/tmp/mentat-stage-b-packages.log`。
+最终检查：`pnpm check`通过，56个测试文件中201项行为测试通过、1项Docker测试默认跳过，7项架构测试通过；17个包独立类型检查通过，多轮实验6项测试及实验TypeScript检查通过。文档链接及结构化结果回读检查通过。完整检查输出在本机 `/tmp/gethen-stage-b-check.log` 与 `/tmp/gethen-stage-b-packages.log`。
 
 另使用已授权的 OpenCode / `opencode-go/deepseek-v4.1-flash`，复跑家庭管理的一条持续记忆轨迹和一条重置轨迹：6任务、24轮用户交互、3次反思，共27次宿主调用。9个原生会话模型及计费均可核验。主实验材料未改，运行包装改为独立hostPolicy，新运行没有覆盖旧结果。
 
@@ -60,7 +60,7 @@ await host.turn(session, {
 
 这些结果支持新证据格式可由该模型使用、当前样本未再保存运行包装候选。不能据此声称反思普遍正确、成本下降或总体质量提升。仅一个职业、每组一条合成轨迹，复核非盲；MCP调用仍受execute包装权限限制。用户规则仍由兼容remember字符串激活，不能证明自动分类、旧记忆迁移或自主学习。
 
-结构化结果和逐条候选见[验证结果](../../experiments/personal-assistant/results/stage-b-validation-2026-10-15.json)。原始数据在本机 `.mentat/experiments/multiturn-stage-b-20261015/`，包括对话、记忆快照、协议轨迹、分析及账目。失败/反馈来源变体另由离线测试覆盖。
+结构化结果和逐条候选见[验证结果](../../experiments/personal-assistant/results/stage-b-validation-2026-10-15.json)。原始数据在本机 `.gethen/experiments/multiturn-stage-b-20261015/`，包括对话、记忆快照、协议轨迹、分析及账目。失败/反馈来源变体另由离线测试覆盖。
 
 ## 仍存在的问题
 
@@ -79,8 +79,8 @@ pnpm check
 pnpm -r typecheck
 node --import tsx --test experiments/personal-assistant/multiturn.test.ts
 pnpm exec tsc --noEmit -p experiments/personal-assistant/tsconfig.json
-node --import tsx experiments/personal-assistant/multiturn.ts --roles=household --out=.mentat/experiments/stage-b-new
-python3 experiments/personal-assistant/analyze-multiturn.py .mentat/experiments/stage-b-new
+node --import tsx experiments/personal-assistant/multiturn.ts --roles=household --out=.gethen/experiments/stage-b-new
+python3 experiments/personal-assistant/analyze-multiturn.py .gethen/experiments/stage-b-new
 ```
 
 执行器恢复时校验数据、执行器哈希及输入/反思/提示策略版本；不同策略使用新目录。分析器已支持tool.update，避免把已保存的晚到参数误报为丢失。旧报告与旧结果文件未改写。

@@ -1,9 +1,9 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Artifact, ArtifactRef, ArtifactRegistry } from "@mentat/core";
-import type { Candidate, Proposal, Workspace } from "@mentat/evolution";
-import { validateArtifacts } from "@mentat/evolution";
-import { atomicJson, withFileLock } from "@mentat/storage-file";
+import type { Artifact, ArtifactRef, ArtifactRegistry } from "@gethen/core";
+import type { Candidate, Proposal, Workspace } from "@gethen/evolution";
+import { validateArtifacts } from "@gethen/evolution";
+import { atomicJson, withFileLock } from "@gethen/storage-file";
 import { ArtifactStore } from "./cas";
 
 function candidateFile(dir: string, id: string): string {

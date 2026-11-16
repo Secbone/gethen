@@ -1,8 +1,8 @@
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createFakeAdapter, type HarnessAdapter } from "@mentat/core";
-import { ExperienceStore, projectExperience, readTrajectory } from "@mentat/observability";
+import { createFakeAdapter, type HarnessAdapter } from "@gethen/core";
+import { ExperienceStore, projectExperience, readTrajectory } from "@gethen/observability";
 import { afterEach, expect, it, vi } from "vitest";
 import { runCommand } from "../commands/run";
 
@@ -13,7 +13,7 @@ vi.mock("../lib/registry", () => ({
 afterEach(() => vi.restoreAllMocks());
 
 function fixture(value: unknown, mutate = false) {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), "mentat-worker-cli-"))),
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "gethen-worker-cli-"))),
     work = join(root, "work");
   mkdirSync(work);
   writeFileSync(join(work, "input.txt"), "source");

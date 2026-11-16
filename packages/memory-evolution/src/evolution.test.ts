@@ -1,4 +1,4 @@
-import { InMemoryMemoryStore, MemoryService } from "@mentat/memory";
+import { InMemoryMemoryStore, MemoryService } from "@gethen/memory";
 import { describe, expect, it } from "vitest";
 import { memoryEntries } from "./artifact";
 import { applyEvolvedMemory, memoryEntry, runMemoryEvolutionDemo } from "./evolution";

@@ -1,5 +1,5 @@
 import { fileURLToPath } from "node:url";
-import { describeHarnessContract, runOnce } from "@mentat/core/testing";
+import { describeHarnessContract, runOnce } from "@gethen/core/testing";
 import { describe, expect, it } from "vitest";
 import { createAcpAdapter } from "./adapter";
 

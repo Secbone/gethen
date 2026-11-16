@@ -1,4 +1,4 @@
-import type { AgentEvent, JsonValue, Usage } from "@mentat/core";
+import type { AgentEvent, JsonValue, Usage } from "@gethen/core";
 import type { RpcRecord } from "./rpc-client";
 
 /** Extract concatenated text from a Pi content array (or plain string). */

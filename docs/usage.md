@@ -1,6 +1,6 @@
 # 使用指南
 
-本文对应 `277a1bd` 的 CLI 和执行契约。命令默认在 Mentat 仓库根目录运行；`/absolute/path/to/...` 和 `<...>` 是需要替换的路径或参数。
+本文对应 `277a1bd` 的 CLI 和执行契约。命令默认在 Gethen 仓库根目录运行；`/absolute/path/to/...` 和 `<...>` 是需要替换的路径或参数。
 
 ## 安装与引擎准备
 
@@ -18,11 +18,11 @@ pnpm dev run "连通性检查" --harness fake
 | `fake` | `--harness fake` | 不需要模型凭据，只验证调用流程 |
 | `opencode` | `--harness opencode --model <id>` | 本机安装 `opencode`，执行 `opencode auth login`；通过 `opencode models` 查看可用模型 |
 | `pi` | `--harness pi --model <id>` | 本机安装 Pi、配置模型；项目支持读取 OpenCode 凭据，需确认对应 provider/model 可用 |
-| `acp` | `--harness acp --model <id>` | 设置 `MENTAT_ACP_BIN`；可选 `MENTAT_ACP_ARGS` 覆盖默认 `acp` 参数 |
+| `acp` | `--harness acp --model <id>` | 设置 `GETHEN_ACP_BIN`；可选 `GETHEN_ACP_ARGS` 覆盖默认 `acp` 参数 |
 
-`opencode` 接入包含专用的系统策略与 MCP 配置；通用 `acp` 仅保证其声明的能力，不能假定具备相同的系统提示替换能力。引擎注册在 `@mentat/harnesses`。
+`opencode` 接入包含专用的系统策略与 MCP 配置；通用 `acp` 仅保证其声明的能力，不能假定具备相同的系统提示替换能力。引擎注册在 `@gethen/harnesses`。
 
-从仓库外调用时使用 `/absolute/path/to/mentat/mentat` 代替 `pnpm dev`，并显式指定 `--cwd`。模型是否可用以本机引擎的配置为准。
+从仓库外调用时使用 `/absolute/path/to/gethen/gethen` 代替 `pnpm dev`，并显式指定 `--cwd`。模型是否可用以本机引擎的配置为准。
 
 ## 执行任务与聊天
 
@@ -47,9 +47,9 @@ pnpm dev chat --harness opencode --model opencode-go/deepseek-v4.1-flash \
 | `--permission ask` | 经过宿主权限处理器的请求逐次询问 |
 | `--permission auto` / `full` | 当前宿主处理器均直接允许请求；run 默认 auto、chat 默认 full，不是风险自动判断 |
 | `--timeout-ms <ms>` | run/chat 的启动和每轮超时配置，默认 120000；不是整个聊天会话的总时长 |
-| `--memory <file>` | 默认 `<cwd>/.mentat/memory.json` |
-| `--experience <dir>` | 默认 `<cwd>/.mentat/experience` |
-| `--log-dir <dir>` | 默认 `<cwd>/.mentat/runs`，每次生成独立子目录 |
+| `--memory <file>` | 默认 `<cwd>/.gethen/memory.json` |
+| `--experience <dir>` | 默认 `<cwd>/.gethen/experience` |
+| `--log-dir <dir>` | 默认 `<cwd>/.gethen/runs`，每次生成独立子目录 |
 | `--log-protocol` | 开启经脱敏的引擎协议诊断 |
 
 宿主权限只覆盖经其处理器的请求。OpenCode 原生工具仍受原生权限配置控制；`ask` 不表示已经隔离任意进程或文件访问。
@@ -98,7 +98,7 @@ pnpm dev run "结合以往的处理方式安排这次工作" \
 run/chat 启动时打印 `trace: <目录>`，后续查询优先使用该实际路径。默认保存：
 
 ```text
-<cwd>/.mentat/
+<cwd>/.gethen/
   memory.json                记忆数据
   experience/*.jsonl         任务经验与交互摘要
   runs/<traceId>/
@@ -160,7 +160,7 @@ pnpm dev iterate --target /absolute/path/to/git-project \
 
 目标项目应有提交且工作区干净。修改在独立 detached worktree 执行，依赖需要单独初始化；上例适用于依赖已缓存的 pnpm 项目，其他项目按需替换 `--prepare`。只有接受且通过发布条件的候选会快进到目标目录；原目录并发变化会阻止发布。默认保护 `packages/evolution/src/**`，可用重复的 `--protect <glob>` 设置保护路径。worktree 是版本隔离，不是 OS 沙箱。
 
-iterate 的日志默认写在启动目录的 `.mentat/runs/<runId>`，包含 `events.jsonl`、`run.json` 及可获得的 `iter-<n>.diff`，可用 `--log-dir` 指定根目录。旧 `trace.jsonl` 仍兼容读取，新运行使用 `events.jsonl`。
+iterate 的日志默认写在启动目录的 `.gethen/runs/<runId>`，包含 `events.jsonl`、`run.json` 及可获得的 `iter-<n>.diff`，可用 `--log-dir` 指定根目录。旧 `trace.jsonl` 仍兼容读取，新运行使用 `events.jsonl`。
 
 记忆演化需要分开训练、选择和最终测试查询：
 
@@ -196,7 +196,7 @@ SWE-bench Pro V2 的模型接入、校准、网络隔离、容量检查和独立
 
 ## 常见问题
 
-- 找不到 `mentat`：仓库内用 `pnpm dev`；其他目录用本仓库启动器的绝对路径。
+- 找不到 `gethen`：仓库内用 `pnpm dev`；其他目录用本仓库启动器的绝对路径。
 - 模型不可用或无凭据：检查所选引擎的认证和模型列表；OpenCode 使用 `opencode auth list`、`opencode models`，需要时重新登录。
 - 启动或长任务超时：查看 `trace --errors` 和引擎诊断，必要时为新运行显式增加 `--timeout-ms`；不要自动重放有副作用的任务。
 - 记忆似乎未使用：先确认 `--cwd`、`--memory`、条目是否有效以及上下文是否遗漏；反思候选不会自动激活，历史召回另需 `--recall-chars`。

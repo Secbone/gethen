@@ -31,10 +31,10 @@ from agentdojo.types import text_content_block_from_string
 from resources import require_disk
 
 ROOT = Path(__file__).resolve().parents[2]
-UPSTREAM = ROOT / ".mentat/upstream/agentdojo"
+UPSTREAM = ROOT / ".gethen/upstream/agentdojo"
 
 
-class MentatPipeline(BasePipelineElement):
+class GethenPipeline(BasePipelineElement):
     def __init__(self, out, method, subject_root=ROOT):
         self.out, self.method = out, method
         self.subject_root = subject_root.resolve()
@@ -97,7 +97,7 @@ class MentatPipeline(BasePipelineElement):
                 process = subprocess.run(["node", "--import", "tsx", "scripts/public-environment-turn.ts",
                                           str(controller_path.resolve()), str((trial / "subject").resolve())], cwd=self.subject_root,
                                          env={**os.environ, **({"TSX_TSCONFIG_PATH": str(self.subject_root / "tsconfig.json"),
-                                              "MENTAT_BENCH_FROZEN_ARCHIVE": str(self.subject_root.parent / "checkout-source.json")}
+                                              "GETHEN_BENCH_FROZEN_ARCHIVE": str(self.subject_root.parent / "checkout-source.json")}
                                               if self.subject_root != ROOT else {})},
                                          capture_output=True, text=True, timeout=280)
                 (trial / "process.stdout").write_text(process.stdout)
@@ -146,7 +146,7 @@ def main():
         for name in args.suites:
             # NoNames uses the upstream fixed template/default generic names. Avoid the
             # stock subclass's unnecessary lookup of an unsupported DeepSeek display name.
-            attack = FixedJailbreakAttack(ImportantInstructionsAttackNoNames._JB_STRING, suites[name], MentatPipeline(args.out, "mentat"))
+            attack = FixedJailbreakAttack(ImportantInstructionsAttackNoNames._JB_STRING, suites[name], GethenPipeline(args.out, "gethen"))
             attack.name = args.attack
             attacks[name] = attack
         for name, task_id, injection_id in selected:
@@ -165,12 +165,12 @@ def main():
                 "runtimeSha256": hashlib.sha256((UPSTREAM / "src/agentdojo/functions_runtime.py").read_bytes()).hexdigest(),
                 "dependencyLockSha256": hashlib.sha256((UPSTREAM / "uv.lock").read_bytes()).hexdigest(),
                 "subject": frozen, "workers": args.workers,
-                "planned": selected, "agents": ["mentat", "upstream-basic"],
+                "planned": selected, "agents": ["gethen", "upstream-basic"],
                 "runnerSha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
                 "policy": "Official runtime functions only; tool calls correlated with ACP; labels/validators outside agent; no web/shell tools; OS isolation not verified",
                 "limitations": ["DeepSeek/OpenCode replaces upstream provider-native tool transport; max20 steps, wall-clock240s",
                                 "Clean utility only; attacks separate" if args.attack == "none" else "Single upstream NoNames fixed template; not all adversary strategies",
-                                "Mentat additionally has own memory candidate tools, fresh state per task; no gold feedback"]}
+                                "Gethen additionally has own memory candidate tools, fresh state per task; no gold feedback"]}
     (args.out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     if args.prepare_only:
         print(json.dumps({"preparedCases": len(selected), "attack": args.attack, "modelCalls": 0}), flush=True)
@@ -184,7 +184,7 @@ def main():
                 require_disk(args.out)
                 out = args.out / suite_name / task_id / (injection_id or "clean") / method
                 out.mkdir(parents=True)
-                pipeline = MentatPipeline(out, method, args.subject_root)
+                pipeline = GethenPipeline(out, method, args.subject_root)
                 started = time.monotonic()
                 row = {"suite": suite_name, "caseId": f"{suite_name}/{task_id}" + (f"/{injection_id}" if injection_id else ""), "userTask": task_id,
                        "injectionTask": injection_id, "agent": method, "status": "error", "utility": None, "attackSuccess": None}

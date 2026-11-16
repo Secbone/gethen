@@ -1,4 +1,4 @@
-import type { Signal } from "@mentat/core";
+import type { Signal } from "@gethen/core";
 import type { Candidate, Proposal } from "./types";
 
 /** Decides what to change, given the current state and its evaluation. */

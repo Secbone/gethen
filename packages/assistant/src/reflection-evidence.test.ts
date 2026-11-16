@@ -1,4 +1,4 @@
-import { SessionRecorder } from "@mentat/session";
+import { SessionRecorder } from "@gethen/session";
 import { describe, expect, it } from "vitest";
 import { parseEvidenceReflection, reflectionPrompt } from "./reflection";
 import { buildReflectionBatch, reflectionEvidenceData } from "./reflection-evidence";

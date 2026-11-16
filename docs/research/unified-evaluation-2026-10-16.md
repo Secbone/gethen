@@ -34,9 +34,9 @@
 
 ## 复现与材料
 
-- 生成器：`python3 scripts/prepare-unified-pilot.py`。需先在 `.mentat/benchmark-data/longmemeval-cleaned/oracle.json` 放置对应公开原文件。
-- 纵向输入与计划：[试点资产](../../benchmarks/pilots/2026-10-16/mentat-longitudinal-plan.json)。计划摘要绑定实际数据字节，原生执行再捕获实际 checkout、评分器和调度器指纹。
-- 原始结果：`.mentat/benchmarks/unified-20261016/longitudinal/` 与 `oracle-reader/`，包含逐任务输出、轨迹、记忆前后快照、反思提案、原生账目和完整性摘要。
+- 生成器：`python3 scripts/prepare-unified-pilot.py`。需先在 `.gethen/benchmark-data/longmemeval-cleaned/oracle.json` 放置对应公开原文件。
+- 纵向输入与计划：[试点资产](../../benchmarks/pilots/2026-10-16/gethen-longitudinal-plan.json)。计划摘要绑定实际数据字节，原生执行再捕获实际 checkout、评分器和调度器指纹。
+- 原始结果：`.gethen/benchmarks/unified-20261016/longitudinal/` 与 `oracle-reader/`，包含逐任务输出、轨迹、记忆前后快照、反思提案、原生账目和完整性摘要。
 - 离线汇总：`python3 scripts/analyze-unified-pilot.py`；生成的 `results.json` 中，事后 JSON/工具标记及记忆快照审计明确列为探索性诊断。
 - 新运行须使用新目录，不覆盖、不补跑后择优替换；本轮不与旧模型/旧输入实验计算版本提升。
 

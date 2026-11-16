@@ -3,7 +3,7 @@
   "scope": "Host-labelled reuse scope and bounded candidate evidence operations",
   "replayDesign": {
     "model": "opencode-go/deepseek-v4.1-flash",
-    "source": "/Users/soar/Code/mentat/.mentat/experiments/multiturn-scope-merge-20261015",
+    "source": "/Users/soar/Code/gethen/.gethen/experiments/multiturn-scope-merge-20261015",
     "sourceSha256": "e7692e385966d1eb12acf1aeaad614c9285791ba938408f66ad583ad6ac70bf0",
     "reflectionSchemaVersion": "evidence-operations-v3",
     "maximumCalls": 3,

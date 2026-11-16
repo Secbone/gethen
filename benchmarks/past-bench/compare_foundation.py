@@ -54,7 +54,7 @@ if __name__=='__main__':
     parser.add_argument('--run',type=Path,required=True)
     parser.add_argument('--out',type=Path,required=True)
     args=parser.parse_args()
-    old,roster,before=read_rows(ROOT/'.mentat/public-evaluations/past-rsi-20261019-v2')
+    old,roster,before=read_rows(ROOT/'.gethen/public-evaluations/past-rsi-20261019-v2')
     new,new_roster,after=read_rows(args.run)
     if new.get("selectedBuckets"):
         buckets=set(new["selectedBuckets"])

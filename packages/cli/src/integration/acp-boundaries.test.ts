@@ -1,7 +1,7 @@
 import { fileURLToPath } from "node:url";
-import type { JsonValue } from "@mentat/core";
-import { type AcpRegistration, createDefaultRegistry } from "@mentat/harnesses";
-import { runTurn } from "@mentat/session";
+import type { JsonValue } from "@gethen/core";
+import { type AcpRegistration, createDefaultRegistry } from "@gethen/harnesses";
+import { runTurn } from "@gethen/session";
 
 import { describe, expect, it } from "vitest";
 

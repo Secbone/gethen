@@ -8,7 +8,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
-import { materializeSourceArchive, sha256, verifySourceArchive } from "@mentat/benchmark-file";
+import { materializeSourceArchive, sha256, verifySourceArchive } from "@gethen/benchmark-file";
 import { checkoutIdentity } from "../packages/cli/src/lib/benchmark-subject";
 
 const destination = process.argv[2];

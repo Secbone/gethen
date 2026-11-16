@@ -1,5 +1,5 @@
 {
-  "name": "@mentat/skills-file",
+  "name": "@gethen/skills-file",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -9,8 +9,8 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@mentat/skills": "workspace:*",
-    "@mentat/storage-file": "workspace:*"
+    "@gethen/skills": "workspace:*",
+    "@gethen/storage-file": "workspace:*"
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json"

@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { isAbsolute, relative, resolve, sep } from "node:path";
-import type { AssistantTools } from "@mentat/assistant";
-import type { McpServerSpec } from "@mentat/core";
+import type { AssistantTools } from "@gethen/assistant";
+import type { McpServerSpec } from "@gethen/core";
 import type { HostConfig, HostOverrides } from "./host";
 
 /** Pure constructor-time validation and derivation, kept out of the closure. */

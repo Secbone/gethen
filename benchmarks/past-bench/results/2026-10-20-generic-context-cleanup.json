@@ -682,7 +682,7 @@
     "costUsd": 0.002412324
   },
   "isolationSmoke": {
-    "runDirectory": ".mentat/public-evaluations/generic-context-isolation-smoke-20261020-v1",
+    "runDirectory": ".gethen/public-evaluations/generic-context-isolation-smoke-20261020-v1",
     "planSha256": "6ff049bc412455e1828000aa30967dcd25254a0076834370411e39b699a85138",
     "protocol": "past-foundation-diagnostic-v7",
     "subjectIsolation": {
@@ -692,7 +692,7 @@
       },
       "workspace": "fresh randomly named OS temporary directory per episode"
     },
-    "workspace": "/var/folders/h5/ybw1xdcs26n3lyxsshm4pbgh0000gn/T/mentat-task-j83h3u",
+    "workspace": "/var/folders/h5/ybw1xdcs26n3lyxsshm4pbgh0000gn/T/gethen-task-j83h3u",
     "persistedScopes": ["ctx-7cc5bda1bed14a578d341f50459989db"],
     "costUsd": 0.001471098,
     "audit": {

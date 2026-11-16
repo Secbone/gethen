@@ -1,5 +1,5 @@
-import type { AdapterDeps, AgentEvent, HarnessAdapter, SessionHandle } from "@mentat/core";
-import { closeSession, runTurn, type TurnResult } from "@mentat/session";
+import type { AdapterDeps, AgentEvent, HarnessAdapter, SessionHandle } from "@gethen/core";
+import { closeSession, runTurn, type TurnResult } from "@gethen/session";
 import type {
   WorkerAdapter,
   WorkerCapabilities,
@@ -135,7 +135,7 @@ class HarnessSession implements WorkerSession {
 }
 
 /**
- * Adapts an existing Mentat harness (Pi, OpenCode/ACP, fake) to the Worker
+ * Adapts an existing Gethen harness (Pi, OpenCode/ACP, fake) to the Worker
  * contract. One spawn is one turn; multi-turn steering lands with the DSH
  * adapter.
  */

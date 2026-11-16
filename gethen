@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Convenience launcher: run the Gethen CLI from any directory.
+# Usage: ./gethen <command> [args...]   (or add this repo to PATH / alias it)
+set -euo pipefail
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec pnpm --dir "$repo" dev "$@"

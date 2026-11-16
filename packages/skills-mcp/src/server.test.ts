@@ -1,14 +1,14 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { FileSkillRepository } from "@mentat/skills-file";
+import { FileSkillRepository } from "@gethen/skills-file";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { expect, it } from "vitest";
 import { skillsMcpSpec } from "./index";
 
 it("creates, finds, reads and updates real procedural artifacts through MCP", async () => {
-  const path = join(mkdtempSync(join(tmpdir(), "mentat-skills-mcp-")), "skills.json");
+  const path = join(mkdtempSync(join(tmpdir(), "gethen-skills-mcp-")), "skills.json");
   const spec = skillsMcpSpec(path, "user-a");
   const client = new Client({ name: "contract", version: "1" });
   try {

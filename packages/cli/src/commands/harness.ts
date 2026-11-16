@@ -2,7 +2,7 @@ import { createDefaultRegistry } from "../lib/registry";
 
 export function harnessCommand(args: string[]): number {
   if (args[0] !== "list") {
-    process.stderr.write("usage: mentat harness list\n");
+    process.stderr.write("usage: gethen harness list\n");
     return 1;
   }
   for (const adapter of createDefaultRegistry().list()) {

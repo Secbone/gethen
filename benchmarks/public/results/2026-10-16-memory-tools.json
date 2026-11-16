@@ -21,7 +21,7 @@
           "effective": "opencode-go/deepseek-v4.1-flash"
         }
       ],
-      "source": ".mentat/public-evaluations/memory-tools-probe-v1/result.json",
+      "source": ".gethen/public-evaluations/memory-tools-probe-v1/result.json",
       "sha256": "f8f4dced44716faa3b09b381bec46af2e8023a61239409446f904784b27d66a8"
     },
     {
@@ -42,7 +42,7 @@
           "effective": "opencode-go/deepseek-v4.1-flash"
         }
       ],
-      "source": ".mentat/public-evaluations/memory-tools-probe-v2/result.json",
+      "source": ".gethen/public-evaluations/memory-tools-probe-v2/result.json",
       "sha256": "70c9f9131bd417d53a620b997d2a39666711bb3e6096452d1cba223f9ff18420"
     },
     {
@@ -63,7 +63,7 @@
           "effective": "opencode-go/deepseek-v4.1-flash"
         }
       ],
-      "source": ".mentat/public-evaluations/memory-tools-probe-v3/result.json",
+      "source": ".gethen/public-evaluations/memory-tools-probe-v3/result.json",
       "sha256": "3a44c3f66fdcfeb1fb79eaa622b9b9c8d57dab7bbb95ab7c57bd55c9fd64370a"
     },
     {
@@ -84,7 +84,7 @@
           "effective": "opencode-go/deepseek-v4.1-flash"
         }
       ],
-      "source": ".mentat/public-evaluations/memory-tools-probe-v5/result.json",
+      "source": ".gethen/public-evaluations/memory-tools-probe-v5/result.json",
       "sha256": "0bfe57535c65c65982e1addb4bdc493276b5a0c44fb20e1f3734901335375210"
     },
     {
@@ -105,7 +105,7 @@
           "effective": "opencode-go/deepseek-v4.1-flash"
         }
       ],
-      "source": ".mentat/public-evaluations/memory-tools-probe-v6/result.json",
+      "source": ".gethen/public-evaluations/memory-tools-probe-v6/result.json",
       "sha256": "2a47557742703970a1b0b7aac49a6379e899500af861fe8f5f220fc12aabe3a3"
     },
     {
@@ -126,7 +126,7 @@
           "effective": "opencode-go/deepseek-v4.1-flash"
         }
       ],
-      "source": ".mentat/public-evaluations/memory-tools-probe-v7/result.json",
+      "source": ".gethen/public-evaluations/memory-tools-probe-v7/result.json",
       "sha256": "02ff983712ccc6a5eeb6e45464651cf519d8882d6fda71a4d971e7f3dad1c384"
     }
   ]

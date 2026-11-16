@@ -13,13 +13,13 @@ import type {
   SessionHandle,
   SessionOptions,
   UserInput,
-} from "@mentat/core";
-import { renderTurnInput } from "@mentat/core";
+} from "@gethen/core";
+import { renderTurnInput } from "@gethen/core";
 import { isOpencodeModel, resolveOpencodeApiKey } from "./opencode-auth";
 import { RpcClient, type RpcClientOptions, type RpcRecord } from "./rpc-client";
 import { translate } from "./translate";
 
-export type { PermissionMode } from "@mentat/core";
+export type { PermissionMode } from "@gethen/core";
 
 export interface PiAdapterOptions {
   id?: string;
@@ -38,7 +38,7 @@ const CAPABILITIES: HarnessCapabilities = {
   systemPrompt: "replace",
 };
 
-const DEFAULT_BRIDGE = fileURLToPath(new URL("./bridge/mentat-bridge.ts", import.meta.url));
+const DEFAULT_BRIDGE = fileURLToPath(new URL("./bridge/gethen-bridge.ts", import.meta.url));
 
 function parsePermissionRequest(record: RpcRecord): PermissionRequest {
   let toolName = typeof record.title === "string" ? record.title : "tool";
@@ -192,10 +192,10 @@ export function createPiAdapter(options: PiAdapterOptions = {}): HarnessAdapter 
       ];
       const env: Record<string, string> = {
         ...options.env,
-        MENTAT_PERMISSION_MODE: permissionMode,
+        GETHEN_PERMISSION_MODE: permissionMode,
       };
       if (sessionOptions.mcpServers && sessionOptions.mcpServers.length > 0) {
-        env.MENTAT_MCP_SERVERS = JSON.stringify(sessionOptions.mcpServers);
+        env.GETHEN_MCP_SERVERS = JSON.stringify(sessionOptions.mcpServers);
       }
       if (isOpencodeModel(sessionOptions.model) && !env.OPENCODE_API_KEY) {
         const key = resolveOpencodeApiKey();

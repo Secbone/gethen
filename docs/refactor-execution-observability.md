@@ -9,13 +9,13 @@
 - https://github.com/deepseek-ai/deepseek-harness/tree/master/packages/core
 - https://github.com/deepseek-ai/deepseek-harness/tree/master/packages/session
 
-Mentat 保留外部 HarnessAdapter；不接管 Pi/ACP 内部 agent loop，不承诺获取引擎没有公开的模型输入或内部推理。没有引入 Cordis、远程类型生成或动态插件加载系统。
+Gethen 保留外部 HarnessAdapter；不接管 Pi/ACP 内部 agent loop，不承诺获取引擎没有公开的模型输入或内部推理。没有引入 Cordis、远程类型生成或动态插件加载系统。
 
 ## 分阶段实施
 
 | 阶段 | 实施内容 | 验证方式 |
 |---|---|---|
-| 0 基线 | 保留原拆包工作树，运行原检查；追踪文件补丁及含未追踪源码的完整快照保存在 /tmp/mentat-refactor-baseline | 原 134 项行为通过、1 Docker 跳过；7 项架构检查 |
+| 0 基线 | 保留原拆包工作树，运行原检查；追踪文件补丁及含未追踪源码的完整快照保存在 /tmp/gethen-refactor-baseline | 原 134 项行为通过、1 Docker 跳过；7 项架构检查 |
 | 1 执行与轨迹 | session 提供 runTurn、runOnce、openSession、统一关闭；追加事件、内容引用和持久化边界 | ack 与 settled 分离、同步输出、重复结束、挂起发送、取消、重叠调用、启动超时、晚到会话清理 |
 | 2 记忆一致性 | MemoryAccess、MemoryRepository、条件提交；文件锁、原子发布、可恢复数据与审计事务；MCP 复用领域服务 | 双实例、独立 Node 进程并发、版本冲突、损坏拒绝、审计故障、journal 恢复、迁移批事务 |
 | 3 宿主装配 | host 装配 adapter、记忆、经验和轨迹；assistant 仅依赖 core、memory、session | 注入内存服务；CLI 聊天与显式确认回归；分层检查禁止领域包绑定文件实现 |
@@ -35,7 +35,7 @@ Mentat 保留外部 HarnessAdapter；不接管 Pi/ACP 内部 agent loop，不承
 - cli：参数解析、权限交互、终端呈现和宿主调用。具体引擎注册移至 host，原 CLI 公开入口转导出。
 - evolution、workspace、evaluation：保留原契约；补齐评测、实际改动、提交和回滚证据。
 
-文件便捷函数 taskContext(path, task)、rememberUserFact(path, dir, text)、saveReflections(path, candidates) 迁至 @mentat/host。后两者现在返回 Promise，调用方必须 await；实验脚本和集成测试已同步迁移。assistant 的同名领域函数接收注入的接口。
+文件便捷函数 taskContext(path, task)、rememberUserFact(path, dir, text)、saveReflections(path, candidates) 迁至 @gethen/host。后两者现在返回 Promise，调用方必须 await；实验脚本和集成测试已同步迁移。assistant 的同名领域函数接收注入的接口。
 
 ## 执行契约
 
@@ -68,7 +68,7 @@ FileMemoryRepository.snapshot 返回条目和不透明内容版本；commit 可�
 
 ## 轨迹与内容
 
-默认 .mentat/runs/<traceId>/：
+默认 .gethen/runs/<traceId>/：
 
 ```text
 manifest.json       版本、进程、采集状态、代码版本/dirty、请求模型及配置
@@ -94,17 +94,17 @@ pruneTrajectories(root, cutoff) 提供显式保留期清理，默认不自动删
 ## 使用
 
 ```bash
-pnpm dev run "安排周末上午" --harness fake --reflect --log-dir /tmp/mentat-runs
-pnpm dev chat --harness pi --log-dir /tmp/mentat-runs --timeout-ms 120000
-pnpm dev trace /tmp/mentat-runs/<traceId> --tree
-pnpm dev trace /tmp/mentat-runs/<traceId> --all
-pnpm dev trace /tmp/mentat-runs/<traceId> --follow
-pnpm dev trace /tmp/mentat-runs/<traceId> --errors
-pnpm dev trace /tmp/mentat-runs/<traceId> --context
-pnpm dev trace /tmp/mentat-runs/<traceId> --memory
-pnpm dev trace /tmp/mentat-runs/<traceId> --tool <callId>
-pnpm dev trace /tmp/mentat-runs/<traceId> --summary
-pnpm dev trace /tmp/mentat-runs/<traceId> --check
+pnpm dev run "安排周末上午" --harness fake --reflect --log-dir /tmp/gethen-runs
+pnpm dev chat --harness pi --log-dir /tmp/gethen-runs --timeout-ms 120000
+pnpm dev trace /tmp/gethen-runs/<traceId> --tree
+pnpm dev trace /tmp/gethen-runs/<traceId> --all
+pnpm dev trace /tmp/gethen-runs/<traceId> --follow
+pnpm dev trace /tmp/gethen-runs/<traceId> --errors
+pnpm dev trace /tmp/gethen-runs/<traceId> --context
+pnpm dev trace /tmp/gethen-runs/<traceId> --memory
+pnpm dev trace /tmp/gethen-runs/<traceId> --tool <callId>
+pnpm dev trace /tmp/gethen-runs/<traceId> --summary
+pnpm dev trace /tmp/gethen-runs/<traceId> --check
 pnpm dev trace compare <before-dir> <after-dir>
 pnpm dev trace feedback <run-dir> --turn <turnId> --score 0 --correction "遗漏截止时间"
 ```
@@ -124,7 +124,7 @@ pnpm dev trace feedback <run-dir> --turn <turnId> --score 0 --correction "遗漏
 
 这些字段进入轨迹、持久化经验、反思元数据及 SWE 统一导入。反思不将 warning 当成用户认可或能力提升证据。SWE 主体遇到 length 时仍允许收集补丁并独立评分，运行错误继续阻止发布模型分数。官方 reward 与执行状态并列保留：预算耗尽仍可能通过验证，正常结束也可能验证失败。没有增加重试、修改预算或重新解释既有成绩。
 
-验证：`pnpm check` 通过，93 个 Vitest 文件、376 passed / 1 skipped，PAST Python 18 项、SWE Python 11 项。新增覆盖原生终止原因、未知值、助手自述与引用文本、超时、部分输出、持久化经验和预算受限但独立评分通过。首次沙箱执行的 Unix socket 测试报 EPERM，授权后完整重跑通过。另对 NodeBB 原始协议帧和最终文本作离线分析，结果在 `.mentat/swe-bench/nodebb-rosetta-2g-v2/termination-analysis.json`，保留原响应摘要和事件 ID；未重放工具或调用模型，原始成绩未改。
+验证：`pnpm check` 通过，93 个 Vitest 文件、376 passed / 1 skipped，PAST Python 18 项、SWE Python 11 项。新增覆盖原生终止原因、未知值、助手自述与引用文本、超时、部分输出、持久化经验和预算受限但独立评分通过。首次沙箱执行的 Unix socket 测试报 EPERM，授权后完整重跑通过。另对 NodeBB 原始协议帧和最终文本作离线分析，结果在 `.gethen/swe-bench/nodebb-rosetta-2g-v2/termination-analysis.json`，保留原响应摘要和事件 ID；未重放工具或调用模型，原始成绩未改。
 
 ## 复现实验与验证范围
 
@@ -137,7 +137,7 @@ node --import tsx experiments/personal-assistant/refactor-smoke.ts
 node --import tsx experiments/personal-assistant/refactor-smoke.ts --real
 ```
 
-真实模式使用本机已授权 OpenCode ACP、opencode-go/deepseek-v4.1-flash，可用 MENTAT_SMOKE_MODEL 覆盖。任务在新临时目录中执行，限制工具权限，仅验证一小段交互和日志链路；不是盲测，也不是学习提升统计证明。
+真实模式使用本机已授权 OpenCode ACP、opencode-go/deepseek-v4.1-flash，可用 GETHEN_SMOKE_MODEL 覆盖。任务在新临时目录中执行，限制工具权限，仅验证一小段交互和日志链路；不是盲测，也不是学习提升统计证明。
 
 已运行三轮真实冒烟：记录 160 条事件、3 轮正常结束、无采集缺口或契约错误。默认中文简洁格式、单轮段落例外及下一轮恢复均可观察。模型把“11 点前”安排到 11:00 边界，虽然执行正常，严格约束质量仍有问题；后续应作为独立质量回归案例。不能以本次重构验证替代记忆检索、偏好生命周期及长期学习效果的专项实验。
 

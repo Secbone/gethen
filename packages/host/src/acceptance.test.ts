@@ -1,13 +1,13 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createFakeAdapter } from "@mentat/core";
+import { createFakeAdapter } from "@gethen/core";
 import { expect, it } from "vitest";
 import { evaluateResult } from "./acceptance";
 import { createAssistantHost } from "./host";
 
 it("persists rejection separately from a normally finished execution", async () => {
-  const root = mkdtempSync(join(tmpdir(), "mentat-acceptance-"));
+  const root = mkdtempSync(join(tmpdir(), "gethen-acceptance-"));
   const host = createAssistantHost(
     { cwd: root, adapter: createFakeAdapter(), memoryPath: join(root, "memory.json") },
     {

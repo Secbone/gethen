@@ -1,9 +1,9 @@
 import { mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import type { TaskAcceptance } from "@mentat/core";
-import { isWithin, prepareFilePolicy, prepareOutputContract } from "@mentat/evaluation";
-import type { ResultEvaluator } from "@mentat/host";
+import type { TaskAcceptance } from "@gethen/core";
+import { isWithin, prepareFilePolicy, prepareOutputContract } from "@gethen/evaluation";
+import type { ResultEvaluator } from "@gethen/host";
 
 /** CLI wiring only: file auditing/schema validation live in evaluation. */
 export function prepareRunContract(cwd: string, policyFile?: string, contractFile?: string) {
@@ -15,7 +15,7 @@ export function prepareRunContract(cwd: string, policyFile?: string, contractFil
     return JSON.parse(readFileSync(path, "utf8"));
   };
   const guard = policyFile ? prepareFilePolicy(root, readConfig(policyFile)) : undefined;
-  const control = mkdtempSync(join(tmpdir(), "mentat-run-control-"));
+  const control = mkdtempSync(join(tmpdir(), "gethen-run-control-"));
   if (isWithin(root, realpathSync(control)))
     throw new Error("worker control must live outside task directory");
   const outputSpec = contractFile ? readConfig(contractFile) : undefined;

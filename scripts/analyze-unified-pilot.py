@@ -8,7 +8,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-RUNS = ROOT / ".mentat/benchmarks/unified-20261016"
+RUNS = ROOT / ".gethen/benchmarks/unified-20261016"
 DEST = ROOT / "benchmarks/pilots/2026-10-16/results.json"
 
 

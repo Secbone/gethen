@@ -4,13 +4,13 @@
   "trial_name": "finscope_dcf_valuation__L8i9mAf",
   "trial_uri": "file:///tmp/rsi-smoke/2026-10-17__22-17-14/finscope_dcf_valuation__L8i9mAf",
   "task_id": {
-    "path": ".mentat/benchmark-data/rsi-exam/finscope_dcf_valuation"
+    "path": ".gethen/benchmark-data/rsi-exam/finscope_dcf_valuation"
   },
   "source": null,
   "task_checksum": "8fcefa480a55f8c3585f7d9629f49008d7775a871f899e9e281572a5a35c9476",
   "config": {
     "task": {
-      "path": ".mentat/benchmark-data/rsi-exam/finscope_dcf_valuation",
+      "path": ".gethen/benchmark-data/rsi-exam/finscope_dcf_valuation",
       "git_url": null,
       "git_commit_id": null,
       "name": null,

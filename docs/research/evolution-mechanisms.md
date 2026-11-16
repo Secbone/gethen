@@ -25,8 +25,8 @@
 ## 1. 睡眠（Sleep = 固结 + 遗忘 + 会话轮换）
 
 ### 1.1 正方设计（要点）
-- **边界**：睡眠不是新算法，而是**离线进化周期的编排层**——把已有 `mentat evolve memory`
-  （数据）与 `mentat iterate`（代码）当子程序，再加三件 loop 不做的事：跨经验**固结**、
+- **边界**：睡眠不是新算法，而是**离线进化周期的编排层**——把已有 `gethen evolve memory`
+  （数据）与 `gethen iterate`（代码）当子程序，再加三件 loop 不做的事：跨经验**固结**、
   按效用**剪枝**、`chat` 的**会话轮换**。产物不是单个候选，而是"新记忆/skill 集 + 回收站 + 新 session seed"。
 - **固结 A**：现只有 per-turn `--reflect`（`packages/memory/src/reflection.ts`，`run.ts`/`chat.ts` 触发）
   与 `buildExperienceDigest`；缺**跨全部经验的批量固结**，也**缺 skill**（`ArtifactKind` 有 `"skill"` 却无实现）。
@@ -34,13 +34,13 @@
 - **剪枝 B（ablation）**：对条目做"移除评测"——去/留它 `recall`/`noise` 不变 ⇒ 无用。复用 loop：
   给 `evolution.ts` 补 `removeEntry` ProposeStep（现只有 `addEntry`），配 `PruneMemoryProposer`，
   用 `dominates`（`packages/core/src/loop/pareto.ts`）选择。安全网：**不硬删**，移入
-  `.mentat/memory-recycle.json` 可 `--undo`。
+  `.gethen/memory-recycle.json` 可 `--undo`。
 - **会话轮换 C**：`chat` 全程只建**一个** session 反复 `send`（`packages/cli/src/commands/chat.ts`），
   上下文越聊越满。达阈值时 `dispose()` 旧 session，以 `buildMemoryContext(memory, summary)` 作
   `systemPrompt` 开新 session；sleep 走"显式 rotate（新会话+记忆种子）"而非依赖 Pi compaction
   （引擎无关且真正回收带宽）。
 - **三层带宽**：live context（token）、memory store 噪声、experience store 体积（只追加 JSONL，永不 GC）。
-- **形态**：`mentat sleep`，编排 排空经验→固结→剪枝→(可选)代码演化→轮转经验日志→写报告。
+- **形态**：`gethen sleep`，编排 排空经验→固结→剪枝→(可选)代码演化→轮转经验日志→写报告。
 
 ### 1.2 反方攻击
 - **剪枝是危险的一半**：当前 loop **没有任何删除路径**（`RuleMemoryProposer`/`AgentDataProposer` 只追加）；
@@ -57,7 +57,7 @@
 - **不要先做 sleep 子系统。** 先做：**held-out 记忆效用协议**（剪枝用的查询集与优化用的查询集**不相交**）+
   **软遗忘（回收站）** + **语义门**（固结产物过 gate）。三者就绪前，睡眠只 = "手动跑现有 `evolve memory`"。
 - **验收（可证伪）**：跨 N≥20 次运行，**不相交 held-out recall 不下降**且 token 成本下降，才允许开启 `--prune`。
-- 会话轮换可独立小步验证（token 节省 vs 上下文丢失的有损程度），先手动 `mentat sleep --rotate`。
+- 会话轮换可独立小步验证（token 节省 vs 上下文丢失的有损程度），先手动 `gethen sleep --rotate`。
 
 ---
 
@@ -71,7 +71,7 @@
   `file.count`、`dep.count`、`layer.violations`（复用 `scripts/check-layering.mjs`）、`exports.count`；
   需依赖的 `dup.tokens`（jscpd）、`complexity`（ts-morph）、`dead.exports`（knip）。
   统一脚本 `scripts/quality-signals.mjs` 打印 `Signal[]`，由现有 `--eval` 走 `JsonCommandEvaluator` 消费。
-- **形态**：`mentat iterate --profile refactor`（复用 180 行装配），每轮一个 target，靠经验里
+- **形态**：`gethen iterate --profile refactor`（复用 180 行装配），每轮一个 target，靠经验里
   `toolErrors`/`error` 高的热点优先。
 
 ### 2.2 反方攻击
@@ -85,7 +85,7 @@
 
 ### 2.3 合题 / 最小 v0
 - **先做一次性手动实验**：在**丢弃式分支**上跑一次
-  `mentat iterate --task "减少重复/降低复杂度，行为不变" --check "pnpm test && pnpm lint"`，
+  `gethen iterate --task "减少重复/降低复杂度，行为不变" --check "pnpm test && pnpm lint"`，
   **人工看 diff**；不自动化。
 - 只有当**覆盖率下限**（低于则拒绝）与**归一化质量指标**就绪后，才谈自动化。
 - 防护清单：保护 `**/*.test.ts`、快照、`vitest.config.ts`、`packages/core/src/loop/**`、

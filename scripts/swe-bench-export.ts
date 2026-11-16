@@ -1,9 +1,9 @@
 /** Import fresh-sandbox SWE rewards into the unified framework, retaining missing coverage. */
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { canonical, type TrialResult, validatePlan } from "@mentat/benchmark";
-import { createRunDirectory, makeRun, saveRun, sha256 } from "@mentat/benchmark-file";
-import type { JsonValue } from "@mentat/core";
+import { canonical, type TrialResult, validatePlan } from "@gethen/benchmark";
+import { createRunDirectory, makeRun, saveRun, sha256 } from "@gethen/benchmark-file";
+import type { JsonValue } from "@gethen/core";
 
 const [source, destination] = process.argv.slice(2);
 if (!source || !destination) throw new Error("expected pilot directory and new unified directory");
@@ -28,8 +28,8 @@ interface Response {
 }
 const responses = new Map<string, Response>();
 for (const row of results.cases) {
-  if (!row.stages?.mentat?.trial) continue;
-  const path = join(dirname(row.stages.mentat.trial), "agent/host/response.json");
+  if (!row.stages?.gethen?.trial) continue;
+  const path = join(dirname(row.stages.gethen.trial), "agent/host/response.json");
   if (existsSync(path)) responses.set(row.id, JSON.parse(readFileSync(path, "utf8")));
 }
 const sourceHashes = new Set(
@@ -58,7 +58,7 @@ const plan = validatePlan({
     config: { upstreamTaskFiles: manifest.tasks },
   },
   protocol: {
-    id: "mentat-coding-sandbox",
+    id: "gethen-coding-sandbox",
     revision: "2",
     config: {
       memory: "disabled",
@@ -73,7 +73,7 @@ const plan = validatePlan({
     turnTimeoutMs: manifest.timeoutMs,
   },
   subject: {
-    id: "mentat",
+    id: "gethen",
     revision: manifest.subjectRevision,
     codeSha256:
       sourceHashes.size === 1
@@ -157,7 +157,7 @@ const rows: TrialResult[] = plan.units.map((unit) => {
       ),
     ].filter(Boolean),
     durationMs:
-      row?.stages?.mentat?.elapsedSeconds != null ? row.stages.mentat.elapsedSeconds * 1000 : null,
+      row?.stages?.gethen?.elapsedSeconds != null ? row.stages.gethen.elapsedSeconds * 1000 : null,
     costUsd: response?.observations?.costUsd ?? null,
     observations: {
       sourceIdentity: response?.sourceIdentity ?? null,

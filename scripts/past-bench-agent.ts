@@ -1,9 +1,9 @@
-// Minimal Mentat subject bridge for a PAST-Bench CLI agent adapter.
+// Minimal Gethen subject bridge for a PAST-Bench CLI agent adapter.
 //
 // PAST-Bench's `_OneShotCliAdapter` shells out to a coding CLI with the task
 // prompt on stdin and parses a single JSON result. This script plays that role
-// for Mentat: it runs one Mentat assistant host turn (harness + model via
-// Mentat's own registry/credentials) and prints {final_output, usage, reason}.
+// for Gethen: it runs one Gethen assistant host turn (harness + model via
+// Gethen's own registry/credentials) and prints {final_output, usage, reason}.
 //
 // Usage:
 //   node --import tsx scripts/past-bench-agent.ts \
@@ -11,9 +11,9 @@
 //     [--memory <file>] [--experience <dir>] [--log-dir <dir>]
 // < prompt-on-stdin
 
-import { createDefaultRegistry } from "@mentat/harnesses";
-import { createAssistantHost } from "@mentat/host";
-import { memoryAttribution } from "@mentat/observability";
+import { createDefaultRegistry } from "@gethen/harnesses";
+import { createAssistantHost } from "@gethen/host";
+import { memoryAttribution } from "@gethen/observability";
 
 function arg(name: string, fallback?: string): string | undefined {
   const index = process.argv.indexOf(name);
@@ -31,9 +31,9 @@ async function main(): Promise<void> {
   const harnessId = arg("--harness") ?? "pi";
   const model = arg("--model");
   const timeoutMs = Number(arg("--timeout-ms") ?? "600000") || 600000;
-  const memoryPath = arg("--memory") ?? `${cwd}/.mentat-memory.json`;
-  const experienceDir = arg("--experience") ?? `${cwd}/.mentat-experience`;
-  const logDir = arg("--log-dir") ?? `${cwd}/.mentat-bench-trace`;
+  const memoryPath = arg("--memory") ?? `${cwd}/.gethen-memory.json`;
+  const experienceDir = arg("--experience") ?? `${cwd}/.gethen-experience`;
+  const logDir = arg("--log-dir") ?? `${cwd}/.gethen-bench-trace`;
 
   const prompt = (await readStdin()).trim();
   const registry = createDefaultRegistry("full");

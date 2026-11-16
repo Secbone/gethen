@@ -1,7 +1,7 @@
 {
   "protocol": "foundation-dependency-analysis-v1",
   "modelCalls": 0,
-  "sourceRun": ".mentat/public-evaluations/past-foundation-eval8-20261019-v3",
+  "sourceRun": ".gethen/public-evaluations/past-foundation-eval8-20261019-v3",
   "sourcePlanSha256": "f6c4960391ef91ee2f9f185b16492bcd4a14bd16a8fb60dce96a41613f105fce",
   "graderSha256": "adaac116ec3bc7b21c11302a77c67dcbcb26efbd795c6c5fc4441b0d6db8fc30",
   "cases": [

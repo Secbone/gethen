@@ -8,8 +8,8 @@ import {
   type ArtifactKind,
   createArtifact,
   type JsonValue,
-} from "@mentat/core";
-import type { Candidate, Proposal, Workspace } from "@mentat/evolution";
+} from "@gethen/core";
+import type { Candidate, Proposal, Workspace } from "@gethen/evolution";
 
 export interface GitIdentity {
   name: string;
@@ -74,7 +74,7 @@ export class GitWorkspace implements Workspace {
   /** A proposer only edits an owned detached worktree, never the caller's files. */
   static isolated(cwd: string): GitWorkspace {
     const source = new GitWorkspace(cwd);
-    const temp = mkdtempSync(join(tmpdir(), "mentat-evolution-")),
+    const temp = mkdtempSync(join(tmpdir(), "gethen-evolution-")),
       work = join(temp, "work");
     try {
       git(cwd, ["worktree", "add", "--detach", work, source.head]);
@@ -110,7 +110,7 @@ export class GitWorkspace implements Workspace {
 
   constructor(cwd: string, options: GitWorkspaceOptions = {}) {
     this.cwd = cwd;
-    this.identity = options.identity ?? { name: "mentat", email: "mentat@localhost" };
+    this.identity = options.identity ?? { name: "gethen", email: "gethen@localhost" };
     this.artifactAdapter = commitAdapter(options.artifact?.kind ?? "core");
     this.artifactId = options.artifact?.id ?? "workspace";
     this.artifactProtected = options.artifact?.protected ?? false;

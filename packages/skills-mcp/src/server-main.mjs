@@ -1,16 +1,16 @@
 #!/usr/bin/env node
 import { appendFileSync } from "node:fs";
-import { rankSkills } from "@mentat/skills";
-import { FileSkillRepository } from "@mentat/skills-file";
+import { rankSkills } from "@gethen/skills";
+import { FileSkillRepository } from "@gethen/skills-file";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
-const path = process.env.MENTAT_SKILLS_FILE;
+const path = process.env.GETHEN_SKILLS_FILE;
 if (!path) throw new Error("skills path required");
-const scope = process.env.MENTAT_SKILLS_SCOPE;
+const scope = process.env.GETHEN_SKILLS_SCOPE;
 const repository = new FileSkillRepository(path);
-const server = new McpServer({ name: "mentat-procedures", version: "0.0.1" });
+const server = new McpServer({ name: "gethen-procedures", version: "0.0.1" });
 const names = ["skills_list", "skill_view", "skill_save"];
 const result = (value) => ({ content: [{ type: "text", text: JSON.stringify(value) }] });
 const run = (fn) => async (args) => {
@@ -84,14 +84,14 @@ const send = transport.send.bind(transport);
 transport.send = async (message) => {
   if (
     Array.isArray(message.result?.tools) &&
-    process.env.MENTAT_MCP_READY_FILE &&
-    process.env.MENTAT_MCP_READY_TOKEN
+    process.env.GETHEN_MCP_READY_FILE &&
+    process.env.GETHEN_MCP_READY_TOKEN
   )
     appendFileSync(
-      process.env.MENTAT_MCP_READY_FILE,
+      process.env.GETHEN_MCP_READY_FILE,
       `${JSON.stringify({
         event: "tools/list-sent",
-        token: process.env.MENTAT_MCP_READY_TOKEN,
+        token: process.env.GETHEN_MCP_READY_TOKEN,
         tools: names,
         pid: process.pid,
       })}\n`,

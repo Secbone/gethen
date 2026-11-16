@@ -1,4 +1,4 @@
-import type { Signal } from "@mentat/core";
+import type { Signal } from "@gethen/core";
 import { scoreOf, validateSignals } from "./pareto";
 import type { Candidate, IterationRecord } from "./types";
 

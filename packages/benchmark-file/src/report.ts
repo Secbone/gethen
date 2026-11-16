@@ -1,4 +1,4 @@
-import { type BenchmarkRun, canonical, comparisonIdentity, summarizeRun } from "@mentat/benchmark";
+import { type BenchmarkRun, canonical, comparisonIdentity, summarizeRun } from "@gethen/benchmark";
 import { sha256 } from "./digest";
 
 function cell(value: unknown) {

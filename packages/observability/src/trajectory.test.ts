@@ -9,7 +9,7 @@ import {
   resolveEventData,
 } from "./trajectory";
 
-const dir = () => mkdtempSync(join(tmpdir(), "mentat-trajectory-"));
+const dir = () => mkdtempSync(join(tmpdir(), "gethen-trajectory-"));
 describe("durable trajectory", () => {
   it("stores large payloads losslessly and resolves redacted artifacts", async () => {
     const path = dir(),

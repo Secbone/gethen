@@ -1,9 +1,9 @@
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-/** The most recent `mentat iterate` run directory under cwd, if any. */
+/** The most recent `gethen iterate` run directory under cwd, if any. */
 export function latestRunDir(cwd = process.cwd()): string | undefined {
-  const base = join(cwd, ".mentat", "runs");
+  const base = join(cwd, ".gethen", "runs");
   if (!existsSync(base)) return undefined;
   const entries = readdirSync(base)
     .filter((name) => statSync(join(base, name)).isDirectory())
@@ -13,14 +13,14 @@ export function latestRunDir(cwd = process.cwd()): string | undefined {
 }
 
 export function defaultMemoryPath(cwd: string): string {
-  return join(cwd, ".mentat", "memory.json");
+  return join(cwd, ".gethen", "memory.json");
 }
 
 export function defaultExperienceDir(cwd: string): string {
-  return join(cwd, ".mentat", "experience");
+  return join(cwd, ".gethen", "experience");
 }
 
-/** Versioned data-artifact store used by `mentat evolve` (distinct from memory.json). */
+/** Versioned data-artifact store used by `gethen evolve` (distinct from memory.json). */
 export function defaultMemoryStoreDir(cwd: string): string {
-  return join(cwd, ".mentat", "memory");
+  return join(cwd, ".gethen", "memory");
 }

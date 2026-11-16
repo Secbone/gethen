@@ -1,7 +1,7 @@
 import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createFakeAdapter } from "@mentat/core";
+import { createFakeAdapter } from "@gethen/core";
 import { afterEach, expect, it, vi } from "vitest";
 import { evolveCommand } from "../commands/evolve";
 
@@ -16,7 +16,7 @@ afterEach(() => vi.restoreAllMocks());
 
 it("sends training examples but never the held-out query or expected identity to the proposer", async () => {
   vi.spyOn(process.stdout, "write").mockReturnValue(true);
-  const dir = mkdtempSync(join(tmpdir(), "mentat-holdout-")),
+  const dir = mkdtempSync(join(tmpdir(), "gethen-holdout-")),
     training = join(dir, "train.json"),
     heldout = join(dir, "test.json");
   const finalTest = join(dir, "final.json");

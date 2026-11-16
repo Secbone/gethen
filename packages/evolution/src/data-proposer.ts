@@ -1,5 +1,5 @@
-import type { Artifact, Signal } from "@mentat/core";
-import type { Candidate, Proposal, Proposer } from "@mentat/evolution";
+import type { Artifact, Signal } from "@gethen/core";
+import type { Candidate, Proposal, Proposer } from "@gethen/evolution";
 
 export interface DataPromptContext {
   parent: Candidate;

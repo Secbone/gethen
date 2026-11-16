@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
-import type { PermissionDecision, PermissionRequest } from "@mentat/core";
-import { describeHarnessContract, runOnce } from "@mentat/core/testing";
+import type { PermissionDecision, PermissionRequest } from "@gethen/core";
+import { describeHarnessContract, runOnce } from "@gethen/core/testing";
 import { describe, expect, it } from "vitest";
 import { createPiAdapter } from "./adapter";
 

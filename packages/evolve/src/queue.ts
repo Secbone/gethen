@@ -1,6 +1,6 @@
-import type { JsonValue } from "@mentat/core";
-import type { EffectQueue, EffectRecord } from "@mentat/effects";
-import type { CapabilityPack } from "@mentat/pack";
+import type { JsonValue } from "@gethen/core";
+import type { EffectQueue, EffectRecord } from "@gethen/effects";
+import type { CapabilityPack } from "@gethen/pack";
 import type { DreamService, EvolutionResult } from "./loop";
 import type { Observation } from "./types";
 

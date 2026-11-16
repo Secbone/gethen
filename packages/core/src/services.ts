@@ -1,9 +1,9 @@
 /** Well-known service keys registered on the kernel context. */
 export const services = {
-  adapters: "mentat.adapters",
-  kernel: "mentat.kernel",
-  loop: "mentat.loop",
-  archive: "mentat.archive",
-  memory: "mentat.memory",
-  models: "mentat.models",
+  adapters: "gethen.adapters",
+  kernel: "gethen.kernel",
+  loop: "gethen.loop",
+  archive: "gethen.archive",
+  memory: "gethen.memory",
+  models: "gethen.models",
 } as const;

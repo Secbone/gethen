@@ -1,7 +1,7 @@
-import type { Signal } from "@mentat/core";
-import { runCommand } from "@mentat/evaluation";
-import type { PackEvaluator } from "@mentat/evolve";
-import type { CapabilityPack } from "@mentat/pack";
+import type { Signal } from "@gethen/core";
+import { runCommand } from "@gethen/evaluation";
+import type { PackEvaluator } from "@gethen/evolve";
+import type { CapabilityPack } from "@gethen/pack";
 
 export interface CommandPackEvaluatorOptions {
   /** Shell command that prints a Signal[] JSON array on stdout. */
@@ -13,7 +13,7 @@ export interface CommandPackEvaluatorOptions {
 
 /**
  * Operator-configured pack evaluation. The command receives the pack as
- * MENTAT_PACK (JSON), MENTAT_PACK_VERSION and MENTAT_PACK_DIGEST; it prints a
+ * GETHEN_PACK (JSON), GETHEN_PACK_VERSION and GETHEN_PACK_DIGEST; it prints a
  * Signal[] array. The model never supplies the evaluator.
  */
 export class CommandPackEvaluator implements PackEvaluator {
@@ -26,9 +26,9 @@ export class CommandPackEvaluator implements PackEvaluator {
       ...(this.options.timeoutMs !== undefined ? { timeoutMs: this.options.timeoutMs } : {}),
       env: {
         ...this.options.env,
-        MENTAT_PACK: JSON.stringify(pack),
-        MENTAT_PACK_VERSION: String(pack.version),
-        MENTAT_PACK_DIGEST: pack.digest,
+        GETHEN_PACK: JSON.stringify(pack),
+        GETHEN_PACK_VERSION: String(pack.version),
+        GETHEN_PACK_DIGEST: pack.digest,
       },
     });
     if (!result.ok)

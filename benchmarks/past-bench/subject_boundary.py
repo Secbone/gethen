@@ -32,7 +32,7 @@ def validate_workspace(workspace, engine_cwds, experience):
     issues = []
     path = Path(workspace)
     if (not path.is_absolute() or path.parent.resolve() != Path(tempfile.gettempdir()).resolve()
-            or not re.fullmatch(r"mentat-task-[A-Za-z0-9_-]{6,}", path.name)):
+            or not re.fullmatch(r"gethen-task-[A-Za-z0-9_-]{6,}", path.name)):
         issues.append("model workspace is not an opaque temporary directory")
     if not engine_cwds or set(engine_cwds) != {workspace}:
         issues.append("native engine workspace differs from isolated subject workspace")

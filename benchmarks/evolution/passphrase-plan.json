@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "benchmark": {
-    "id": "mentat-evolution-passphrase",
+    "id": "gethen-evolution-passphrase",
     "version": "1",
     "track": "smoke"
   },
@@ -36,7 +36,7 @@
     "turnTimeoutMs": 120000
   },
   "subject": {
-    "id": "mentat",
+    "id": "gethen",
     "revision": "fixture-1",
     "codeSha256": "0000000000000000000000000000000000000000000000000000000000000000",
     "harness": "opencode",

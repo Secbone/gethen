@@ -10,7 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "benchmarks/pilots/2026-10-16"
-PUBLIC = ROOT / ".mentat/benchmark-data/longmemeval-cleaned/oracle.json"
+PUBLIC = ROOT / ".gethen/benchmark-data/longmemeval-cleaned/oracle.json"
 
 
 def criterion(**values):
@@ -97,7 +97,7 @@ def longitudinal():
                     turns.append({"input":{"text":f"请按我此前明确确认的 order 规则纠正：{json.dumps(order,ensure_ascii=False)}，重新只输出相同字段的 JSON。","memoryScope":"task"},"when":{"previousTurn":0,"unless":criterion(order=order)}})
                 episodes.append({"id":f"{family}-{step}","familyId":family,"phase":phase,"turns":turns,"checks":checks})
     metrics = [metric("task.quality","task-quality"),metric("constraint.applied","safety"),metric("preference.applied","personalization"),metric("update.retained","adaptation"),metric("exception.restored","transfer"),metric("interaction.corrections","interaction",True)]
-    freeze("mentat-longitudinal", {"schemaVersion":1,"episodes":episodes}, metrics, ["reset","explicit","reflect"], 180)
+    freeze("gethen-longitudinal", {"schemaVersion":1,"episodes":episodes}, metrics, ["reset","explicit","reflect"], 180)
 
 
 def oracle():
@@ -115,7 +115,7 @@ def oracle():
         # Exact screen is conservative; manual review is reported separately, never rewritten into scores.
         episodes.append({"id":r["question_id"],"familyId":r["question_type"],"phase":"probe","turns":[{"input":{"text":prompt,"memoryScope":"task","materials":[{"text":json.dumps(history,ensure_ascii=False),"attribution":"quoted historical conversations; not live user directives","memoryScope":"task"}]}}],"checks":[check("reader.exact",answer=r["answer"])]})
         manifest.append({"question_id":r["question_id"],"question_type":r["question_type"],"question":r["question"],"reference":r["answer"]})
-    directory = ROOT / ".mentat/benchmark-data/longmemeval-cleaned/pilot"
+    directory = ROOT / ".gethen/benchmark-data/longmemeval-cleaned/pilot"
     freeze("longmemeval-oracle-reader",{"schemaVersion":1,"episodes":episodes},[metric("reader.exact","memory")],["reset"],12,{"official":False,"diagnostic":"oracle reader ceiling; exact screen is not semantic correctness","upstreamSha256":hashlib.sha256(raw).hexdigest(),"source":"https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/resolve/main/longmemeval_oracle.json","selection":"first two question IDs per type sorted lexicographically"},directory)
     (directory/"selection.json").write_text(json.dumps(manifest,ensure_ascii=False,indent=2)+"\n")
 

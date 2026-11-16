@@ -36,10 +36,10 @@
       "output": "Permission denied: read"
     }
   ],
-  "runtime": "OpenCode v2.0.25 via Mentat ACP",
+  "runtime": "OpenCode v2.0.25 via Gethen ACP",
   "not_os_sandbox": true,
   "source": "https://dev.opencode.ai/v2/docs/permissions/",
-  "trace_file": "analysis/product-page-attributes-v1/mentat-workers-pilot-v1/guard-probe-v2/control/trace/ce5fe512-37bd-4c0d-8003-00406be4e130/events.jsonl",
+  "trace_file": "analysis/product-page-attributes-v1/gethen-workers-pilot-v1/guard-probe-v2/control/trace/ce5fe512-37bd-4c0d-8003-00406be4e130/events.jsonl",
   "trace_sha256": "43208eb80e68b8ba98a8bc04dc239f2588d1718c816791036f0cc81c5e7faca0",
   "config_sha256": "171031e3f691cbb66db8fadf29dd72625dc135ff047b308cfb49b32e3223f5bf",
   "runner_script_sha256": "637901ffc2c3eb19957d0b2518638ff28b5131ae9e6552f6321e1ad1a96ffbdb"

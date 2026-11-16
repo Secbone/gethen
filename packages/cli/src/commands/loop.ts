@@ -1,10 +1,10 @@
-import { runDemoLoop } from "@mentat/evolution";
-import { runMemoryEvolutionDemo } from "@mentat/memory-evolution";
+import { runDemoLoop } from "@gethen/evolution";
+import { runMemoryEvolutionDemo } from "@gethen/memory-evolution";
 
 export async function loopCommand(args: string[]): Promise<number> {
   const kind = args[0];
   if (kind !== "demo" && kind !== "memory") {
-    process.stderr.write("usage: mentat loop demo|memory\n");
+    process.stderr.write("usage: gethen loop demo|memory\n");
     return 1;
   }
   const result = kind === "memory" ? await runMemoryEvolutionDemo() : await runDemoLoop();

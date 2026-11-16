@@ -1,5 +1,5 @@
 {
-  "name": "@mentat/models",
+  "name": "@gethen/models",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -12,10 +12,10 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@mentat/core": "workspace:*"
+    "@gethen/core": "workspace:*"
   },
   "devDependencies": {
-    "@mentat/kernel": "workspace:*"
+    "@gethen/kernel": "workspace:*"
   },
   "description": "Model catalog and model artifacts"
 }

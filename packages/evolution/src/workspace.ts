@@ -1,4 +1,4 @@
-import { type Artifact, refKey } from "@mentat/core";
+import { type Artifact, refKey } from "@gethen/core";
 import type { Candidate, Proposal } from "./types";
 
 /**
@@ -14,7 +14,7 @@ export interface Workspace {
   /** Undo a failed proposal or partially failed materialization. */
   abort?(): Promise<void>;
   /** Observable change evidence, captured before evaluation or rollback. */
-  inspect?(candidate: Candidate): Promise<import("@mentat/core").JsonValue>;
+  inspect?(candidate: Candidate): Promise<import("@gethen/core").JsonValue>;
   apply(proposal: Proposal): Promise<Candidate>;
   commit(child: Candidate): Promise<void>;
   rollback(child: Candidate): Promise<void>;

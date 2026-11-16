@@ -69,7 +69,7 @@ def main():
             continue
         ref = refs[row["question_id"]]
         clean, history = sanitize(ref)
-        if row["agent"] == "mentat-episodic":
+        if row["agent"] == "gethen-episodic":
             expected = {"model": manifest["readerModel"], "history": history,
                         "input": {"text": f"Current Date: {ref['question_date']}\nQuestion: {ref['question']}\nAnswer based on relevant historical observations.", "memoryScope": "task"},
                         "historyBudgetChars": manifest["nativeHistoryBudgetChars"]}

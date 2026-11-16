@@ -1,7 +1,7 @@
 {
   "protocol": "paired-foundation-experience-acceptance-v1",
   "model": "opencode-go/deepseek-v4.1-flash",
-  "runDirectory": ".mentat/public-evaluations/past-foundation-rsi-pair-20261020-v2",
+  "runDirectory": ".gethen/public-evaluations/past-foundation-rsi-pair-20261020-v2",
   "planSha256": "7c3143112421f327649f21246a62e8cc33ce216fab24fabd69783770a9867dfc",
   "acceptancePassed": true,
   "gates": {

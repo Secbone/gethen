@@ -4,8 +4,8 @@ import {
   type SubjectFactory,
   validateDataset,
   validatePlan,
-} from "@mentat/benchmark";
-import { defineCapabilityPack } from "@mentat/pack";
+} from "@gethen/benchmark";
+import { defineCapabilityPack } from "@gethen/pack";
 import { describe, expect, it } from "vitest";
 import { BenchmarkPackEvaluator } from "./benchmark-evaluator";
 
@@ -23,7 +23,7 @@ const plan: RunPlan = validatePlan({
     turnTimeoutMs: 1000,
   },
   subject: {
-    id: "mentat",
+    id: "gethen",
     revision: "1",
     codeSha256: "b".repeat(64),
     harness: "fake",

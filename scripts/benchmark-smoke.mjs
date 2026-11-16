@@ -4,7 +4,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
 // Uses only the built-in fake harness and synthetic schema fixtures. No model/network calls.
-const root = resolve(process.argv[2] ?? `.mentat/benchmarks/smoke-${Date.now()}`);
+const root = resolve(process.argv[2] ?? `.gethen/benchmarks/smoke-${Date.now()}`);
 mkdirSync(dirname(root), { recursive: true });
 mkdirSync(root, { recursive: false });
 function cli(args) {

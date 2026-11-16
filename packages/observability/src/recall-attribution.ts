@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { redact, renderTurnInput } from "@mentat/core";
+import { redact, renderTurnInput } from "@gethen/core";
 import { readTrajectory, resolveEventData } from "./trajectory";
 
 export type RecallKind =

@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 
 describe("SWE result publication boundary", () => {
   it("does not publish an empty replay's zero as a model attempt that never started", () => {
-    const root = mkdtempSync(join(tmpdir(), "mentat-swe-export-"));
+    const root = mkdtempSync(join(tmpdir(), "gethen-swe-export-"));
     const source = join(root, "pilot");
     mkdirSync(source);
     writeFileSync(
@@ -48,7 +48,7 @@ describe("SWE result publication boundary", () => {
             stages: {
               oracle: { status: "completed", reward: 1 },
               empty: { status: "completed", reward: 0 },
-              mentat: { trial, elapsedSeconds: 2 },
+              gethen: { trial, elapsedSeconds: 2 },
               regrade: { status: "completed", reward: 1 },
             },
           },

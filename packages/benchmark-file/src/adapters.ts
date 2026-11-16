@@ -6,7 +6,7 @@ import {
   type RunPlan,
   type TrialResult,
   type TrialUnit,
-} from "@mentat/benchmark";
+} from "@gethen/benchmark";
 
 function nullableNumber(value: unknown): number | null {
   if (value === null || value === undefined) return null;

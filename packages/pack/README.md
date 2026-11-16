@@ -1,6 +1,6 @@
-# @mentat/pack
+# @gethen/pack
 
-Versioned Capability Pack contract for Mentat Workers.
+Versioned Capability Pack contract for Gethen Workers.
 
 A pack is the unit the control plane evolves and distributes: prompt, skills,
 memory reference, tools/MCP, policy/budget and model. `defineCapabilityPack()`
@@ -11,7 +11,7 @@ receipt can name the exact pack that ran.
 const pack = defineCapabilityPack({
   id: "worker-default",
   version: 3,
-  prompt: { system: "You are a Mentat Worker.", role: "worker" },
+  prompt: { system: "You are a Gethen Worker.", role: "worker" },
   model: { model: "provider/model" },
   policy: { budget: { wallMs: 600_000 } },
 });

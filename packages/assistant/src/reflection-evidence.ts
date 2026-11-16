@@ -1,10 +1,10 @@
-import type { MemoryEntry } from "@mentat/memory";
+import type { MemoryEntry } from "@gethen/memory";
 import type {
   EvidenceFragment,
   EvidenceMemoryScope,
   EvidenceOrigin,
   ExperienceRecord,
-} from "@mentat/session";
+} from "@gethen/session";
 
 export interface ReflectionSource {
   ref: string;

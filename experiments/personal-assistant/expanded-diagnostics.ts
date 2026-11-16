@@ -2,11 +2,11 @@ import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } f
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { assistantPromptOptions } from "@mentat/assistant";
-import { buildTurnContext, type MemoryEntry } from "@mentat/memory";
-import { JsonFileMemoryStore } from "@mentat/memory-file";
-import { memoryMcpSpec } from "@mentat/memory-mcp";
-import { createAcpAdapter } from "@mentat/transport-acp";
+import { assistantPromptOptions } from "@gethen/assistant";
+import { buildTurnContext, type MemoryEntry } from "@gethen/memory";
+import { JsonFileMemoryStore } from "@gethen/memory-file";
+import { memoryMcpSpec } from "@gethen/memory-mcp";
+import { createAcpAdapter } from "@gethen/transport-acp";
 import { taskContext } from "./memory";
 import { acpPermission, sendTurn } from "./runner";
 
@@ -14,7 +14,7 @@ const sourceArg = process.argv.indexOf("--source");
 if (sourceArg < 0 || !process.argv[sourceArg + 1])
   throw new Error("--source expanded run directory required");
 const source = resolve(process.argv[sourceArg + 1] as string);
-const out = resolve(`.mentat/experiments/personal-assistant/expanded-diagnostics-${Date.now()}`);
+const out = resolve(`.gethen/experiments/personal-assistant/expanded-diagnostics-${Date.now()}`);
 mkdirSync(out);
 const write = (path: string, data: unknown) =>
   writeFileSync(path, `${JSON.stringify(data, null, 2)}\n`);
@@ -150,7 +150,7 @@ async function worker() {
   while (!aborted && index < trials.length) {
     const trial = trials[index++];
     if (!trial) break;
-    const cwd = mkdtempSync(join(tmpdir(), "mentat-expanded-diag-"));
+    const cwd = mkdtempSync(join(tmpdir(), "gethen-expanded-diag-"));
     const memoryPath = join(cwd, "memory.json");
     write(memoryPath, trial.memory);
     const metrics = join(out, `${trial.id}.usage.jsonl`);
@@ -158,8 +158,8 @@ async function worker() {
       binary: process.execPath,
       baseArgs: [fileURLToPath(new URL("./acp-observer.mjs", import.meta.url))],
       env: {
-        MENTAT_OPENCODE_BIN: "/opt/homebrew/bin/opencode",
-        MENTAT_EXPERIMENT_METRICS: metrics,
+        GETHEN_OPENCODE_BIN: "/opt/homebrew/bin/opencode",
+        GETHEN_EXPERIMENT_METRICS: metrics,
         OPENCODE_CONFIG_CONTENT: JSON.stringify({
           model,
           small_model: model,

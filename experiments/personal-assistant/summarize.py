@@ -3,7 +3,7 @@ import json
 import re
 from pathlib import Path
 
-root = Path(__file__).resolve().parents[2] / ".mentat/experiments/personal-assistant"
+root = Path(__file__).resolve().parents[2] / ".gethen/experiments/personal-assistant"
 selected = [
     ("product-A-v3", {"A"}, "main"),
     ("product-BC-v3", {"B"}, "main"),

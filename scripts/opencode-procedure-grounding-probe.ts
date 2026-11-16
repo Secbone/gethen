@@ -4,12 +4,12 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { ASSISTANT_PROMPT_VERSION } from "@mentat/assistant";
-import { environmentMcpSpec } from "@mentat/benchmark-file";
-import { createDefaultRegistry } from "@mentat/harnesses";
-import { createAssistantHost } from "@mentat/host";
-import { projectExperience, readTrajectory, resolveEventData } from "@mentat/observability";
-import { FileSkillRepository } from "@mentat/skills-file";
+import { ASSISTANT_PROMPT_VERSION } from "@gethen/assistant";
+import { environmentMcpSpec } from "@gethen/benchmark-file";
+import { createDefaultRegistry } from "@gethen/harnesses";
+import { createAssistantHost } from "@gethen/host";
+import { projectExperience, readTrajectory, resolveEventData } from "@gethen/observability";
+import { FileSkillRepository } from "@gethen/skills-file";
 import { benchmarkObservations } from "../packages/cli/src/lib/benchmark-observations";
 
 type Parcel = {
@@ -117,7 +117,7 @@ for (const variant of cases) {
     input: Record<string, unknown>;
     output: unknown;
   }> = [];
-  const socketDir = mkdtempSync(join(tmpdir(), "mentat-grounding-"));
+  const socketDir = mkdtempSync(join(tmpdir(), "gethen-grounding-"));
   const socketPath = join(socketDir, "tools.sock");
   const token = randomUUID();
   const server = createServer(async (request, response) => {

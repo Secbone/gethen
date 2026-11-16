@@ -1,4 +1,4 @@
-import type { Signal } from "@mentat/core";
+import type { Signal } from "@gethen/core";
 import { describe, expect, it } from "vitest";
 import { Archive } from "./archive";
 import type { Candidate } from "./types";

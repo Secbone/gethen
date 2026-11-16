@@ -1,5 +1,5 @@
 import { fileURLToPath } from "node:url";
-import { runOnce } from "@mentat/core/testing";
+import { runOnce } from "@gethen/core/testing";
 import { describe, expect, it } from "vitest";
 import { createAcpAdapter } from "./adapter";
 

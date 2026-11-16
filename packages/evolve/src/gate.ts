@@ -1,4 +1,4 @@
-import type { Signal } from "@mentat/core";
+import type { Signal } from "@gethen/core";
 import { dominates } from "./compare";
 import type { GateResult, PackCandidate, PackGate } from "./types";
 

@@ -16,7 +16,7 @@ import {
   validateCriteria,
   validateDataset,
   validatePlan,
-} from "@mentat/benchmark";
+} from "@gethen/benchmark";
 import {
   appendResult,
   createRunDirectory,
@@ -32,10 +32,10 @@ import {
   sha256,
   trendsCsv,
   validateJob,
-} from "@mentat/benchmark-file";
-import { checkoutIdentity, mentatBenchmarkSubject } from "../lib/benchmark-subject";
+} from "@gethen/benchmark-file";
+import { checkoutIdentity, gethenBenchmarkSubject } from "../lib/benchmark-subject";
 
-export const BENCH_USAGE = `mentat bench — versioned, per-trial benchmark tracking
+export const BENCH_USAGE = `gethen bench — versioned, per-trial benchmark tracking
   bench list [--json]
   bench validate --plan <plan.json> [--dataset <episodes.json>]
   bench run --plan <plan.json> --dataset <episodes.json> --out <new-dir>
@@ -49,7 +49,7 @@ export const BENCH_USAGE = `mentat bench — versioned, per-trial benchmark trac
 
 Adapters: normalized-v1, harbor-trials-v1, inspect-json-v1.
 Native episodes use deterministic rule checks, typed explicit memory and fresh sessions.
-Public suites require pinned upstream tasks, scorer and a Mentat agent bridge; registration is not integration.
+Public suites require pinned upstream tasks, scorer and a Gethen agent bridge; registration is not integration.
 See docs/benchmark-framework.md and benchmarks/examples.`;
 
 function flags(args: string[]) {
@@ -121,7 +121,7 @@ export async function benchCommand(args: string[]): Promise<number> {
       if (options.has("--dataset")) {
         const raw = readFileSync(required("--dataset"));
         assert(sha256(raw) === plan.dataset.sha256, "dataset digest mismatch");
-        const { validateEpisodePlan } = await import("@mentat/benchmark");
+        const { validateEpisodePlan } = await import("@gethen/benchmark");
         validateEpisodePlan(plan, validateDataset(JSON.parse(raw.toString())));
       }
       print({ valid: true, benchmark: plan.benchmark, planned: plan.units.length });
@@ -132,9 +132,9 @@ export async function benchCommand(args: string[]): Promise<number> {
       const bytes = readFileSync(required("--dataset"));
       assert(sha256(bytes) === plan.dataset.sha256, "dataset digest mismatch");
       const dataset = validateDataset(JSON.parse(bytes.toString()));
-      const { validateEpisodePlan } = await import("@mentat/benchmark");
+      const { validateEpisodePlan } = await import("@gethen/benchmark");
       validateEpisodePlan(plan, dataset);
-      assert(plan.subject.id === "mentat", "native runner evaluates mentat only");
+      assert(plan.subject.id === "gethen", "native runner evaluates gethen only");
       if (plan.subject.harness === "fake")
         assert(plan.benchmark.track === "smoke", "fake harness requires smoke track");
       plan = validatePlan({
@@ -155,7 +155,7 @@ export async function benchCommand(args: string[]): Promise<number> {
         subject: { ...plan.subject, ...checkoutIdentity(process.cwd()) },
       });
       const out = resolve(required("--out"));
-      const subject = mentatBenchmarkSubject(plan, out);
+      const subject = gethenBenchmarkSubject(plan, out);
       createRunDirectory(out, plan);
       writeFileSync(resolve(out, "dataset.json"), bytes, { flag: "wx" });
       const result = await runEpisodes(plan, dataset, subject, (row) => appendResult(out, row));

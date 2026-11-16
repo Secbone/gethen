@@ -4,7 +4,7 @@ import {
   type ExecutionPolicy,
   type JsonValue,
   type McpServerSpec,
-} from "@mentat/core";
+} from "@gethen/core";
 
 export interface SkillRef {
   name: string;

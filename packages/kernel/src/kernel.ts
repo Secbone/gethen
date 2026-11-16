@@ -1,4 +1,4 @@
-import type { Disposable } from "@mentat/core";
+import type { Disposable } from "@gethen/core";
 import { Context } from "./context";
 import type { Plugin } from "./plugin";
 

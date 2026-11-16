@@ -14,7 +14,7 @@
     },
     {
       "action": "read",
-      "resource": "/Users/soar/Projects/pcp-match/analysis/product-page-attributes-v1/mentat-workers-pilot-v1/guard-probe-v2/worker/instructions.txt",
+      "resource": "/Users/soar/Projects/pcp-match/analysis/product-page-attributes-v1/gethen-workers-pilot-v1/guard-probe-v2/worker/instructions.txt",
       "effect": "allow"
     },
     {
@@ -24,7 +24,7 @@
     },
     {
       "action": "read",
-      "resource": "/Users/soar/Projects/pcp-match/analysis/product-page-attributes-v1/mentat-workers-pilot-v1/guard-probe-v2/worker/task.json",
+      "resource": "/Users/soar/Projects/pcp-match/analysis/product-page-attributes-v1/gethen-workers-pilot-v1/guard-probe-v2/worker/task.json",
       "effect": "allow"
     },
     {
@@ -34,7 +34,7 @@
     },
     {
       "action": "read",
-      "resource": "/Users/soar/Projects/pcp-match/analysis/product-page-attributes-v1/mentat-workers-pilot-v1/guard-probe-v2/worker/page-00.json",
+      "resource": "/Users/soar/Projects/pcp-match/analysis/product-page-attributes-v1/gethen-workers-pilot-v1/guard-probe-v2/worker/page-00.json",
       "effect": "allow"
     },
     {
@@ -44,7 +44,7 @@
     },
     {
       "action": "edit",
-      "resource": "/Users/soar/Projects/pcp-match/analysis/product-page-attributes-v1/mentat-workers-pilot-v1/guard-probe-v2/worker/result.json",
+      "resource": "/Users/soar/Projects/pcp-match/analysis/product-page-attributes-v1/gethen-workers-pilot-v1/guard-probe-v2/worker/result.json",
       "effect": "allow"
     }
   ],
@@ -63,7 +63,7 @@
         },
         {
           "action": "read",
-          "resource": "/Users/soar/Projects/pcp-match/analysis/product-page-attributes-v1/mentat-workers-pilot-v1/guard-probe-v2/worker/instructions.txt",
+          "resource": "/Users/soar/Projects/pcp-match/analysis/product-page-attributes-v1/gethen-workers-pilot-v1/guard-probe-v2/worker/instructions.txt",
           "effect": "allow"
         },
         {
@@ -73,7 +73,7 @@
         },
         {
           "action": "read",
-          "resource": "/Users/soar/Projects/pcp-match/analysis/product-page-attributes-v1/mentat-workers-pilot-v1/guard-probe-v2/worker/task.json",
+          "resource": "/Users/soar/Projects/pcp-match/analysis/product-page-attributes-v1/gethen-workers-pilot-v1/guard-probe-v2/worker/task.json",
           "effect": "allow"
         },
         {
@@ -83,7 +83,7 @@
         },
         {
           "action": "read",
-          "resource": "/Users/soar/Projects/pcp-match/analysis/product-page-attributes-v1/mentat-workers-pilot-v1/guard-probe-v2/worker/page-00.json",
+          "resource": "/Users/soar/Projects/pcp-match/analysis/product-page-attributes-v1/gethen-workers-pilot-v1/guard-probe-v2/worker/page-00.json",
           "effect": "allow"
         },
         {
@@ -93,7 +93,7 @@
         },
         {
           "action": "edit",
-          "resource": "/Users/soar/Projects/pcp-match/analysis/product-page-attributes-v1/mentat-workers-pilot-v1/guard-probe-v2/worker/result.json",
+          "resource": "/Users/soar/Projects/pcp-match/analysis/product-page-attributes-v1/gethen-workers-pilot-v1/guard-probe-v2/worker/result.json",
           "effect": "allow"
         }
       ]

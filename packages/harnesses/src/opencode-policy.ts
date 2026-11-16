@@ -1,6 +1,6 @@
 import { lstatSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
-import type { ExecutionPolicy } from "@mentat/core";
+import type { ExecutionPolicy } from "@gethen/core";
 
 /** Deliberately exact paths: OpenCode interprets * and ? as permission patterns. */
 export function opencodeFilePolicy(cwd: string, policy: ExecutionPolicy) {

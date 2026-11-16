@@ -11,7 +11,7 @@
 1. **真实连续任务**：使用 PAST-Bench 的公开原题、实际 mock 服务、原始任务顺序及 anchor/fresh 分支，观察任务执行、记忆写入、反思及后续使用。
 2. **现有演化循环**：直接调用 `evolve memory --agent --from-experience --iterations 3`，核对候选接受、回滚和应用到 live memory 后的可见性。
 
-主评测为 `adapted` 协议：本项目维护调度与工具桥，调用上游任务定义、HTTP dispatcher 和原始 grader；不是上游 Hermes agent。上游 revision 为 `f8223517ae7491e776b69793d9f11e9d074ab42e`，Mentat 基于 `834b0b1` 加新增评测脚本。每个运行在首次调用前保存 task/scorer 文件摘要、源码归档、完整 trial roster、模型、预算及协议版本。
+主评测为 `adapted` 协议：本项目维护调度与工具桥，调用上游任务定义、HTTP dispatcher 和原始 grader；不是上游 Hermes agent。上游 revision 为 `f8223517ae7491e776b69793d9f11e9d074ab42e`，Gethen 基于 `834b0b1` 加新增评测脚本。每个运行在首次调用前保存 task/scorer 文件摘要、源码归档、完整 trial roster、模型、预算及协议版本。
 
 PAST 三组均使用相同模型、任务输入和工具权限，每个任务新建引擎会话：
 
@@ -49,7 +49,7 @@ PAST 三组均使用相同模型、任务输入和工具权限，每个任务新
 
 反思组实际完成 2 次反思，新增 3 条候选；其余符合学习阶段条件但最终未正常结束的回合没有触发反思。CLI 的普通 `--reflect` 可以处理失败结果，本协议没有完整覆盖该路径，因此不能据此断言失败反思本身无效。
 
-评分采用原始 grader、无 LLM communication judge。上游 task_score 的基础项是 `0.8 × completion + 0.2 × robustness`，随后乘 safety，并有机制门和严格条件。**0.2 不等于完成了 20% 的任务**；没有工具错误也可能得到 robustness 分。PC03/PC04 要求 skill 创建/读取证据，本轮 Mentat 工具面未提供该基质，相关分数同时反映能力/接入边界，不能全解释为业务推理错误。
+评分采用原始 grader、无 LLM communication judge。上游 task_score 的基础项是 `0.8 × completion + 0.2 × robustness`，随后乘 safety，并有机制门和严格条件。**0.2 不等于完成了 20% 的任务**；没有工具错误也可能得到 robustness 分。PC03/PC04 要求 skill 创建/读取证据，本轮 Gethen 工具面未提供该基质，相关分数同时反映能力/接入边界，不能全解释为业务推理错误。
 
 ## 4. 格式纠正诊断：24 次尝试
 
@@ -126,19 +126,19 @@ PAST 三组均使用相同模型、任务输入和工具权限，每个任务新
 已安装、固定 revision 的上游源码与 Python 环境是前置条件；所有运行使用新目录，不覆盖既有结果。示例：
 
 ```bash
-.mentat/venvs/public/bin/python benchmarks/past-bench/rsi_probe.py --out .mentat/public-evaluations/past-rsi-new --timeout 180 --port-offset 12000
+.gethen/venvs/public/bin/python benchmarks/past-bench/rsi_probe.py --out .gethen/public-evaluations/past-rsi-new --timeout 180 --port-offset 12000
 # 仅在已知任务超时导致中断后继续未尝试项目，禁止重试原失败题：
-.mentat/venvs/public/bin/python benchmarks/past-bench/resume_rsi_probe.py --run .mentat/public-evaluations/past-rsi-new
+.gethen/venvs/public/bin/python benchmarks/past-bench/resume_rsi_probe.py --run .gethen/public-evaluations/past-rsi-new
 # 单独生成格式纠正对照的受控源码副本；已有文件只核对，不覆盖：
 python3 benchmarks/past-bench/prepare_corrective_probe.py
-.mentat/venvs/public/bin/python .mentat/past-rsi-corrected.py --out .mentat/public-evaluations/past-rsi-corrective-new --families memory_ability/SM01_preference_adoption --timeout 180 --port-offset 13000
+.gethen/venvs/public/bin/python .gethen/past-rsi-corrected.py --out .gethen/public-evaluations/past-rsi-corrective-new --families memory_ability/SM01_preference_adoption --timeout 180 --port-offset 13000
 ```
 
 本机原始证据目录：
 
-- `.mentat/public-evaluations/past-rsi-20261019-v2/`：冻结计划、完整结果、任务前后记忆、anchor、工具回执、原生轨迹、审计及恢复回执。
-- `.mentat/public-evaluations/past-rsi-corrective1-20261019-v1/`：独立格式诊断及超时原记录。
-- `.mentat/public-evaluations/rsi-memory-loop-20261019-v1/`：三次原始候选、选择/回滚、live memory、原生记账及 `summary-verified.json`。
+- `.gethen/public-evaluations/past-rsi-20261019-v2/`：冻结计划、完整结果、任务前后记忆、anchor、工具回执、原生轨迹、审计及恢复回执。
+- `.gethen/public-evaluations/past-rsi-corrective1-20261019-v1/`：独立格式诊断及超时原记录。
+- `.gethen/public-evaluations/rsi-memory-loop-20261019-v1/`：三次原始候选、选择/回滚、live memory、原生记账及 `summary-verified.json`。
 - `past-rsi-smoke-20261019-v1/v2/v3` 和 `past-rsi-20261019-v1`：路径预检失败、两次真实冒烟、启动探针失败，均保留；首次路径预检没有模型调用。它们不进入正式任务分数。
 
 原始历史、完整源码归档、运行 token 和全量 trace 仅留在忽略目录；仓库保存精简结果与本报告。

@@ -33,8 +33,8 @@ await build({
 });
 
 cpSync(
-  join(root, "packages/transport-pi/src/bridge/mentat-bridge.ts"),
-  join(out, "bridge/mentat-bridge.ts"),
+  join(root, "packages/transport-pi/src/bridge/gethen-bridge.ts"),
+  join(out, "bridge/gethen-bridge.ts"),
 );
 for (const file of ["client.js", "index.js", "package.json"])
   cpSync(join(root, "packages/dsh-client", file), join(out, "dsh-client", file));

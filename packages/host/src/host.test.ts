@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createFakeAdapter } from "@mentat/core";
+import { createFakeAdapter } from "@gethen/core";
 import { describe, expect, it, vi } from "vitest";
 import {
   readRepoState,
@@ -68,7 +68,7 @@ describe("host config helpers", () => {
 
 describe("createAssistantHost", () => {
   it("cancels reflection reads and joins concurrent close calls", async () => {
-    const root = mkdtempSync(join(tmpdir(), "mentat-reflection-close-"));
+    const root = mkdtempSync(join(tmpdir(), "gethen-reflection-close-"));
     let searching = false;
     const host = createAssistantHost(
       { cwd: root, adapter: createFakeAdapter() },
@@ -99,7 +99,7 @@ describe("createAssistantHost", () => {
     rmSync(root, { recursive: true, force: true });
   });
   it("cancels a pending recall and drains its turn before closing the trace", async () => {
-    const root = mkdtempSync(join(tmpdir(), "mentat-host-close-"));
+    const root = mkdtempSync(join(tmpdir(), "gethen-host-close-"));
     const events: string[] = [];
     let recalling = false;
     const host = createAssistantHost(
@@ -134,7 +134,7 @@ describe("createAssistantHost", () => {
     rmSync(root, { recursive: true, force: true });
   });
   it("inherits the host turn deadline and rejects writes after close", async () => {
-    const root = mkdtempSync(join(tmpdir(), "mentat-host-timeout-"));
+    const root = mkdtempSync(join(tmpdir(), "gethen-host-timeout-"));
     const adapter = createFakeAdapter();
     const create = adapter.createSession.bind(adapter);
     vi.spyOn(adapter, "createSession").mockImplementation(async (opts, deps) => {
@@ -162,7 +162,7 @@ describe("createAssistantHost", () => {
   });
 
   it("blocks oversized assembled context before dispatch", async () => {
-    const root = mkdtempSync(join(tmpdir(), "mentat-host-budget-"));
+    const root = mkdtempSync(join(tmpdir(), "gethen-host-budget-"));
     const adapter = createFakeAdapter();
     const host = createAssistantHost({
       cwd: root,
@@ -183,7 +183,7 @@ describe("createAssistantHost", () => {
     }
   });
   it("opens, runs a turn and closes with a file-backed memory", async () => {
-    const root = mkdtempSync(join(tmpdir(), "mentat-host-"));
+    const root = mkdtempSync(join(tmpdir(), "gethen-host-"));
     const host = createAssistantHost({
       cwd: root,
       adapter: createFakeAdapter(),

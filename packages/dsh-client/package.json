@@ -1,5 +1,5 @@
 {
-  "name": "@mentat/dsh-client",
+  "name": "@gethen/dsh-client",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -22,5 +22,5 @@
       "platform": "web"
     }
   },
-  "description": "DSH client-shell Mentat overview page"
+  "description": "DSH client-shell Gethen overview page"
 }

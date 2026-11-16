@@ -1,11 +1,11 @@
 import { execFileSync } from "node:child_process";
 import { lstatSync, mkdirSync, readFileSync, readlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { assert, type RunPlan, type SubjectFactory } from "@mentat/benchmark";
-import { sha256 } from "@mentat/benchmark-file";
-import { createAssistantHost } from "@mentat/host";
-import { FileMemoryRepository } from "@mentat/memory-file";
-import { ExperienceStore } from "@mentat/observability";
+import { assert, type RunPlan, type SubjectFactory } from "@gethen/benchmark";
+import { sha256 } from "@gethen/benchmark-file";
+import { createAssistantHost } from "@gethen/host";
+import { FileMemoryRepository } from "@gethen/memory-file";
+import { ExperienceStore } from "@gethen/observability";
 import { benchmarkObservations } from "./benchmark-observations";
 import { createDefaultRegistry } from "./registry";
 
@@ -58,7 +58,7 @@ export function checkoutIdentity(cwd: string, archivePath?: string) {
   return identity;
 }
 /** Native episodes measure host memory behavior; official tool environments use their upstream runner. */
-export function mentatBenchmarkSubject(plan: RunPlan, out: string): SubjectFactory {
+export function gethenBenchmarkSubject(plan: RunPlan, out: string): SubjectFactory {
   const registry = createDefaultRegistry(
     "ask",
     plan.protocol.config.isolateOpenCode === true

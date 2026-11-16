@@ -4,9 +4,9 @@ Status: accepted (2026-10-18).
 
 ## Context
 
-`@mentat/host` is the default wiring/orchestration package. It currently bundles
+`@gethen/host` is the default wiring/orchestration package. It currently bundles
 `registry.ts` (`createDefaultRegistry`), which imports **both**
-`@mentat/transport-pi` and `@mentat/transport-acp`. That makes the host package
+`@gethen/transport-pi` and `@gethen/transport-acp`. That makes the host package
 depend on concrete engines, contradicting the "domain packages are
 engine-agnostic" invariant, and couples the host to every future engine.
 
@@ -15,15 +15,15 @@ engine-agnostic" invariant, and couples the host to every future engine.
 
 ## Decision
 
-- Move the engine registry into a dedicated `@mentat/harnesses` package that
-  depends on `@mentat/core`, `@mentat/transport-pi` and `@mentat/transport-acp`.
+- Move the engine registry into a dedicated `@gethen/harnesses` package that
+  depends on `@gethen/core`, `@gethen/transport-pi` and `@gethen/transport-acp`.
 - Move the filesystem convenience helpers (`compat.ts`) to the CLI (they are
   test/app conveniences, not host orchestration).
-- `@mentat/host` keeps orchestration only and depends on `core`, `session`,
+- `@gethen/host` keeps orchestration only and depends on `core`, `session`,
   `assistant`, `memory`, `memory-file`, `memory-mcp`, `observability`.
 
 ## Consequences
 
-`host` becomes engine-agnostic; adding an engine touches `@mentat/harnesses`
+`host` becomes engine-agnostic; adding an engine touches `@gethen/harnesses`
 (and the CLI), not `host`. Callers importing `createDefaultRegistry` from
-`@mentat/host` must import it from `@mentat/harnesses` instead.
+`@gethen/host` must import it from `@gethen/harnesses` instead.

@@ -11,6 +11,7 @@ extension surface. Supersede rather than edit.
 | [0004](0004-engine-registry-placement.md) | Engine registry lives outside `host` | accepted |
 | [0005](0005-benchmark-bridge-contract.md) | Benchmark bridge contract | accepted |
 | [0006](0006-artifact-identity-and-adapters.md) | Artifact identity, adapters and content-addressed candidates | accepted |
-| [0007](0007-dsh-hosted-mentat.md) | Mentat as a DSH-hosted product with heterogeneous workers | proposed |
+| [0007](0007-dsh-hosted-gethen.md) | Gethen as a DSH-hosted product with heterogeneous workers | proposed |
+| [0008](0008-master-worker-control-plane.md) | Master/Worker control plane: one engine, blocking escalations, layered memory | proposed |
 
 New ADR: copy `template.md` to `NNNN-title.md`.

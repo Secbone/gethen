@@ -1,5 +1,5 @@
-import type { Signal } from "@mentat/core";
-import type { CapabilityPack, PackRef } from "@mentat/pack";
+import type { Signal } from "@gethen/core";
+import type { CapabilityPack, PackRef } from "@gethen/pack";
 
 export type CandidateStatus = "evaluated" | "accepted" | "rejected";
 

@@ -6,20 +6,20 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { FileSourceState, GhCliGitHubApi, GitHubSource } from "@mentat/source-github";
+import { FileSourceState, GhCliGitHubApi, GitHubSource } from "@gethen/source-github";
 
-const repo = process.env.MENTAT_GITHUB_SMOKE_REPO ?? "cli/cli";
+const repo = process.env.GETHEN_GITHUB_SMOKE_REPO ?? "cli/cli";
 const api = new GhCliGitHubApi({ perPage: 30, maxPages: 1 });
 const events = await api.events({ repo });
 if (events.length === 0) throw new Error(`no events returned for ${repo}`);
 const state = new FileSourceState(
-  join(mkdtempSync(join(tmpdir(), "mentat-gh-smoke-")), "state.json"),
+  join(mkdtempSync(join(tmpdir(), "gethen-gh-smoke-")), "state.json"),
 );
-const source = new GitHubSource({ api, state, repo, agentLogin: "mentat-smoke" });
+const source = new GitHubSource({ api, state, repo, agentLogin: "gethen-smoke" });
 const triggers = await source.poll();
 if (triggers.length === 0) throw new Error("no triggers mapped");
 if ((await source.poll()).length !== 0) throw new Error("read position replayed events");
-const gone = await api.comment({ repo, number: 999999999, body: "mentat smoke" });
+const gone = await api.comment({ repo, number: 999999999, body: "gethen smoke" });
 if (gone !== "gone") throw new Error(`expected gone for a missing issue, got ${gone}`);
 console.log(
   JSON.stringify(

@@ -1,6 +1,6 @@
 import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import type { MemoryAudit, MemoryAuditRecord } from "@mentat/memory";
+import type { MemoryAudit, MemoryAuditRecord } from "@gethen/memory";
 
 /** Append-only JSONL audit trail for memory writes (versions + reasons). */
 export class JsonlMemoryAudit implements MemoryAudit {

@@ -6,13 +6,13 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, statfsSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { join, resolve } from "node:path";
-import { assert } from "@mentat/benchmark";
-import { sha256 } from "@mentat/benchmark-file";
-import { finalAnswerIssue } from "@mentat/core";
-import { createDefaultRegistry } from "@mentat/harnesses";
-import { createAssistantHost } from "@mentat/host";
-import { FileTrajectoryStore, readTrajectory, resolveEventData } from "@mentat/observability";
-import { closeSession, openSession, runTurn, type TaskInput } from "@mentat/session";
+import { assert } from "@gethen/benchmark";
+import { sha256 } from "@gethen/benchmark-file";
+import { finalAnswerIssue } from "@gethen/core";
+import { createDefaultRegistry } from "@gethen/harnesses";
+import { createAssistantHost } from "@gethen/host";
+import { FileTrajectoryStore, readTrajectory, resolveEventData } from "@gethen/observability";
+import { closeSession, openSession, runTurn, type TaskInput } from "@gethen/session";
 import { benchmarkObservations } from "../packages/cli/src/lib/benchmark-observations";
 import { checkoutIdentity } from "../packages/cli/src/lib/benchmark-subject";
 
@@ -22,7 +22,7 @@ const option = (name: string, fallback: string) => {
   return i < 0 ? fallback : (args[i + 1] ?? fallback);
 };
 const model = option("--model", "opencode-go/deepseek-v4.1-flash");
-const out = resolve(option("--out", ".mentat/public-model-server"));
+const out = resolve(option("--out", ".gethen/public-model-server"));
 const port = Number(option("--port", "8941"));
 const parallel = Number(option("--parallel", "4"));
 const timeoutMs = Number(option("--timeout-ms", "180000"));
@@ -394,7 +394,7 @@ const server = createServer(async (req, res) => {
             },
           }
         : {}),
-      mentat: { requestId: result.id, evidenceDir: result.evidenceDir, transport },
+      gethen: { requestId: result.id, evidenceDir: result.evidenceDir, transport },
     });
   } catch (error) {
     send(400, { error: { message: String(error), type: "bridge_error" } });

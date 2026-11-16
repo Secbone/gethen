@@ -1,5 +1,5 @@
-import type { ArtifactHost, ArtifactRegistry, Disposable, Signal } from "@mentat/core";
-import { Context } from "@mentat/kernel";
+import type { ArtifactHost, ArtifactRegistry, Disposable, Signal } from "@gethen/core";
+import { Context } from "@gethen/kernel";
 import { validateSignals } from "./pareto";
 import type { Candidate } from "./types";
 

@@ -1,8 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { type Candidate, FunctionEvaluator, GateChain, SelfIterationLoop } from "@mentat/evolution";
-import { type MemoryEntry, MemoryService } from "@mentat/memory";
+import { type Candidate, FunctionEvaluator, GateChain, SelfIterationLoop } from "@gethen/evolution";
+import { type MemoryEntry, MemoryService } from "@gethen/memory";
 import {
   applyEvolvedMemory,
   memoryArtifact,
@@ -12,16 +12,16 @@ import {
   type RecallQuery,
   RuleMemoryProposer,
   recallTask,
-} from "@mentat/memory-evolution";
-import { JsonFileMemoryStore, JsonlMemoryAudit } from "@mentat/memory-file";
+} from "@gethen/memory-evolution";
+import { JsonFileMemoryStore, JsonlMemoryAudit } from "@gethen/memory-file";
 import {
   buildExperienceDigest,
   ExperienceStore,
   FileTrajectoryStore,
   ReceiptStore,
-} from "@mentat/observability";
-import { runOnce } from "@mentat/session";
-import { JsonStoreWorkspace } from "@mentat/workspace";
+} from "@gethen/observability";
+import { runOnce } from "@gethen/session";
+import { JsonStoreWorkspace } from "@gethen/workspace";
 import { evolutionArtifacts } from "../lib/artifacts";
 import { defaultExperienceDir, defaultMemoryPath, defaultMemoryStoreDir } from "../lib/paths";
 import { createAgentMemoryProposer } from "../lib/proposers";
@@ -30,7 +30,7 @@ import { createDefaultRegistry } from "../lib/registry";
 export async function evolveCommand(args: string[]): Promise<number> {
   if (args[0] !== "memory") {
     process.stderr.write(
-      "usage: mentat evolve memory --queries <file> [--facts <file> | --agent [--from-experience]] [--model <id>] [--store <dir>] [--iterations <n>]\n",
+      "usage: gethen evolve memory --queries <file> [--facts <file> | --agent [--from-experience]] [--model <id>] [--store <dir>] [--iterations <n>]\n",
     );
     return 1;
   }
@@ -44,7 +44,7 @@ export async function evolveCommand(args: string[]): Promise<number> {
   let iterations = 0;
   let useAgent = false;
   let harnessId = "pi";
-  let logDir = join(process.cwd(), ".mentat", "runs");
+  let logDir = join(process.cwd(), ".gethen", "runs");
   let model: string | undefined;
   let fromExperience = false;
   let experienceDir = defaultExperienceDir(process.cwd());
@@ -142,9 +142,9 @@ export async function evolveCommand(args: string[]): Promise<number> {
   });
   tracer.emit("evolution.input", {
     protocol: "memory-evolution-split-v2",
-    facts: facts as unknown as import("@mentat/core").JsonValue,
-    queries: queries as unknown as import("@mentat/core").JsonValue,
-    trainingQueries: trainingQueries as unknown as import("@mentat/core").JsonValue,
+    facts: facts as unknown as import("@gethen/core").JsonValue,
+    queries: queries as unknown as import("@gethen/core").JsonValue,
+    trainingQueries: trainingQueries as unknown as import("@gethen/core").JsonValue,
     testQueriesSha256: testQueriesPath
       ? createHash("sha256").update(JSON.stringify(testQueries)).digest("hex")
       : null,
