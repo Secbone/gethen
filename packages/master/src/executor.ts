@@ -80,7 +80,7 @@ function buildLaunchRequest(
   assignment: Assignment,
   packDigest: string,
 ): LaunchRequest {
-  const fallback = defaultObjective(ticket);
+  const fallback = defaultObjective(deps, ticket);
   const objective = objectiveFor(deps, ticket, assignment, packDigest, fallback);
   const prompt = buildAssignmentPrompt({ ticket, assignment, packDigest, objective });
   return { assignment, ticket, packDigest, prompt };
@@ -104,7 +104,9 @@ function objectiveFor(
 }
 
 /** The objective a Ticket implies when the caller supplies none. */
-function defaultObjective(ticket: Ticket): string {
+function defaultObjective(deps: LaunchHandlerDeps, ticket: Ticket): string {
+  const text = deps.engine.ticketText(ticket.id);
+  if (text !== undefined) return text;
   return `Complete the work authorized by ticket ${ticket.id} (source: ${ticket.source}).`;
 }
 

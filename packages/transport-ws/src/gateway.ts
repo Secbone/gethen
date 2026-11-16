@@ -162,15 +162,7 @@ class WorkerConnectionImpl implements WorkerConnection {
   }
 
   async send(frame: DownFrame): Promise<void> {
-    await this.sendEncoded(encodeFrame(frame));
-  }
-
-  /** Internal: send a frame the public contract does not model (error replies). */
-  async sendRaw(frame: DownFrame | UpFrame): Promise<void> {
-    await this.sendEncoded(encodeFrame(frame));
-  }
-
-  private async sendEncoded(payload: string): Promise<void> {
+    const payload = encodeFrame(frame);
     if (!this.isOpen) {
       throw new Error(`gateway: connection ${this.id} is not open`);
     }
@@ -327,10 +319,8 @@ export function createWorkerGateway(options: WorkerGatewayOptions): WorkerGatewa
   }
 
   function sendErrorFrame(conn: WorkerConnectionImpl, code: string, message: string): void {
-    // The protocol models "error" as a Worker->Master frame; the gateway still
-    // needs it as a rejection reply, so it bypasses the DownFrame type check.
     const frame: ErrorFrame = { v: PROTOCOL_VERSION, type: "error", code, message };
-    void conn.sendRaw(frame).catch(reportError);
+    void conn.send(frame).catch(reportError);
   }
 
   function rejectConnection(conn: WorkerConnectionImpl, code: string, message: string): void {

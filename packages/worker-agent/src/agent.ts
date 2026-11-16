@@ -16,7 +16,11 @@
  * - a `report` produced while offline is queued and re-sent after the next
  *   `hello`; a still-pending `escalation` is replayed from its execution (the
  *   Master dedupes by escalation id); best-effort `event` frames are dropped
- *   while offline because the report is the source of truth.
+ *   while offline because the report is the source of truth;
+ * - a downstream `error` frame is logged: assignment-scoped errors never end
+ *   the socket (the report remains the source of truth for that assignment),
+ *   while protocol-level errors drop the socket so the next reconnect starts
+ *   with a fresh `hello`.
  */
 
 import {
@@ -111,6 +115,24 @@ const DEFAULT_INITIAL_DELAY_MS = 1_000;
 const DEFAULT_MAX_DELAY_MS = 30_000;
 const DEFAULT_JITTER = 0.2;
 const MAX_PENDING_FRAMES = 512;
+
+/**
+ * Downstream error codes that invalidate the connection rather than one
+ * Assignment: protocol parse/version failures plus the gateway's handshake
+ * rejections. Anything else is logged and ignored.
+ */
+const PROTOCOL_LEVEL_ERROR_CODES: ReadonlySet<string> = new Set([
+  "invalid_frame",
+  "unsupported_version",
+  "unknown_type",
+  "invalid_field",
+  "frame_too_large",
+  "unknown_control_op",
+  "runtime_not_allowed",
+  "path_outside_root",
+  "hello_required",
+  "worker_mismatch",
+]);
 const SOCKET_OPEN = 1;
 const SOCKET_CLOSED = 3;
 
@@ -342,6 +364,28 @@ class WorkerAgentImpl implements WorkerAgent {
         this.send(result);
         return;
       }
+      case "error":
+        this.handleDownstreamError(socket, frame);
+        return;
+    }
+  }
+
+  /**
+   * The Master rejected something. Assignment-scoped errors are informational:
+   * the Assignment's report is still the source of truth, so keep running.
+   * Protocol-level errors mean this socket cannot continue (bad frame,
+   * version mismatch, wrong worker); close it and let the reconnect re-hello.
+   */
+  private handleDownstreamError(socket: Socket, frame: ErrorFrame): void {
+    const scope = frame.assignmentId === undefined ? "connection" : `assignment ${frame.assignmentId}`;
+    this.logError(`master error on ${scope} (${frame.code}): ${frame.message}`);
+    if (frame.assignmentId !== undefined) return;
+    if (!PROTOCOL_LEVEL_ERROR_CODES.has(frame.code)) return;
+    this.stopHeartbeat();
+    try {
+      socket.close(1002, `master protocol error: ${frame.code}`);
+    } catch {
+      socket.terminate();
     }
   }
 

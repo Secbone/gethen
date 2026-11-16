@@ -58,6 +58,7 @@ export const DOWNSTREAM_FRAME_TYPES = [
   "resolution",
   "cancel",
   "control",
+  "error",
 ] as const;
 
 export const UPSTREAM_FRAME_TYPES = [
@@ -150,7 +151,31 @@ export interface ControlFrame extends FrameEnvelope {
   op: ControlOp;
 }
 
-export type DownFrame = HelloOkFrame | DispatchFrame | ResolutionFrame | CancelFrame | ControlFrame;
+/**
+ * A protocol error. Shared by both directions: the Master rejects an upgrade or
+ * a malformed frame with one, and the Worker reports a bad downstream frame
+ * with one. `assignmentId` scopes the failure to one Assignment (absent means
+ * the connection/protocol itself is at fault).
+ */
+export interface ErrorFrame extends FrameEnvelope {
+  type: "error";
+  code: string;
+  message: string;
+  assignmentId?: string;
+}
+
+export type DownFrame =
+  | HelloOkFrame
+  | DispatchFrame
+  | ResolutionFrame
+  | CancelFrame
+  | ControlFrame
+  | ErrorFrame;
+
+/** Narrow a parsed frame from either direction to an {@link ErrorFrame}. */
+export function isErrorFrame(frame: DownFrame | UpFrame): frame is ErrorFrame {
+  return frame.type === "error";
+}
 
 // ---------------------------------------------------------------------------
 // Upstream frames (Worker -> Master)
@@ -237,13 +262,6 @@ export interface ControlResultFrame extends FrameEnvelope {
   error?: string;
 }
 
-export interface ErrorFrame extends FrameEnvelope {
-  type: "error";
-  code: string;
-  message: string;
-  assignmentId?: string;
-}
-
 export type UpFrame =
   | HelloFrame
   | HeartbeatFrame
@@ -278,6 +296,8 @@ export function parseDownstreamFrame(value: unknown): Result<DownFrame> {
         return ok(parseCancel(record));
       case "control":
         return ok(parseControl(record));
+      case "error":
+        return ok(parseError(record));
       default:
         return fail("unknown_type", `unknown downstream frame type "${type}"`);
     }

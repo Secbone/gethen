@@ -206,24 +206,24 @@ async function handshake(
 
 function nextFrame(
   ws: WebSocket,
-  predicate: (frame: DownFrame | UpFrame) => boolean = () => true,
-): Promise<DownFrame | UpFrame> {
-  return new Promise<DownFrame | UpFrame>((resolve, reject) => {
+  predicate: (frame: DownFrame) => boolean = () => true,
+): Promise<DownFrame> {
+  return new Promise<DownFrame>((resolve, reject) => {
     const timer = setTimeout(() => {
       cleanup();
       reject(new Error("timed out waiting for a frame"));
     }, 2_000);
     timer.unref();
     const onMessage = (data: RawData): void => {
-      const parsed = parseFrame(rawDataToString(data));
-      if (parsed === undefined) {
+      const parsed = parseDownstreamFrame(rawDataToString(data));
+      if (!parsed.ok) {
         cleanup();
-        reject(new Error("received a frame that is neither downstream nor upstream"));
+        reject(new Error(`invalid downstream frame: ${parsed.code} ${parsed.message}`));
         return;
       }
-      if (!predicate(parsed)) return;
+      if (!predicate(parsed.value)) return;
       cleanup();
-      resolve(parsed);
+      resolve(parsed.value);
     };
     const cleanup = (): void => {
       clearTimeout(timer);
@@ -231,13 +231,6 @@ function nextFrame(
     };
     ws.on("message", onMessage);
   });
-}
-
-function parseFrame(text: string): DownFrame | UpFrame | undefined {
-  const downstream = parseDownstreamFrame(text);
-  if (downstream.ok) return downstream.value;
-  const upstream = parseUpstreamFrame(text);
-  return upstream.ok ? upstream.value : undefined;
 }
 
 function waitForClose(ws: WebSocket): Promise<number> {
@@ -493,6 +486,27 @@ describe("createWorkerGateway dispatch and frames", () => {
     expect(await secondReceived).toEqual(frame);
     first.ws.close();
     second.ws.close();
+  });
+
+  it("sends error frames through the public connection API", async () => {
+    const harness = await startHarness();
+    const { ws } = await handshake(harness);
+    const connection = harness.gateway.get("worker-1");
+    if (connection === undefined) throw new Error("worker-1 is not registered");
+
+    const errorFrame: DownFrame = {
+      v: 1,
+      type: "error",
+      code: "ASSIGNMENT_FAILED",
+      message: "executor crashed",
+      assignmentId: "assignment-1",
+    };
+    const received = nextFrame(ws, (frame) => frame.type === "error");
+
+    await connection.send(errorFrame);
+
+    expect(await received).toEqual(errorFrame);
+    ws.close();
   });
 
   it("forwards worker heartbeat frames to onFrame", async () => {

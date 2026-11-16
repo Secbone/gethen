@@ -404,6 +404,25 @@ export class Engine {
     this.repos.threads.save(thread);
   }
 
+  /**
+   * The task text a Ticket carries: its Trigger inputs (in order) plus any
+   * free-text notes, joined for the assignment envelope.
+   */
+  ticketText(ticketId: string): string | undefined {
+    const ticket = this.repos.tickets.get(ticketId);
+    if (!ticket) return undefined;
+    const parts: string[] = [];
+    for (const inputId of ticket.inputs) {
+      const input = this.repos.inputs.get(inputId);
+      if (!input) continue;
+      const text =
+        input.text ??
+        (input.trigger === undefined ? undefined : this.repos.triggers.get(input.trigger)?.text);
+      if (text !== undefined && text.trim().length > 0) parts.push(text.trim());
+    }
+    return parts.length === 0 ? undefined : parts.join("\n\n---\n\n");
+  }
+
   /** Return and clear the effects the engine has queued since the last drain. */
   drain(): PendingEffect[] {
     return this.effects.splice(0, this.effects.length);
@@ -512,6 +531,16 @@ export class Engine {
       createdAt: at,
     };
     const assignment = this.newAssignment(ticketId);
+    const workspace = view.trigger.meta?.workspace ?? this.scopeOf(view.trigger);
+    if (workspace !== "") assignment.workspace = workspace;
+    const input: Input = {
+      id: this.ids.next("input"),
+      ticket: ticketId,
+      kind: "trigger",
+      trigger: view.trigger.id,
+      text: view.trigger.text,
+      fromPerson: !view.trigger.bot,
+    };
     const ticket: Ticket = {
       id: ticketId,
       mandate: mandate.id,
@@ -519,12 +548,13 @@ export class Engine {
       threads: [view.thread.id],
       subscriptions: [view.thread.id],
       channels: [],
-      inputs: [],
+      inputs: [input.id],
       assignments: [assignment.id],
       openedAt: at,
     };
 
     this.repos.mandates.save(mandate);
+    this.repos.inputs.save(input);
     this.repos.assignments.save(assignment);
     this.repos.tickets.save(ticket);
     if (!view.thread.subscriptions.includes(ticket.id)) {

@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  DOWNSTREAM_FRAME_TYPES,
   encodeFrame,
   type HelloFrame,
+  isErrorFrame,
   MAX_FRAME_BYTES,
   PROTOCOL_NAME,
   PROTOCOL_VERSION,
@@ -241,6 +243,21 @@ describe("parseDownstreamFrame", () => {
       ),
     ).toMatchObject({ op: { op: "runtime.start", name: "dsh", drain: false } });
   });
+
+  it("parses error frames with and without an assignment scope", () => {
+    expect(expectOk(parseDownstreamFrame(errorFrame()))).toEqual({
+      v: V,
+      type: "error",
+      code: "BAD_FRAME",
+      message: "something went wrong",
+    });
+    expect(expectOk(parseDownstreamFrame(errorFrame({ assignmentId: "a1" })))).toMatchObject({
+      type: "error",
+      code: "BAD_FRAME",
+      message: "something went wrong",
+      assignmentId: "a1",
+    });
+  });
 });
 
 describe("parseUpstreamFrame", () => {
@@ -325,6 +342,15 @@ describe("parseUpstreamFrame", () => {
       assignmentId: "a1",
     });
   });
+
+  it("treats error as a shared frame and narrows it from either direction", () => {
+    const downstream = expectOk(parseDownstreamFrame(errorFrame()));
+    const upstream = expectOk(parseUpstreamFrame(errorFrame()));
+    expect(DOWNSTREAM_FRAME_TYPES).toContain("error");
+    expect(isErrorFrame(downstream)).toBe(true);
+    expect(isErrorFrame(upstream)).toBe(true);
+    expect(isErrorFrame(expectOk(parseDownstreamFrame(helloOk())))).toBe(false);
+  });
 });
 
 describe("frame validation", () => {
@@ -370,6 +396,8 @@ describe("frame validation", () => {
       ["dispatch.envelope", without(dispatch(), "envelope")],
       ["hello_ok.workerId", without(helloOk(), "workerId")],
       ["control.operationId", without(control(), "operationId")],
+      ["error.code", without(errorFrame(), "code")],
+      ["error.message", without(errorFrame(), "message")],
     ];
     for (const [label, value] of downstreamCases) {
       expectFail(parseDownstreamFrame(value), "invalid_field");
