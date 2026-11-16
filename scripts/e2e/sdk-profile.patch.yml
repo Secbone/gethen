@@ -1,0 +1,20 @@
+# E2E-only overlay for `dsh --profile sdk`, applied by scripts/e2e-sdk.mjs:
+#   dsh --profile sdk --patch scripts/e2e/sdk-profile.patch.yml
+#
+# It routes the SDK runtime at pi-ai's `opencode-go` provider (the credential is
+# resolved through the harness credential seam; `OPENCODE_API_KEY` may come from
+# the launch environment or `$DSH_HOME/.env`) and mounts the Gethen worker tool
+# entry so the model can report through `gethen_report` / `gethen_escalate`.
+# Nothing here edits the user's `sdk` profile: `--patch` is an overlay.
+- id: llm-pi-ai
+  config:
+    providers:
+      opencode-go:
+        apiKeyEnv: OPENCODE_API_KEY
+- id: agent-default-model
+  config:
+    provider: opencode-go
+    model: deepseek-v4.1-flash
+- insert:
+    - id: gethen-worker
+      name: 'file:///home/secbone/.local/share/gethen/dsh/worker.js'

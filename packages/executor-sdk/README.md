@@ -13,14 +13,23 @@ assignment (`sessionId = assignmentId`).
    `provider` / `model` / `cwd` (`cwdFor(workspace)`, defaulting to the
    workspace) plus `approvalRequests: true` and `userQuestions: true`.
 2. It subscribes to `session.event` (filtered by `sessionId`), forwards each
-   event to `sink.event`, and remembers the last `assistant/message` text that
-   carries a `[GETHEN-REPORT]` block.
+   event to `sink.event`, and scans **every string value** in each event payload
+   — assistant text, tool results, tool inputs, nested arrays/objects — for a
+   complete `[GETHEN-REPORT]` or `[GETHEN-ESCALATION]` block. Only individual
+   strings are considered (a block split across events or fields is never glued
+   together) and the last complete report block wins.
 3. It prompts the session with `task.envelope.prompt`; when the envelope has no
    `prompt` string, the whole envelope is sent as JSON.
 4. In the background it `session/wait`s, then reports what the worker said:
    the parsed report, or `{kind:"waiting", summary:"worker produced no report"}`.
    Transport errors become `{kind:"failed"}` and an invalid report block becomes
    a `failed` report too.
+5. A `[GETHEN-ESCALATION]` block found in an event (the worker-side
+   `gethen_escalate` compat tool returns one in its tool result) is surfaced as a
+   blocking `sink.escalation`; after the Master answers, the executor prompts the
+   same session with a `[GETHEN-RESOLUTION]` block and waits again. A report in
+   the same batch wins over an escalation; at most 5 tool-result escalations are
+   answered per execution.
 
 ## DSH channels → escalations
 
@@ -68,3 +77,19 @@ the daemon calls it when the agent stops.
 
 An assignment whose `deadlineAt` has already passed is reported `failed` before
 any runtime is spawned.
+
+## Real e2e (opt-in)
+
+`scripts/e2e-sdk.mjs` drives the whole path — `startServe` with an in-memory
+worker token → worker-agent over WS → this executor → a real
+`dsh --profile sdk` child — and asserts a `ready` report, a persisted receipt,
+`/health.workers === 1` and the file the worker was asked to create:
+
+```sh
+GETHEN_E2E=1 node scripts/e2e-sdk.mjs
+# optional: GETHEN_E2E_TRACE=1 for the live worker session trace
+```
+
+It spawns the runtime with the overlay `scripts/e2e/sdk-profile.patch.yml`
+(pi-ai `opencode-go` provider, `OPENCODE_API_KEY` credential reference, and the
+Gethen worker tool entry) and never edits the user's `sdk` profile.

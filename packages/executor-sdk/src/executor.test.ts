@@ -1,3 +1,5 @@
+import { REPORT_CLOSE, REPORT_OPEN } from "@gethen/master";
+import type { SessionEventNotification } from "@gethen/sdk-driver";
 import type {
   ExecutorEscalation,
   ExecutorEvent,
@@ -61,6 +63,14 @@ function task(overrides: Partial<ExecutorTask> = {}): ExecutorTask {
 
 function reportBlock(body: Record<string, unknown>): string {
   return `[GETHEN-REPORT]\n${JSON.stringify(body)}\n[/GETHEN-REPORT]`;
+}
+
+function escalationBlock(body: Record<string, unknown>): string {
+  return `[GETHEN-ESCALATION]\n${JSON.stringify(body)}\n[/GETHEN-ESCALATION]`;
+}
+
+function reportEvent(text: string, type = "assistant/message"): SessionEventNotification["event"] {
+  return { type, data: { content: [{ type: "text", text }] } };
 }
 
 async function tick(): Promise<void> {
@@ -365,5 +375,111 @@ describe("createSdkExecutor", () => {
     expect(sink.reports).toEqual([
       { kind: "failed", summary: "assignment deadline had already passed" },
     ]);
+  });
+
+  it("reads a report from a gethen_report tool result", async () => {
+    const ctx = setup();
+    await ctx.executor.start(task(), ctx.sink);
+
+    ctx.client.emitEvent({
+      sessionId: "a1",
+      event: reportEvent(
+        reportBlock({ kind: "ready", summary: "file written", at: AT }),
+        "tool/result",
+      ),
+    });
+    ctx.client.resolveWait("a1");
+    await tick();
+
+    expect(ctx.sink.reports).toEqual([{ kind: "ready", summary: "file written" }]);
+  });
+
+  it("uses the last complete report block across event types", async () => {
+    const ctx = setup();
+    await ctx.executor.start(task(), ctx.sink);
+
+    ctx.client.emitAssistantText("a1", reportBlock({ kind: "ready", summary: "first", at: AT }));
+    ctx.client.emitEvent({
+      sessionId: "a1",
+      event: reportEvent(
+        reportBlock({ kind: "progress", summary: "second", at: AT }),
+        "tool/result",
+      ),
+    });
+    ctx.client.resolveWait("a1");
+    await tick();
+
+    expect(ctx.sink.reports).toEqual([{ kind: "progress", summary: "second" }]);
+  });
+
+  it("ignores a marker that is not a complete block", async () => {
+    const ctx = setup();
+    await ctx.executor.start(task(), ctx.sink);
+
+    ctx.client.emitAssistantText("a1", `I will send ${REPORT_OPEN} later, once the work is done.`);
+    ctx.client.resolveWait("a1");
+    await tick();
+
+    expect(ctx.sink.reports).toEqual([{ kind: "waiting", summary: "worker produced no report" }]);
+  });
+
+  it("does not glue report fragments together across events", async () => {
+    const ctx = setup();
+    await ctx.executor.start(task(), ctx.sink);
+
+    ctx.client.emitAssistantText("a1", `${REPORT_OPEN}\n{"kind":"ready","summary":"split"`);
+    ctx.client.emitAssistantText("a1", `,"at":"${AT}"}\n${REPORT_CLOSE}`);
+    ctx.client.resolveWait("a1");
+    await tick();
+
+    expect(ctx.sink.reports).toEqual([{ kind: "waiting", summary: "worker produced no report" }]);
+  });
+
+  it("answers a tool-result escalation and prompts the resolution back", async () => {
+    const ctx = setup();
+    const handle = await ctx.executor.start(task(), ctx.sink);
+
+    ctx.client.emitEvent({
+      sessionId: "a1",
+      event: reportEvent(
+        escalationBlock({
+          id: "esc-9",
+          kind: "decision",
+          question: "Merge or rebase?",
+          options: [
+            { id: "merge", label: "Merge" },
+            { id: "rebase", label: "Rebase" },
+          ],
+          blocking: true,
+        }),
+        "tool/result",
+      ),
+    });
+    ctx.client.resolveWait("a1");
+    await tick();
+
+    expect(ctx.sink.escalations).toEqual([
+      {
+        escalationId: "esc-9",
+        kind: "decision",
+        question: "Merge or rebase?",
+        options: [
+          { id: "merge", label: "Merge" },
+          { id: "rebase", label: "Rebase" },
+        ],
+      },
+    ]);
+
+    await handle.sendResolution({ kind: "answer", option: "merge", text: "merge it" });
+    await tick();
+    expect(ctx.client.prompts).toHaveLength(2);
+    expect(ctx.client.prompts[1]?.text).toContain("[GETHEN-RESOLUTION]");
+    expect(ctx.client.waitCalls).toHaveLength(2);
+
+    ctx.client.emitAssistantText("a1", reportBlock({ kind: "ready", summary: "merged", at: AT }));
+    ctx.client.resolveWait("a1");
+    await tick();
+
+    expect(ctx.sink.reports).toEqual([{ kind: "ready", summary: "merged" }]);
   });
 });

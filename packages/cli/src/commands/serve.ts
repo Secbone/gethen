@@ -72,7 +72,7 @@ const MAX_BODY_BYTES = 64 * 1024;
 /** Pack digest recorded when the engine has none (no real pack pinning yet). */
 const DEFAULT_PACK_DIGEST = "sha256:local-unpinned";
 
-function text(value: unknown): Trigger {
+function text(value: unknown, workspace: string): Trigger {
   const message = typeof value === "string" ? value.trim() : "";
   if (message.length === 0) throw new Error("text is required");
   return {
@@ -84,7 +84,7 @@ function text(value: unknown): Trigger {
     addressed: "mention",
     text: message,
     at: new Date().toISOString(),
-    meta: { scope: "local" },
+    meta: { scope: "local", workspace },
   };
 }
 
@@ -173,8 +173,9 @@ export async function startServe(config: ServeConfig = {}): Promise<ServeHandle>
     });
   }
   const launch: "ws" | "fake" = bridge === undefined ? "fake" : "ws";
+  const workspace = config.workspace ?? process.cwd();
   const launchPort = withLaunchDefaults(bridge?.launchPort ?? createFakeLaunch(), {
-    workspace: config.workspace ?? process.cwd(),
+    workspace,
     packDigest: config.packDigest ?? DEFAULT_PACK_DIGEST,
   });
 
@@ -212,7 +213,7 @@ export async function startServe(config: ServeConfig = {}): Promise<ServeHandle>
         }
         if (request.method === "POST" && pathname === "/gethen/run") {
           const body = await readJson(request);
-          const trigger = text(body.text as string | undefined);
+          const trigger = text(body.text as string | undefined, workspace);
           const result = await service.submit(trigger);
           const ticket = service.store.tickets.list().at(-1);
           send(response, 200, {

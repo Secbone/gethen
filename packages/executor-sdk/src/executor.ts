@@ -10,9 +10,16 @@
  * 2. subscribe to `session.event` for that session and forward every event;
  * 3. prompt the session with the Master's assignment prompt (or the whole
  *    envelope when it carries no `prompt` string);
- * 4. `session/wait` until the turn is quiet, then parse the last assistant text
- *    containing a `[GETHEN-REPORT]` block and report it (`waiting` when the
- *    worker produced no report, `failed` on transport or parse errors).
+ * 4. scan every `session.event` payload (assistant text, tool results, any
+ *    string field) for a complete `[GETHEN-REPORT]` block; the last block wins;
+ * 5. `session/wait` until the turn is quiet, then report the parsed block
+ *    (`waiting` when the worker produced no report, `failed` on transport or
+ *    parse errors).
+ *
+ * A `[GETHEN-ESCALATION]` block emitted by the worker-side compat tools
+ * (`gethen_escalate`) is surfaced as a blocking escalation too: the executor
+ * waits for the Master's resolution and prompts the same session with a
+ * `[GETHEN-RESOLUTION]` block before waiting again.
  *
  * DSH's native channels map onto Master escalations:
  * - `approval/request` becomes a blocking `permission` escalation
@@ -28,7 +35,7 @@
  * SDK client — killing every session it hosts — and reports `failed`. See
  * README.md.
  */
-import { parseReportText, REPORT_OPEN } from "@gethen/master";
+import { buildResolutionText, parseReportText, REPORT_CLOSE, REPORT_OPEN } from "@gethen/master";
 import type {
   ApprovalOutcome,
   ApprovalRequestParams,
@@ -50,6 +57,12 @@ import type {
   ExecutorTask,
   SessionExecutor,
 } from "@gethen/worker-agent";
+
+/** Worker-side compat markers emitted by the `gethen_escalate` tool result. */
+const ESCALATION_OPEN = "[GETHEN-ESCALATION]";
+const ESCALATION_CLOSE = "[/GETHEN-ESCALATION]";
+/** A single execution answers at most this many tool-result escalations. */
+const MAX_TOOL_ESCALATIONS = 5;
 
 /** The `ResolutionBody` the worker protocol hands to `sendResolution`. */
 export type ExecutorResolution = Parameters<ExecutionHandle["sendResolution"]>[0];
@@ -116,8 +129,12 @@ interface ExecutionState {
   workspaceClient: WorkspaceClient | undefined;
   settled: boolean;
   cancelled: boolean;
-  /** Last assistant text that contained a report block. */
+  /** Last event string that contained a complete report block. */
   reportText: string | undefined;
+  /** Last complete escalation block found in an event string, not yet answered. */
+  toolEscalation: ToolEscalationEnvelope | undefined;
+  /** Tool-result escalations answered so far. */
+  rounds: number;
   /** One escalation is live at a time; later ones queue on `escalationChain`. */
   pending: PendingEscalation | undefined;
   escalationChain: Promise<void>;
@@ -168,6 +185,8 @@ class SdkExecutorImpl implements SdkExecutor {
       settled: false,
       cancelled: false,
       reportText: undefined,
+      toolEscalation: undefined,
+      rounds: 0,
       pending: undefined,
       escalationChain: Promise.resolve(),
       escalationSeq: 0,
@@ -328,8 +347,7 @@ class SdkExecutorImpl implements SdkExecutor {
       event: (notification) => {
         const event = notification.event as unknown as ExecutorEvent;
         state.sink.event(event);
-        const text = assistantTextOf(event);
-        if (text?.includes(REPORT_OPEN)) state.reportText = text;
+        scanEvent(state, event);
       },
       approval: (params) => this.askApproval(state, params),
       question: (request) => this.askQuestion(state, request),
@@ -337,24 +355,84 @@ class SdkExecutorImpl implements SdkExecutor {
   }
 
   private async run(state: ExecutionState, workspaceClient: WorkspaceClient): Promise<void> {
-    try {
-      await workspaceClient.client.wait(state.task.assignmentId);
-    } catch (error) {
-      if (!state.cancelled) {
+    for (;;) {
+      try {
+        await workspaceClient.client.wait(state.task.assignmentId);
+      } catch (error) {
+        if (!state.cancelled) {
+          this.finish(state, {
+            kind: "failed",
+            summary: `DSH SDK wait failed: ${messageOf(error)}`,
+          });
+        }
+        this.release(state);
+        return;
+      }
+      if (state.settled || state.cancelled) {
+        this.release(state);
+        return;
+      }
+
+      // A report always wins over a pending tool-result escalation in the same
+      // batch: the worker finished, whatever else it printed.
+      if (state.reportText !== undefined) {
+        this.finish(state, this.reportFor(state));
+        this.release(state);
+        return;
+      }
+
+      const escalation = state.toolEscalation;
+      if (escalation === undefined) {
+        this.finish(state, this.reportFor(state));
+        this.release(state);
+        return;
+      }
+      state.toolEscalation = undefined;
+      state.rounds += 1;
+      if (state.rounds > MAX_TOOL_ESCALATIONS) {
         this.finish(state, {
           kind: "failed",
-          summary: `DSH SDK wait failed: ${messageOf(error)}`,
+          summary: `worker escalated more than ${MAX_TOOL_ESCALATIONS} times`,
         });
+        this.release(state);
+        return;
       }
-      this.release(state);
-      return;
+
+      let resolution: ExecutorResolution;
+      try {
+        resolution = await this.requestEscalation(
+          state,
+          executorEscalationFor(state.task.assignmentId, escalation),
+        );
+      } catch {
+        this.release(state);
+        return; // Cancelled: the failed report was already emitted.
+      }
+      if (state.settled || state.cancelled) {
+        this.release(state);
+        return;
+      }
+
+      try {
+        await workspaceClient.client.prompt(
+          state.task.assignmentId,
+          resolutionPromptFor(escalation, resolution),
+        );
+      } catch (error) {
+        if (!state.cancelled) {
+          this.finish(state, {
+            kind: "failed",
+            summary: `failed to deliver the resolution to the DSH SDK session: ${messageOf(error)}`,
+          });
+        }
+        this.release(state);
+        return;
+      }
+      if (state.settled || state.cancelled) {
+        this.release(state);
+        return;
+      }
     }
-    if (state.settled || state.cancelled) {
-      this.release(state);
-      return;
-    }
-    this.finish(state, this.reportFor(state));
-    this.release(state);
   }
 
   private reportFor(state: ExecutionState): ExecutorReport {
@@ -542,21 +620,131 @@ function promptFor(task: ExecutorTask): string {
   return typeof prompt === "string" ? prompt : JSON.stringify(task.envelope);
 }
 
-/** Assistant text carried by a DSH `assistant/message` session event. */
-function assistantTextOf(event: ExecutorEvent): string | undefined {
-  if (event.type !== "assistant/message") return undefined;
-  const data = asRecord(event.data);
-  const message = asRecord(data?.message);
-  const content = message?.content;
-  if (!Array.isArray(content)) return undefined;
-  const parts: string[] = [];
-  for (const block of content) {
-    const record = asRecord(block);
-    if (record?.type === "text" && typeof record.text === "string") {
-      parts.push(record.text);
+/** One tool-result escalation block, decoded from an event string. */
+interface ToolEscalationEnvelope {
+  id: string;
+  kind: ExecutorEscalation["kind"];
+  question: string;
+  options: { id: string; label: string }[];
+  defaultOption?: string;
+}
+
+/**
+ * Scan one session-event payload for report and escalation blocks. Only
+ * individual string values are considered, so a block split across events (or
+ * across fields) never gets glued together; a complete marker pair is
+ * required, which keeps prose that merely mentions a marker from matching.
+ */
+function scanEvent(state: ExecutionState, event: ExecutorEvent): void {
+  for (const text of collectStrings(event)) {
+    if (text.includes(REPORT_OPEN) && text.includes(REPORT_CLOSE)) {
+      state.reportText = text;
+      continue;
+    }
+    if (text.includes(ESCALATION_OPEN) && text.includes(ESCALATION_CLOSE)) {
+      const escalation = parseToolEscalation(text);
+      if (escalation !== undefined) state.toolEscalation = escalation;
     }
   }
-  return parts.length === 0 ? undefined : parts.join("");
+}
+
+/** Every string value in a JSON-ish payload, depth first. */
+function collectStrings(value: unknown, out: string[] = []): string[] {
+  if (typeof value === "string") {
+    out.push(value);
+  } else if (Array.isArray(value)) {
+    for (const item of value) collectStrings(item, out);
+  } else if (typeof value === "object" && value !== null) {
+    for (const item of Object.values(value)) collectStrings(item, out);
+  }
+  return out;
+}
+
+/** Decode `[GETHEN-ESCALATION] ... [/GETHEN-ESCALATION]`; undefined when unusable. */
+function parseToolEscalation(text: string): ToolEscalationEnvelope | undefined {
+  const start = text.indexOf(ESCALATION_OPEN);
+  const end = text.indexOf(ESCALATION_CLOSE, start + ESCALATION_OPEN.length);
+  if (start === -1 || end === -1) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text.slice(start + ESCALATION_OPEN.length, end).trim());
+  } catch {
+    return undefined;
+  }
+  const record = asRecord(parsed);
+  if (record === undefined) return undefined;
+  const question = record.question;
+  if (typeof question !== "string" || question.length === 0) return undefined;
+  const kind = record.kind;
+  if (!isEscalationKind(kind)) return undefined;
+  const options: { id: string; label: string }[] = [];
+  if (Array.isArray(record.options)) {
+    for (const entry of record.options) {
+      const option = asRecord(entry);
+      if (option === undefined) continue;
+      const { id, label } = option;
+      if (typeof id === "string" && typeof label === "string") options.push({ id, label });
+    }
+  }
+  const escalation: ToolEscalationEnvelope = {
+    id:
+      typeof record.id === "string" && record.id.length > 0
+        ? record.id
+        : `tool-escalation-${question.slice(0, 24)}`,
+    kind,
+    question,
+    options,
+  };
+  if (typeof record.defaultOption === "string" && record.defaultOption.length > 0) {
+    escalation.defaultOption = record.defaultOption;
+  }
+  return escalation;
+}
+
+function isEscalationKind(value: unknown): value is ExecutorEscalation["kind"] {
+  return (
+    value === "decision" ||
+    value === "blocked" ||
+    value === "permission" ||
+    value === "scope" ||
+    value === "conflict"
+  );
+}
+
+/** The worker-protocol escalation for one tool-result block. */
+function executorEscalationFor(
+  assignmentId: string,
+  escalation: ToolEscalationEnvelope,
+): ExecutorEscalation {
+  const result: ExecutorEscalation = {
+    escalationId: escalation.id.startsWith("tool-escalation-")
+      ? `${assignmentId}:${escalation.id}`
+      : escalation.id,
+    kind: escalation.kind,
+    question: escalation.question,
+    options: escalation.options,
+  };
+  if (escalation.defaultOption !== undefined) result.defaultOption = escalation.defaultOption;
+  return result;
+}
+
+/** The `[GETHEN-RESOLUTION]` prompt sent back into the same session. */
+function resolutionPromptFor(
+  escalation: ToolEscalationEnvelope,
+  resolution: ExecutorResolution,
+): string {
+  const text =
+    resolution.text.length > 0
+      ? resolution.text
+      : resolution.kind === "answer"
+        ? "Proceed with the selected option."
+        : "A person must decide this; report blocked and end the turn.";
+  return buildResolutionText({
+    id: `resolution-${escalation.id}`,
+    text,
+    basis: ["policy"],
+    ...(resolution.option === undefined ? {} : { option: resolution.option }),
+  });
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
