@@ -105,4 +105,63 @@ describe("gethen worker config", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+  it("passes --dsh-args through, repeatable or comma-separated, over the config file", () => {
+    const required = [
+      "--master-url",
+      "http://127.0.0.1:8080",
+      "--token",
+      "worker-token",
+      "--worker-id",
+      "worker-1",
+      "--provider",
+      "deepseek",
+      "--model",
+      "deepseek-v4",
+    ];
+
+    const repeated = parseWorkerConfig(
+      [
+        ...required,
+        "--dsh-args",
+        "--profile",
+        "--dsh-args",
+        "sdk",
+        "--dsh-args",
+        "--patch",
+        "--dsh-args",
+        "/tmp/a.yml",
+      ],
+      { cwd: "/tmp/ignored" },
+    );
+    expect(repeated.dshArgs).toEqual(["--profile", "sdk", "--patch", "/tmp/a.yml"]);
+
+    const comma = parseWorkerConfig(
+      [...required, "--dsh-args", "--profile,sdk, --patch,/tmp/b.yml "],
+      { cwd: "/tmp/ignored" },
+    );
+    expect(comma.dshArgs).toEqual(["--profile", "sdk", "--patch", "/tmp/b.yml"]);
+
+    const dir = mkdtempSync(join(tmpdir(), "gethen-worker-"));
+    try {
+      const path = join(dir, "worker.json");
+      writeFileSync(
+        path,
+        JSON.stringify({
+          masterUrl: "ws://127.0.0.1:8080/gethen/worker",
+          token: "worker-token",
+          workerId: "worker-1",
+          provider: "deepseek",
+          model: "deepseek-v4",
+          workspaces: ["/tmp/ignored"],
+          dshArgs: ["--profile", "sdk"],
+        }),
+      );
+      const overridden = parseWorkerConfig(["--config", path, "--dsh-args", "--patch,/tmp/c.yml"], {
+        cwd: "/tmp/ignored",
+      });
+      expect(overridden.dshArgs).toEqual(["--patch", "/tmp/c.yml"]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

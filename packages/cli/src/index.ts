@@ -1,5 +1,6 @@
 import { doctorCommand } from "./commands/doctor";
 import { initCommand } from "./commands/init";
+import { runCommand } from "./commands/run";
 import { serveCommand } from "./commands/serve";
 import { statusCommand } from "./commands/status";
 import { workerCommand } from "./commands/worker";
@@ -22,6 +23,8 @@ async function dispatch(argv: string[]): Promise<number> {
       return initCommand();
     case "doctor":
       return doctorCommand({ json: argv.slice(1).includes("--json") });
+    case "run":
+      return runCommand(argv.slice(1));
     case "serve":
       return serveCommand(argv.slice(1));
     case "status":

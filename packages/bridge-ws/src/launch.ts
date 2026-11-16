@@ -17,6 +17,12 @@
  *
  * The `dispatch` frame's `envelope` follows the worker-agent convention
  * (`{ prompt }`); the agent hands it to its executor opaquely.
+ *
+ * Worker choice is deliberately not made here. The master-runtime (fleet
+ * scheduler) picks a worker per `LaunchRequest` through `selectWorker`; this
+ * adapter only validates that the chosen worker is currently connected and
+ * dispatches to it. Without the hook it falls back to `options.workerId`, then
+ * to the first connection that completed hello.
  */
 import type {
   AssignmentReceipt,
@@ -40,7 +46,12 @@ import {
 /** Default time a dispatch may take before the launch fails (`WS_LAUNCH_TIMEOUT`). */
 export const DEFAULT_LAUNCH_TIMEOUT_MS = 10 * 60 * 1000;
 
-/** Stable error codes a failed launch rejects with. */
+/**
+ * Stable error codes a failed launch rejects with.
+ *
+ * `WS_WORKER_UNAVAILABLE` also covers a throwing/rejecting `selectWorker` hook
+ * and a hook result that is not a currently connected worker.
+ */
 export type WsLaunchErrorCode =
   | "WS_NO_WORKER"
   | "WS_WORKER_UNAVAILABLE"
@@ -71,10 +82,34 @@ export type WorkerGatewayLike = Pick<WorkerGateway, "dispatch"> & {
   get(workerId: string): WorkerConnectionLike | undefined;
 };
 
+/** The worker chosen for one launch. */
+export interface WorkerSelection {
+  workerId: string;
+}
+
+/**
+ * Fleet-aware worker selection hook supplied by the master-runtime. It may be
+ * synchronous or asynchronous; `undefined` means "no worker fits this launch".
+ */
+export type SelectWorker = (
+  request: LaunchRequest,
+) => WorkerSelection | undefined | Promise<WorkerSelection | undefined>;
+
 export interface WsLaunchOptions {
   gateway: WorkerGatewayLike;
-  /** Preferred worker; defaults to the first connection that completed hello. */
+  /**
+   * Preferred worker, used only when `selectWorker` is not configured; when
+   * absent the first connection that completed hello is used.
+   */
   workerId?: string;
+  /**
+   * Fleet-aware selection hook (master-runtime owns fleet choice): receives the
+   * full `LaunchRequest` and returns the worker to dispatch to. It takes
+   * precedence over `workerId`. Returning `undefined` rejects with
+   * `WS_NO_WORKER`; a throw/rejection or a worker id that is not currently
+   * connected rejects with `WS_WORKER_UNAVAILABLE`.
+   */
+  selectWorker?: SelectWorker;
   /** Answers a Worker escalation; `undefined` parks it for a person. */
   resolveEscalation?: (record: EscalationRecord) => Promise<EscalationResolutionInput | undefined>;
   /** Observer fired when an escalation is parsed (status `"waiting"`). */
@@ -295,8 +330,59 @@ export function createWsLaunchPort(options: WsLaunchOptions): WsLaunchBridge {
     void resolveEscalation(pending, record);
   }
 
-  async function launch(request: LaunchRequest): Promise<LaunchResult> {
-    const workerId = selectWorker(gateway, options.workerId);
+  /**
+   * Launch one assignment. Without `selectWorker` the worker is chosen
+   * synchronously, so dispatch starts in the same tick as before; with the hook
+   * the choice is awaited first.
+   */
+  function launch(request: LaunchRequest): Promise<LaunchResult> {
+    const hook = options.selectWorker;
+    if (hook === undefined) {
+      try {
+        return beginLaunch(request, configuredWorker(gateway, options.workerId));
+      } catch (error) {
+        return Promise.reject(error);
+      }
+    }
+    return launchWithHook(request, hook);
+  }
+
+  async function launchWithHook(request: LaunchRequest, hook: SelectWorker): Promise<LaunchResult> {
+    return beginLaunch(request, await selectWithHook(hook, request));
+  }
+
+  /** Validate the hook's choice against the live gateway connections. */
+  async function selectWithHook(hook: SelectWorker, request: LaunchRequest): Promise<string> {
+    let selection: WorkerSelection | undefined;
+    try {
+      selection = await hook(request);
+    } catch (error) {
+      throw new WsLaunchError(
+        "WS_WORKER_UNAVAILABLE",
+        `worker selection failed for assignment ${request.assignment.id}: ${messageOf(error)}`,
+      );
+    }
+    if (selection === undefined) {
+      throw new WsLaunchError(
+        "WS_NO_WORKER",
+        `selectWorker found no worker for assignment ${request.assignment.id}`,
+      );
+    }
+    const workerId: unknown = selection.workerId;
+    if (
+      typeof workerId !== "string" ||
+      workerId.length === 0 ||
+      gateway.get(workerId) === undefined
+    ) {
+      throw new WsLaunchError(
+        "WS_WORKER_UNAVAILABLE",
+        `worker "${String(workerId)}" is not connected`,
+      );
+    }
+    return workerId;
+  }
+
+  function beginLaunch(request: LaunchRequest, workerId: string): Promise<LaunchResult> {
     const pending = createPending(request, workerId);
     pendingByAssignment.set(request.assignment.id, pending);
     pending.timer = setTimeout(() => {
@@ -370,7 +456,8 @@ function dispatchFrameFor(request: LaunchRequest): DispatchFrame {
   };
 }
 
-function selectWorker(gateway: WorkerGatewayLike, preferred: string | undefined): string {
+/** Pre-hook worker choice: explicit `workerId`, else the first connected worker. */
+function configuredWorker(gateway: WorkerGatewayLike, preferred: string | undefined): string {
   if (preferred !== undefined) {
     if (gateway.get(preferred) === undefined) {
       throw new WsLaunchError("WS_WORKER_UNAVAILABLE", `worker "${preferred}" is not connected`);

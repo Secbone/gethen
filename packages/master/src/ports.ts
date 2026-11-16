@@ -11,6 +11,7 @@ import type {
   Thread,
   Ticket,
   Trigger,
+  WorkerRecord,
 } from "./model";
 
 export interface Clock {
@@ -42,6 +43,19 @@ export interface Repositories {
 
 export interface PolicyPort {
   current(): Policy;
+}
+
+/**
+ * Persisted Worker identities. Token hashing stays in the transport; the master
+ * receives opaque hashes and never sees the plaintext token.
+ */
+export interface WorkerRegistry {
+  saveWorker(record: WorkerRecord): void;
+  getWorker(id: string): WorkerRecord | undefined;
+  listWorkers(): WorkerRecord[];
+  findWorkerByTokenHash(hash: string): WorkerRecord | undefined;
+  touchWorkerSeen(id: string, at: string): void;
+  revokeWorker(id: string, at: string): void;
 }
 
 /** A stream of events; implementations own polling, translation and read positions. */

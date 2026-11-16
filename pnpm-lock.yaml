@@ -101,6 +101,9 @@ importers:
       '@gethen/master':
         specifier: workspace:*
         version: link:../master
+      '@gethen/master-runtime':
+        specifier: workspace:*
+        version: link:../master-runtime
       '@gethen/worker':
         specifier: workspace:*
         version: link:../worker
@@ -179,6 +182,27 @@ importers:
         version: link:../core
 
   packages/master: {}
+
+  packages/master-runtime:
+    dependencies:
+      '@gethen/bridge-ws':
+        specifier: workspace:*
+        version: link:../bridge-ws
+      '@gethen/fleet':
+        specifier: workspace:*
+        version: link:../fleet
+      '@gethen/master':
+        specifier: workspace:*
+        version: link:../master
+      '@gethen/router':
+        specifier: workspace:*
+        version: link:../router
+      '@gethen/transport-ws':
+        specifier: workspace:*
+        version: link:../transport-ws
+      '@gethen/worker-protocol':
+        specifier: workspace:*
+        version: link:../worker-protocol
 
   packages/pack:
     dependencies:

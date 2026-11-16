@@ -23,6 +23,7 @@ it.each([["help"], ["-h"], ["--help"]])("prints usage for %s", async (command: s
   expect(output).toContain("gethen init");
   expect(output).toContain("gethen serve");
   expect(output).toContain("gethen worker");
+  expect(output).toContain("gethen run");
   expect(output).toContain("gethen status");
   expect(output).toContain("gethen doctor");
   expect(output).toContain("gethen help");
@@ -37,6 +38,14 @@ it("returns 1 and prints usage to stderr for an unknown command", async () => {
   const output = outputOf(stderr);
   expect(output).toContain("unknown command: nope");
   expect(output).toContain("gethen help");
+});
+
+it("dispatches gethen run and surfaces its usage error", async () => {
+  const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+
+  expect(await run(["run"])).toBe(1);
+
+  expect(outputOf(stderr)).toContain("--master");
 });
 
 it("creates ~/.gethen idempotently for an injected home", () => {

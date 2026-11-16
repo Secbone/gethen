@@ -19,7 +19,8 @@ interface StatusResult {
   receipts: number;
   running: number;
   escalations: number;
-  launch: "fake" | "remote";
+  launch: "fake" | "remote" | "ws";
+  workers: number;
 }
 
 interface OverviewResult {
@@ -120,6 +121,7 @@ describe("Gethen DSH plugin", () => {
       running: 0,
       escalations: 0,
       launch: "fake",
+      workers: 0,
     } satisfies StatusResult);
     const overview = (await tool(tools, "gethen_overview").execute({}, {})) as OverviewResult;
     expect(overview.tickets).toHaveLength(1);
@@ -127,5 +129,27 @@ describe("Gethen DSH plugin", () => {
     expect(ticket?.latestReport).toBe("ready");
     expect(ticket?.assignments).toBe(1);
     expect(ticket?.stage).toBe("person/review");
+  });
+
+  it("keeps the Remote fallback without a ws config", async () => {
+    const { ctx, tools } = context();
+    apply(ctx, { dir: stateDir(), devRemote: true, escalation: { answer: "rebase onto main" } });
+    const status = (await tool(tools, "gethen_status").execute({}, {})) as StatusResult;
+    expect(status).toMatchObject({ launch: "remote", workers: 0 });
+    const result = (await tool(tools, "gethen_run").execute(
+      { text: "fix the failing test" },
+      {},
+    )) as RunResult;
+    expect(result.outcome).toBe("accept");
+    expect(result.report).toBe("ready");
+    const escalations = [
+      ...(
+        (await tool(tools, "gethen_escalations").execute({}, {})) as {
+          escalations: Array<{ status: string }>;
+        }
+      ).escalations,
+    ];
+    expect(escalations).toHaveLength(1);
+    expect(escalations[0]?.status).toBe("resolved");
   });
 });

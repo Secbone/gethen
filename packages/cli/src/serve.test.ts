@@ -2,13 +2,15 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { EscalationResolutionInput } from "@gethen/master";
+import type { EscalationRecord } from "@gethen/master";
 import { createWorkerAgent, FakeExecutor, type WorkerAgent } from "@gethen/worker-agent";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  autoEscalationResolver,
   parseWorkerTokens,
   type ServeConfig,
   type ServeHandle,
+  serveCommand,
   startServe,
 } from "./commands/serve";
 
@@ -17,10 +19,29 @@ const agents: WorkerAgent[] = [];
 const dirs: string[] = [];
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   for (const agent of agents.splice(0)) await agent.close();
   while (handles.length > 0) await handles.pop()?.close();
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
+
+function escalationRecord(overrides: Partial<EscalationRecord> = {}): EscalationRecord {
+  return {
+    id: "escalation-1",
+    ticket: "ticket-1",
+    assignment: "assignment-1",
+    session: "worker-1",
+    kind: "decision",
+    question: "Proceed?",
+    options: [
+      { id: "yes", label: "Yes" },
+      { id: "no", label: "No" },
+    ],
+    status: "waiting",
+    at: new Date("2026-11-16T00:00:00.000Z").toISOString(),
+    ...overrides,
+  };
+}
 
 async function serve(config: Partial<ServeConfig> = {}) {
   const dir = mkdtempSync(join(tmpdir(), "gethen-serve-"));
@@ -126,11 +147,7 @@ describe("gethen serve", () => {
     const handle = await serve({
       tokens: [{ workerId: "worker-1", token }],
       workspace: "/tmp/gethen-test-workspace",
-      resolveEscalation: async (): Promise<EscalationResolutionInput> => ({
-        kind: "answer",
-        text: "test auto-answer",
-        option: "yes",
-      }),
+      resolveEscalation: autoEscalationResolver(),
     });
     expect(handle.launch).toBe("ws");
 
@@ -163,6 +180,59 @@ describe("gethen serve", () => {
     const health = await getJson(handle, "/health");
     expect(health).toMatchObject({ workers: 1, launch: "ws", tickets: 1, receipts: 1 });
   }, 15_000);
+
+  it("parks escalations by default and reports waiting", async () => {
+    const token = "park-worker-token";
+    const handle = await serve({
+      tokens: [{ workerId: "worker-1", token }],
+      workspace: "/tmp/gethen-test-workspace",
+    });
+
+    const agent = createWorkerAgent({
+      masterUrl: `ws://127.0.0.1:${handle.port}/gethen/worker`,
+      token,
+      workerId: "worker-1",
+      machine: "test-machine",
+      platform: "linux",
+      runtimes: ["dsh"],
+      workspaces: ["/tmp/gethen-test-workspace"],
+      models: ["fake-model"],
+      capabilities: {},
+      quota: 1,
+      executor: new FakeExecutor(),
+      reconnect: { initialDelayMs: 10, maxDelayMs: 50, jitter: 0 },
+    });
+    agents.push(agent);
+    await agent.whenConnected();
+    await waitForWorkers(handle, 1);
+
+    const run = await postJson(handle, "/gethen/run", { text: "needs a decision" });
+    expect(run.report).toBe("waiting");
+
+    // The bridge parks locally: the ticket records "waiting" and nothing is
+    // auto-resolved. (WS escalations are not persisted by the CLI host yet.)
+    const health = await getJson(handle, "/health");
+    expect(health).toMatchObject({ workers: 1, launch: "ws", tickets: 1, open: 1 });
+  }, 15_000);
+
+  it("auto-answers with the declared default or first option", async () => {
+    const resolver = autoEscalationResolver();
+
+    const first = await resolver(escalationRecord());
+    expect(first).toMatchObject({ kind: "answer", option: "yes" });
+    expect(first.text).toContain("auto");
+
+    const preferred = await resolver(escalationRecord({ defaultOption: "no" }));
+    expect(preferred.option).toBe("no");
+  });
+
+  it("rejects an unknown --escalation mode", async () => {
+    const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+
+    expect(await serveCommand(["--escalation", "bogus"])).toBe(1);
+
+    expect(stderr.mock.calls.map((call) => String(call[0])).join("")).toContain("--escalation");
+  });
 
   it("rejects upgrades on other paths and without a bearer token", async () => {
     const handle = await serve({

@@ -9,6 +9,7 @@ export const workspaceAliases = {
   "@gethen/storage-file/lock": resolve("packages/storage-file/src/lock.mjs"),
   "@gethen/worker-protocol": resolve("packages/worker-protocol/src/index.ts"),
   "@gethen/benchmark-file": resolve("packages/benchmark-file/src/index.ts"),
+  "@gethen/master-runtime": resolve("packages/master-runtime/src/index.ts"),
   "@gethen/bridge-remote": resolve("packages/bridge-remote/src/index.ts"),
   "@gethen/worker-bridge": resolve("packages/worker-bridge/src/index.ts"),
   "@gethen/core/testing": resolve("packages/core/src/testing/contract.ts"),

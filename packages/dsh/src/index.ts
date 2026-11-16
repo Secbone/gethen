@@ -1,23 +1,42 @@
 /**
- * Minimal DSH mount for the self-built Gethen master (P1).
+ * DSH mount for the self-built Gethen master.
  *
- * The plugin owns no control-plane logic: `@gethen/master` provides the engine,
- * sqlite store, policy and outbox. This module only assembles one
- * `MasterService` per plugin instance, exposes it as the `gethen` service and
- * registers three tools. DSH itself is not imported; the narrow surface below
- * is the whole integration contract.
+ * Two assembly shapes share one tool surface:
+ *
+ * - default (no `ws` config): the plugin builds a `MasterService` itself and
+ *   launches Assignments through the DSH Remote client (`config.remote`) or the
+ *   deterministic fake worker — the P1/P3 behaviour, unchanged;
+ * - `config.ws`: the plugin uses `@gethen/master-runtime`, the same assembly the
+ *   standalone `gethen serve` uses: `MasterService` + `gethen.worker.v1`
+ *   `WorkerGateway` + `WsLaunchPort`. When the DSH `webServer` service is
+ *   present the plugin exposes the endpoint at `/gethen/worker` through
+ *   `webServer.registerUpgrade`; the gateway authenticates bearer tokens and
+ *   the bridge dispatches to connected outward-only Worker agents.
+ *
+ * DSH itself is not imported: the narrow `DshContext` below is the whole
+ * integration contract.
  */
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import type { IncomingMessage } from "node:http";
 import { join } from "node:path";
+import type { Duplex } from "node:stream";
 import type { RemoteClientLike } from "@gethen/bridge-remote";
 import {
   createFakeLaunch,
+  type EscalationRecord,
+  type EscalationResolutionInput,
   type LaunchPort,
   MasterService,
   type Policy,
   type Trigger,
   ticketStage,
 } from "@gethen/master";
+import {
+  createMasterRuntime,
+  DEFAULT_MASTER_POLICY,
+  type MasterRuntime,
+} from "@gethen/master-runtime";
 import { createScriptedRemoteClient } from "./dev/fake-remote";
 import { createRemoteLaunchPort, type RemoteLaunchConfig } from "./remote-launch";
 
@@ -33,6 +52,17 @@ export interface DshToolDefinition {
   execute(args: unknown, exec: unknown): Promise<unknown>;
 }
 
+/** One exact-path HTTP upgrade route (subset of DSH's `webServer` contract). */
+export interface DshUpgradeRoute {
+  path: string;
+  handler: (request: IncomingMessage, socket: Duplex, head: Buffer) => void;
+}
+
+/** The DSH web-server service surface used to host `/gethen/worker`. */
+export interface DshWebServer {
+  registerUpgrade(route: DshUpgradeRoute): () => void;
+}
+
 export interface DshContext {
   provide(name: string, value: unknown): () => void;
   tools: { register(definition: DshToolDefinition): () => void };
@@ -40,6 +70,27 @@ export interface DshContext {
   /** Present when the DSH Remote client plugin is mounted in this profile. */
   get?(name: string): unknown;
   logger?: { error?(message: string): void };
+}
+
+/** Worker credentials in the `gethen.worker.v1` gateway format. */
+export interface WorkerToken {
+  workerId: string;
+  token: string;
+}
+
+/**
+ * Experimental WS control plane: with this config the plugin hosts the worker
+ * endpoint instead of launching through the DSH Remote client.
+ */
+export interface GethenWsConfig {
+  /** JSON file with `[{"workerId":"...","token":"..."}]`. Wins over tokensJson. */
+  tokensFile?: string;
+  /** Inline token JSON (same shape); used when tokensFile is absent. */
+  tokensJson?: string;
+  /** Worker-side workspace for dispatches; defaults to `process.cwd()`. */
+  workspace?: string;
+  /** Pack digest recorded for dispatches; defaults to the runtime's constant. */
+  packDigest?: string;
 }
 
 export interface GethenConfig {
@@ -57,7 +108,12 @@ export interface GethenConfig {
   escalation?: { answer?: string };
   /** Dev only: use the bundled scripted Remote client instead of a real one. */
   devRemote?: boolean;
+  /** WS control plane: host `/gethen/worker` and dispatch to `worker-agent`s. */
+  ws?: GethenWsConfig;
 }
+
+/** The WS worker endpoint registered on the DSH web server. */
+export const WORKER_PATH = "/gethen/worker";
 
 export const name = "gethen";
 export const inject = ["tools"];
@@ -66,12 +122,9 @@ export const inject = ["tools"];
  * Single-operator P1 policy: the local source admits `local-user` and the
  * master accepts automatically. The fake LaunchPort keeps P1 self-contained.
  */
-export const DEFAULT_POLICY: Policy = {
-  version: 1,
-  acceptMode: "auto",
-  rules: [],
-  sources: { local: { allowed: ["local-user"], bots: [] } },
-};
+export const DEFAULT_POLICY: Policy = DEFAULT_MASTER_POLICY;
+
+const DEFAULT_TOKENS_SOURCE = "worker tokens";
 
 function createMasterService(dir: string, launch: LaunchPort): MasterService {
   return new MasterService({
@@ -92,63 +145,105 @@ function objectSchema(
   return { type: "object", properties, required, additionalProperties: false };
 }
 
-/** Mount the master service and its tools into DSH. */
-export function apply(ctx: DshContext, config: GethenConfig = {}): void {
-  const dir =
-    config.dir ?? process.env.GETHEN_STATE_DIR ?? join(process.cwd(), ".gethen", "master");
-  const clientService = config.remote?.clientService ?? "dshRemoteClient";
-  const devClient =
-    config.devRemote === true || process.env.GETHEN_DEV_REMOTE === "1"
-      ? createScriptedRemoteClient()
-      : undefined;
-  const remoteConfig =
-    config.remote ??
-    (devClient === undefined ? undefined : { hostId: "dev-local", workspaceId: "ws-dev" });
-  const useRemote = remoteConfig !== undefined;
-  const launchMode = useRemote ? "remote" : "fake";
-  let service: MasterService | undefined;
-  const answer = config.escalation?.answer;
-  const resolveEscalation =
-    answer === undefined ? undefined : async () => ({ kind: "answer" as const, text: answer });
-  const launch: LaunchPort =
-    useRemote && remoteConfig !== undefined
-      ? createRemoteLaunchPort({
-          ...remoteConfig,
-          clientProvider: () =>
-            devClient ?? (ctx.get?.(clientService) as RemoteClientLike | undefined),
-          ...(resolveEscalation === undefined ? {} : { resolveEscalation }),
-          onEscalation: (record) => {
-            const saved = service?.engine.escalate(record.ticket, {
-              id: record.id,
-              assignment: record.assignment,
-              session: record.session,
-              kind: record.kind,
-              question: record.question,
-              options: record.options,
-              ...(record.defaultOption === undefined
-                ? {}
-                : { defaultOption: record.defaultOption }),
-            });
-            if (saved !== undefined) service?.store.saveEscalation(saved);
-          },
-          onResolution: (record) => {
-            if (record.resolution === undefined) {
-              service?.store.saveEscalation(record);
-              return;
-            }
-            const saved = service?.engine.resolve(record.ticket, record.resolution);
-            service?.store.saveEscalation(saved ?? record);
-          },
-        })
-      : createFakeLaunch();
-  service = createMasterService(dir, launch);
-  service.start();
-  ctx.provide("gethen", service);
-  ctx.effect?.(() => () => service.stop());
+/**
+ * Parse the worker credential JSON: `[{"workerId":"...","token":"..."}]`.
+ * Structural validation only; duplicate or empty entries are rejected later by
+ * the gateway's token store.
+ */
+export function parseWorkerTokens(
+  raw: string,
+  source: string = DEFAULT_TOKENS_SOURCE,
+): WorkerToken[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    throw new Error(`invalid ${source} JSON: ${messageOf(error)}`);
+  }
+  if (!Array.isArray(parsed)) {
+    throw new Error(`${source} must be a JSON array of { workerId, token }`);
+  }
+  return parsed.map((entry: unknown, index: number): WorkerToken => {
+    if (!isRecord(entry)) throw new Error(`${source} entry ${index} must be an object`);
+    const workerId = entry.workerId;
+    const token = entry.token;
+    if (typeof workerId !== "string" || workerId.length === 0) {
+      throw new Error(`${source} entry ${index} needs a non-empty string workerId`);
+    }
+    if (typeof token !== "string" || token.length === 0) {
+      throw new Error(`${source} entry ${index} needs a non-empty string token`);
+    }
+    return { workerId, token };
+  });
+}
+
+/** Read the configured tokens; an empty list keeps the fake launch. */
+export function readWorkerTokens(config: GethenWsConfig): WorkerToken[] {
+  if (config.tokensFile !== undefined) {
+    return parseWorkerTokens(
+      readFileSync(config.tokensFile, "utf8"),
+      `worker tokens file ${config.tokensFile}`,
+    );
+  }
+  if (config.tokensJson !== undefined) {
+    return parseWorkerTokens(config.tokensJson, "ws.tokensJson");
+  }
+  return [];
+}
+
+/**
+ * Persist escalation lifecycle into the master store. The same hooks serve the
+ * Remote launch (P3) and the WS launch (R5): the adapters own the protocol, the
+ * plugin owns the audit trail.
+ */
+function escalationHooks(serviceOf: () => MasterService | undefined): {
+  onEscalation(record: EscalationRecord): void;
+  onResolution(record: EscalationRecord): void;
+} {
+  return {
+    onEscalation(record) {
+      const service = serviceOf();
+      if (service === undefined) return;
+      const saved = service.engine.escalate(record.ticket, {
+        id: record.id,
+        assignment: record.assignment,
+        session: record.session,
+        kind: record.kind,
+        question: record.question,
+        options: record.options,
+        ...(record.defaultOption === undefined ? {} : { defaultOption: record.defaultOption }),
+      });
+      if (saved !== undefined) service.store.saveEscalation(saved);
+    },
+    onResolution(record) {
+      const service = serviceOf();
+      if (service === undefined) return;
+      if (record.resolution === undefined) {
+        service.store.saveEscalation(record);
+        return;
+      }
+      const saved = service.engine.resolve(record.ticket, record.resolution);
+      service.store.saveEscalation(saved ?? record);
+    },
+  };
+}
+
+interface ToolDeps {
+  service: MasterService;
+  /** What the launch port currently is: remote (P3), WS (R5) or the fake. */
+  launch(): "fake" | "remote" | "ws";
+  /** Connected workers (from the runtime for the WS path, 0 otherwise). */
+  workers(): number;
+}
+
+/** Register the read/write tool surface against one master service. */
+function registerTools(ctx: DshContext, deps: ToolDeps): void {
+  const { service } = deps;
 
   ctx.tools.register({
     name: "gethen_status",
-    description: "Return master counts: tickets, open tickets, receipts and running Assignments.",
+    description:
+      "Return master counts: tickets, open tickets, receipts, running Assignments and workers.",
     parameters: {},
     output: {
       schema: objectSchema(
@@ -158,9 +253,10 @@ export function apply(ctx: DshContext, config: GethenConfig = {}): void {
           receipts: { type: "number" },
           running: { type: "number" },
           escalations: { type: "number" },
-          launch: { type: "string", enum: ["fake", "remote"] },
+          launch: { type: "string", enum: ["fake", "remote", "ws"] },
+          workers: { type: "number" },
         },
-        ["tickets", "open", "receipts", "running", "escalations", "launch"],
+        ["tickets", "open", "receipts", "running", "escalations", "launch", "workers"],
       ),
       render: (_args, value) => text(value),
     },
@@ -174,7 +270,8 @@ export function apply(ctx: DshContext, config: GethenConfig = {}): void {
           .list()
           .filter((assignment) => assignment.state === "running").length,
         escalations: service.store.listEscalations().length,
-        launch: launchMode,
+        launch: deps.launch(),
+        workers: deps.workers(),
       };
     },
   });
@@ -278,6 +375,121 @@ export function apply(ctx: DshContext, config: GethenConfig = {}): void {
       return { escalations: service.store.listEscalations() };
     },
   });
+}
+
+/** Mount the WS control plane: runtime service plus the `/gethen/worker` route. */
+function applyWs(
+  ctx: DshContext,
+  config: GethenConfig & { ws: GethenWsConfig },
+  dir: string,
+  resolution:
+    | ((record: EscalationRecord) => Promise<EscalationResolutionInput | undefined>)
+    | undefined,
+): void {
+  const ws = config.ws;
+  const tokens = readWorkerTokens(ws);
+  let runtime: MasterRuntime | undefined;
+  runtime = createMasterRuntime({
+    dbPath: join(dir, "master.sqlite"),
+    policy: DEFAULT_POLICY,
+    workspace: ws.workspace ?? process.cwd(),
+    ...(ws.packDigest === undefined ? {} : { packDigest: ws.packDigest }),
+    ...(tokens.length === 0 ? {} : { tokens }),
+    ...(resolution === undefined ? {} : { resolveEscalation: resolution }),
+    ...escalationHooks(() => runtime?.service),
+  });
+  const mounted = runtime;
+
+  ctx.provide("gethen", mounted.service);
+  const webServer = ctx.get?.("webServer") as DshWebServer | undefined;
+  if (webServer !== undefined && mounted.handleUpgrade !== undefined) {
+    const handleUpgrade = mounted.handleUpgrade;
+    const dispose = webServer.registerUpgrade({
+      path: WORKER_PATH,
+      handler: (request, socket, head) => handleUpgrade(request, socket, head),
+    });
+    ctx.effect?.(() => () => dispose());
+  } else if (webServer === undefined) {
+    ctx.logger?.error?.(
+      "gethen: ws config is set but the DSH webServer service is not mounted; " +
+        `${WORKER_PATH} is not exposed and no worker can connect`,
+    );
+  }
+
+  ctx.effect?.(() => () => {
+    void mounted.close().catch((error: unknown) => {
+      ctx.logger?.error?.(`gethen: closing the master runtime failed: ${messageOf(error)}`);
+    });
+  });
+  registerTools(ctx, {
+    service: mounted.service,
+    launch: () => mounted.launch,
+    workers: () => mounted.health().workers,
+  });
+}
+
+/**
+ * Mount the master service and its tools into DSH.
+ *
+ * `config.ws` selects the WS control plane; otherwise the legacy
+ * Remote/fake launch path is used exactly as before.
+ */
+export function apply(ctx: DshContext, config: GethenConfig = {}): void {
+  const dir =
+    config.dir ?? process.env.GETHEN_STATE_DIR ?? join(process.cwd(), ".gethen", "master");
+  const answer = config.escalation?.answer;
+  const resolveEscalation =
+    answer === undefined
+      ? undefined
+      : async (_record: EscalationRecord): Promise<EscalationResolutionInput> => ({
+          kind: "answer",
+          text: answer,
+        });
+
+  if (config.ws !== undefined) {
+    applyWs(ctx, { ...config, ws: config.ws }, dir, resolveEscalation);
+    return;
+  }
+
+  const clientService = config.remote?.clientService ?? "dshRemoteClient";
+  const devClient =
+    config.devRemote === true || process.env.GETHEN_DEV_REMOTE === "1"
+      ? createScriptedRemoteClient()
+      : undefined;
+  const remoteConfig =
+    config.remote ??
+    (devClient === undefined ? undefined : { hostId: "dev-local", workspaceId: "ws-dev" });
+  const useRemote = remoteConfig !== undefined;
+  const launchMode: "fake" | "remote" = useRemote ? "remote" : "fake";
+  let service: MasterService | undefined;
+  const hooks = escalationHooks(() => service);
+  const launch: LaunchPort =
+    useRemote && remoteConfig !== undefined
+      ? createRemoteLaunchPort({
+          ...remoteConfig,
+          clientProvider: () =>
+            devClient ?? (ctx.get?.(clientService) as RemoteClientLike | undefined),
+          ...(resolveEscalation === undefined ? {} : { resolveEscalation }),
+          ...hooks,
+        })
+      : createFakeLaunch();
+  service = createMasterService(dir, launch);
+  service.start();
+  ctx.provide("gethen", service);
+  ctx.effect?.(() => () => service.stop());
+  registerTools(ctx, {
+    service,
+    launch: () => launchMode,
+    workers: () => 0,
+  });
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 export { applyWorker } from "./worker-entry";

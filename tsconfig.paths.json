@@ -17,6 +17,9 @@
       "@gethen/benchmark-file": [
         "packages/benchmark-file/src/index.ts"
       ],
+      "@gethen/master-runtime": [
+        "packages/master-runtime/src/index.ts"
+      ],
       "@gethen/bridge-remote": [
         "packages/bridge-remote/src/index.ts"
       ],

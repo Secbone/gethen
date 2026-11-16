@@ -141,6 +141,27 @@ function withLaunchDefaults(
   };
 }
 
+/** Resolution text for auto-answered escalations; logs show it was not a person. */
+export const AUTO_ESCALATION_TEXT = "auto-answered by gethen serve --escalation auto";
+
+/**
+ * The `--escalation auto` policy: answer with the escalation's declared default
+ * option, else its first option, and mark the resolution text as automatic.
+ * `park` (the default) passes no resolver, so the launch reports `waiting`.
+ */
+export function autoEscalationResolver(): (
+  record: EscalationRecord,
+) => Promise<EscalationResolutionInput> {
+  return async (record) => {
+    const option = record.defaultOption ?? record.options[0]?.id;
+    return {
+      kind: "answer",
+      text: AUTO_ESCALATION_TEXT,
+      ...(option === undefined ? {} : { option }),
+    };
+  };
+}
+
 /**
  * Start the master control plane: sqlite + outbox, a small HTTP surface for
  * health and local dispatch, and (when worker tokens are configured) the
@@ -311,8 +332,10 @@ export async function serveCommand(argv: string[]): Promise<number> {
         `([{"workerId":"...","token":"..."}]); with them the ${PROTOCOL_NAME} endpoint is\n` +
         `served at ${WORKER_PATH}. Without them the fake launch is used.\n` +
         "--workspace is the worker-side path dispatched assignments run in\n" +
-        "(the engine has no per-assignment workspace yet). Worker escalations are\n" +
-        "parked for a person; this CLI has no interactive resolver yet.\n",
+        "(the engine has no per-assignment workspace yet).\n" +
+        "--escalation auto|park (default park): park waits for a person (the run\n" +
+        'reports "waiting"); auto answers the declared default/first option and\n' +
+        "marks the resolution text as auto-answered.\n",
     );
     return 0;
   }
@@ -320,6 +343,14 @@ export async function serveCommand(argv: string[]): Promise<number> {
     const index = argv.indexOf(name);
     return index >= 0 ? argv[index + 1] : undefined;
   };
+
+  const escalation = option("--escalation") ?? "park";
+  if (escalation !== "auto" && escalation !== "park") {
+    process.stderr.write(
+      `gethen serve: --escalation must be "auto" or "park", got "${escalation}"\n`,
+    );
+    return 1;
+  }
 
   let tokens: WorkerTokenRecord[] | undefined;
   const tokensPath = option("--tokens");
@@ -344,9 +375,13 @@ export async function serveCommand(argv: string[]): Promise<number> {
     ...(portValue === undefined ? {} : { port: Number(portValue) }),
     ...(workspace === undefined ? {} : { workspace }),
     ...(tokens === undefined ? {} : { tokens }),
+    ...(escalation === "auto" ? { resolveEscalation: autoEscalationResolver() } : {}),
   });
 
   process.stdout.write(`gethen master listening on http://${host}:${handle.port}\n`);
+  if (escalation === "auto") {
+    process.stdout.write("escalations: auto (answering the default/first option)\n");
+  }
   if (handle.launch === "ws") {
     process.stdout.write(
       `worker endpoint: ws://${host}:${handle.port}${WORKER_PATH} (launch: ws)\n`,

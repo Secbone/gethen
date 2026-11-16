@@ -41,8 +41,16 @@ import type {
   TicketAttention,
   TicketOutcome,
   Trigger,
+  WorkerRecord,
 } from "./model";
-import type { PendingEffect, PolicyPort, ReceiptSink, Repo, Repositories } from "./ports";
+import type {
+  PendingEffect,
+  PolicyPort,
+  ReceiptSink,
+  Repo,
+  Repositories,
+  WorkerRegistry,
+} from "./ports";
 
 /** Fails after this many failed attempts (`attempt` counts from 1). */
 export const MAX_EFFECT_ATTEMPTS = 5;
@@ -224,6 +232,15 @@ CREATE TABLE IF NOT EXISTS escalations (
   "at" TEXT NOT NULL,
   resolution_json TEXT
 );
+
+CREATE TABLE IF NOT EXISTS workers (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  token_hash TEXT NOT NULL UNIQUE,
+  created_at TEXT NOT NULL,
+  last_seen_at TEXT,
+  revoked_at TEXT
+);
 `;
 
 export interface StoredOperation {
@@ -242,8 +259,8 @@ export interface StoreOptions {
 type ColumnValue = string | number | null;
 type Row = Record<string, unknown>;
 
-/** SQLite persistence for every entity in `Repositories`. */
-export class SqliteStore implements Repositories, ReceiptSink {
+/** SQLite persistence for every entity in `Repositories`, plus receipts, escalations and workers. */
+export class SqliteStore implements Repositories, ReceiptSink, WorkerRegistry {
   readonly threads: Repo<Thread>;
   readonly triggers: Repo<Trigger>;
   readonly evals: Repo<Eval>;
@@ -651,6 +668,48 @@ export class SqliteStore implements Repositories, ReceiptSink {
     );
   }
 
+  // --------------------------------------------------------------------- workers
+
+  /** Upserts one Worker; `token_hash` is unique across all workers. */
+  saveWorker(record: WorkerRecord): void {
+    this.upsert("workers", {
+      id: record.id,
+      name: record.name,
+      token_hash: record.tokenHash,
+      created_at: rfc3339(record.createdAt),
+      last_seen_at: record.lastSeenAt === undefined ? null : rfc3339(record.lastSeenAt),
+      revoked_at: record.revokedAt === undefined ? null : rfc3339(record.revokedAt),
+    });
+  }
+
+  getWorker(id: string): WorkerRecord | undefined {
+    const row = this.one("SELECT * FROM workers WHERE id = ?", id);
+    return row === undefined ? undefined : mapWorker(row);
+  }
+
+  /** Every Worker, oldest first; `name` then `id` break ties at the same `createdAt`. */
+  listWorkers(): WorkerRecord[] {
+    return this.all("SELECT * FROM workers ORDER BY created_at, name, id").map((row) =>
+      mapWorker(row),
+    );
+  }
+
+  /** Finds a Worker by opaque hash; revoked records are returned for the caller to reject. */
+  findWorkerByTokenHash(hash: string): WorkerRecord | undefined {
+    const row = this.one("SELECT * FROM workers WHERE token_hash = ?", hash);
+    return row === undefined ? undefined : mapWorker(row);
+  }
+
+  /** Records activity; unknown ids are ignored so stale tokens cannot crash intake. */
+  touchWorkerSeen(id: string, at: string): void {
+    this.run("UPDATE workers SET last_seen_at = ? WHERE id = ?", rfc3339(at), id);
+  }
+
+  /** Marks a Worker revoked; unknown ids are ignored. */
+  revokeWorker(id: string, at: string): void {
+    this.run("UPDATE workers SET revoked_at = ? WHERE id = ?", rfc3339(at), id);
+  }
+
   // ------------------------------------------------------------------------ close
 
   close(): void {
@@ -943,6 +1002,20 @@ function mapEscalation(row: Row): EscalationRecord {
     "resolution_json",
   );
   if (resolution !== undefined) value.resolution = resolution;
+  return value;
+}
+
+function mapWorker(row: Row): WorkerRecord {
+  const value: WorkerRecord = {
+    id: text(row, "id"),
+    name: text(row, "name"),
+    tokenHash: text(row, "token_hash"),
+    createdAt: text(row, "created_at"),
+  };
+  const lastSeenAt = optionalText(row, "last_seen_at");
+  if (lastSeenAt !== undefined) value.lastSeenAt = lastSeenAt;
+  const revokedAt = optionalText(row, "revoked_at");
+  if (revokedAt !== undefined) value.revokedAt = revokedAt;
   return value;
 }
 

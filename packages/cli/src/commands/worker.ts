@@ -3,6 +3,7 @@ import { hostname } from "node:os";
 import { createSdkExecutor } from "@gethen/executor-sdk";
 import { createWorkerAgent, type WorkerAgent } from "@gethen/worker-agent";
 import { WORKER_PATH } from "./serve";
+import { workerTokenCommand } from "./worker-token";
 
 export interface WorkerConfig {
   masterUrl: string;
@@ -67,6 +68,8 @@ export function parseWorkerConfig(argv: string[], options: WorkerConfigOptions =
 
   const flagWorkspaces = flagValues(argv, "--workspace");
   const workspaces = flagWorkspaces.length > 0 ? flagWorkspaces : (file.workspaces ?? []);
+  const flagDshArgs = dshArgsFromFlags(argv);
+  const dshArgs = flagDshArgs.length > 0 ? flagDshArgs : file.dshArgs;
   const quota = positiveInteger(flagValue(argv, "--quota") ?? file.quota, "quota");
   const machine = flagValue(argv, "--machine") ?? file.machine;
 
@@ -80,7 +83,7 @@ export function parseWorkerConfig(argv: string[], options: WorkerConfigOptions =
     ...(machine === undefined ? {} : { machine }),
     ...(quota === undefined ? {} : { quota }),
     ...(file.dshCommand === undefined ? {} : { dshCommand: file.dshCommand }),
-    ...(file.dshArgs === undefined ? {} : { dshArgs: file.dshArgs }),
+    ...(dshArgs === undefined ? {} : { dshArgs }),
   };
 }
 
@@ -111,6 +114,11 @@ export function normalizeMasterUrl(input: string): string {
 
 /** `gethen worker --config <file>` (or simple flags): run the outbound worker daemon. */
 export async function workerCommand(argv: string[]): Promise<number> {
+  // `add|ls|revoke` manage worker tokens; without a subcommand, the flags below
+  // start the daemon (the pre-subcommand behavior stays unchanged).
+  if (argv[0] === "add" || argv[0] === "ls" || argv[0] === "revoke") {
+    return workerTokenCommand(argv);
+  }
   if (argv.includes("-h") || argv.includes("--help")) {
     process.stdout.write(WORKER_USAGE);
     return 0;
@@ -155,12 +163,26 @@ export async function workerCommand(argv: string[]): Promise<number> {
   return 0;
 }
 
-const WORKER_USAGE = `Usage: gethen worker --config <file>
-   or: gethen worker --master-url <url> --token <token> --worker-id <id> \\
-         --provider <provider> --model <model> [--workspace <dir>]...
+const WORKER_USAGE = `Usage:
+  gethen worker add --worker-id <id> [--name <name>] [--tokens-file <file>] [--force]
+  gethen worker ls [--json]
+  gethen worker revoke --id <id>
 
-Connects out to a master and executes dispatched assignments through the DSH
-SDK executor. A config file is JSON:
+  gethen worker --config <file>
+  gethen worker --master-url <url> --token <token> --worker-id <id> \\
+                --provider <provider> --model <model> [--workspace <dir>]...
+                [--dsh-args <arg>]...
+
+Without a subcommand the worker daemon starts and connects out to a master; the
+daemon executes dispatched assignments through the DSH SDK executor.
+add/ls/revoke manage worker tokens persisted in the master sqlite (--db,
+default $GETHEN_STATE_DIR/master.sqlite or ~/.gethen/master.sqlite).
+
+--dsh-args adds arguments for "dsh --profile sdk" and is repeatable or
+comma-separated, e.g.
+  --dsh-args "--patch,/tmp/overlay.yml"   or
+  --dsh-args --patch --dsh-args /tmp/overlay.yml
+A daemon config file is JSON:
   { "masterUrl": "wss://master/gethen/worker", "token": "...", "workerId": "...",
     "provider": "...", "model": "...", "workspaces": ["/srv/project"],
     "machine": "...", "quota": 1, "dshCommand": "dsh", "dshArgs": ["--profile", "sdk"] }
@@ -241,6 +263,22 @@ function flagValues(argv: string[], name: string): string[] {
     }
   }
   return values;
+}
+
+/**
+ * `--dsh-args` arguments for the SDK runtime. Each occurrence may carry one
+ * argument or a comma-separated list, so both `--dsh-args --profile --dsh-args
+ * sdk` and `--dsh-args "--profile,sdk,--patch,/tmp/overlay.yml"` work.
+ */
+function dshArgsFromFlags(argv: string[]): string[] {
+  const args: string[] = [];
+  for (const value of flagValues(argv, "--dsh-args")) {
+    for (const part of value.split(",")) {
+      const trimmed = part.trim();
+      if (trimmed.length > 0) args.push(trimmed);
+    }
+  }
+  return args;
 }
 
 function requireString(value: string | undefined, label: string, missing: string[]): string {

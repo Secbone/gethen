@@ -14,6 +14,7 @@
   "dependencies": {
     "@gethen/bridge-remote": "workspace:*",
     "@gethen/master": "workspace:*",
+    "@gethen/master-runtime": "workspace:*",
     "@gethen/worker": "workspace:*"
   },
   "description": "Cordis plugin that mounts the self-built Gethen master inside DeepSeek Harness"

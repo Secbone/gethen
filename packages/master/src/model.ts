@@ -303,3 +303,17 @@ export interface EscalationResolutionInput {
   text: string;
   option?: string;
 }
+
+/**
+ * A Worker identity persisted by the master so the gateway can authenticate
+ * tokens and the CLI can list/revoke them. `tokenHash` is opaque to the master:
+ * the transport hashes tokens, the master only stores and matches the hash.
+ */
+export interface WorkerRecord {
+  id: string;
+  name: string;
+  tokenHash: string;
+  createdAt: string;
+  lastSeenAt?: string;
+  revokedAt?: string;
+}

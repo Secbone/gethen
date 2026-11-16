@@ -17,6 +17,7 @@ import type {
   Thread,
   Ticket,
   Trigger,
+  WorkerRecord,
 } from "./model";
 import { OutboxRunner } from "./outbox";
 import { DEFAULT_POLICY, SqliteStore } from "./store";
@@ -609,5 +610,105 @@ describe("SqliteStore escalations", () => {
 
     const reopened = openStore(path);
     expect(reopened.getEscalation("esc-1")).toEqual(escalation);
+  });
+});
+
+describe("SqliteStore workers", () => {
+  const worker: WorkerRecord = {
+    id: "wrk-1",
+    name: "worker-one",
+    tokenHash: "sha256:token-one",
+    createdAt: AT,
+  };
+
+  it("persists a worker and finds it by id and token hash", () => {
+    const store = openStore();
+    store.saveWorker(worker);
+    expect(store.getWorker("wrk-1")).toEqual(worker);
+    expect(store.findWorkerByTokenHash("sha256:token-one")).toEqual(worker);
+    expect(store.findWorkerByTokenHash("sha256:missing")).toBeUndefined();
+    expect(store.getWorker("wrk-missing")).toBeUndefined();
+  });
+
+  it("lists workers ordered by createdAt and then name", () => {
+    const store = openStore();
+    store.saveWorker({ id: "wrk-late", name: "aaa", tokenHash: "sha256:late", createdAt: LATER });
+    store.saveWorker({ id: "wrk-beta", name: "beta", tokenHash: "sha256:beta", createdAt: AT });
+    store.saveWorker({ id: "wrk-alpha", name: "alpha", tokenHash: "sha256:alpha", createdAt: AT });
+    expect(store.listWorkers().map((item) => item.id)).toEqual([
+      "wrk-alpha",
+      "wrk-beta",
+      "wrk-late",
+    ]);
+  });
+
+  it("upserts by id instead of duplicating rows", () => {
+    const store = openStore();
+    store.saveWorker(worker);
+    const updated: WorkerRecord = { ...worker, name: "renamed", lastSeenAt: LATER };
+    store.saveWorker(updated);
+    expect(store.listWorkers()).toEqual([updated]);
+    expect(store.getWorker("wrk-1")).toEqual(updated);
+  });
+
+  it("rejects a token hash already owned by another worker", () => {
+    const store = openStore();
+    store.saveWorker(worker);
+    expect(() =>
+      store.saveWorker({
+        id: "wrk-2",
+        name: "worker-two",
+        tokenHash: worker.tokenHash,
+        createdAt: AT,
+      }),
+    ).toThrow(/UNIQUE/);
+    expect(store.listWorkers()).toEqual([worker]);
+  });
+
+  it("touches last_seen_at and ignores unknown ids", () => {
+    const store = openStore();
+    store.saveWorker(worker);
+    store.touchWorkerSeen("wrk-1", LATER);
+    expect(store.getWorker("wrk-1")).toEqual({ ...worker, lastSeenAt: LATER });
+    expect(() => store.touchWorkerSeen("wrk-missing", LATER)).not.toThrow();
+    expect(store.listWorkers()).toHaveLength(1);
+    expect(() => store.touchWorkerSeen("wrk-1", "not-a-time")).toThrow(/RFC 3339/);
+  });
+
+  it("revokes a worker but still finds it by token hash", () => {
+    const store = openStore();
+    store.saveWorker(worker);
+    store.revokeWorker("wrk-1", LATER);
+    const found = defined(store.findWorkerByTokenHash(worker.tokenHash));
+    expect(found.revokedAt).toBe(LATER);
+    expect(found).toEqual({ ...worker, revokedAt: LATER });
+    expect(found).not.toHaveProperty("lastSeenAt");
+    expect(() => store.revokeWorker("wrk-missing", LATER)).not.toThrow();
+  });
+
+  it("keeps workers across reopen and accepts an existing schema", () => {
+    const path = tempPath("workers.db");
+    const first = openStore(path);
+    first.saveWorker(worker);
+    first.close();
+
+    const reopened = openStore(path);
+    expect(reopened.getWorker("wrk-1")).toEqual(worker);
+    reopened.saveWorker({
+      id: "wrk-2",
+      name: "worker-two",
+      tokenHash: "sha256:token-two",
+      createdAt: LATER,
+    });
+    expect(reopened.listWorkers()).toHaveLength(2);
+    reopened.close();
+
+    // Re-running the schema on an existing database is a no-op.
+    const third = new SqliteStore(path);
+    try {
+      expect(third.listWorkers().map((item) => item.id)).toEqual(["wrk-1", "wrk-2"]);
+    } finally {
+      third.close();
+    }
   });
 });

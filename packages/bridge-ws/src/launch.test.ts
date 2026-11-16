@@ -213,6 +213,117 @@ describe("createWsLaunchPort", () => {
     await expect(bridge.launchPort.launch(request)).rejects.toThrow(/WS_WORKER_UNAVAILABLE/);
   });
 
+  it("lets selectWorker choose the worker and passes it the LaunchRequest", async () => {
+    const gateway = fakeGateway(["worker-a", "worker-b"]);
+    const selectWorker = vi.fn((received: LaunchRequest) => {
+      expect(received).toBe(request);
+      return { workerId: "worker-b" };
+    });
+    const bridge = createWsLaunchPort({
+      gateway,
+      workerId: "worker-a",
+      now: () => NOW,
+      selectWorker,
+    });
+
+    const resultPromise = bridge.launchPort.launch(request);
+    await flush();
+
+    expect(selectWorker).toHaveBeenCalledTimes(1);
+    expect(selectWorker).toHaveBeenCalledWith(request);
+    expect(gateway.dispatched.at(0)?.workerId).toBe("worker-b");
+
+    bridge.handleFrame(conn, reportFrame("a1"));
+    const result = await resultPromise;
+    expect(result.report).toMatchObject({ kind: "ready" });
+    expect(result.receipt.worker).toBe("worker-b");
+  });
+
+  it("awaits an asynchronous selectWorker before dispatching", async () => {
+    const gateway = fakeGateway(["worker-a", "worker-b"]);
+    const seen: string[] = [];
+    const bridge = createWsLaunchPort({
+      gateway,
+      now: () => NOW,
+      selectWorker: async (received) => {
+        seen.push(received.assignment.id);
+        return { workerId: "worker-b" };
+      },
+    });
+
+    const resultPromise = bridge.launchPort.launch(request);
+    // The dispatch waits for the asynchronous choice.
+    expect(gateway.dispatched).toHaveLength(0);
+    await flush();
+
+    expect(seen).toEqual(["a1"]);
+    expect(gateway.dispatched.at(0)?.workerId).toBe("worker-b");
+
+    bridge.handleFrame(conn, reportFrame("a1"));
+    await expect(resultPromise).resolves.toMatchObject({ receipt: { worker: "worker-b" } });
+  });
+
+  it("rejects with WS_NO_WORKER when selectWorker finds no worker", async () => {
+    const gateway = fakeGateway(["worker-a"]);
+    const bridge = createWsLaunchPort({ gateway, selectWorker: () => undefined });
+
+    const failure = await bridge.launchPort.launch(request).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    expect(failure).toBeInstanceOf(WsLaunchError);
+    expect((failure as WsLaunchError).code).toBe("WS_NO_WORKER");
+    expect(gateway.dispatched).toHaveLength(0);
+  });
+
+  it("rejects with WS_WORKER_UNAVAILABLE when selectWorker picks a disconnected worker", async () => {
+    const gateway = fakeGateway(["worker-a"]);
+    const bridge = createWsLaunchPort({
+      gateway,
+      selectWorker: () => ({ workerId: "worker-gone" }),
+    });
+
+    const failure = await bridge.launchPort.launch(request).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    expect(failure).toBeInstanceOf(WsLaunchError);
+    expect((failure as WsLaunchError).code).toBe("WS_WORKER_UNAVAILABLE");
+    expect((failure as WsLaunchError).message).toContain("worker-gone");
+    expect(gateway.dispatched).toHaveLength(0);
+  });
+
+  it("wraps a throwing or rejecting selectWorker as WS_WORKER_UNAVAILABLE", async () => {
+    const gateway = fakeGateway();
+    const throwing = createWsLaunchPort({
+      gateway,
+      selectWorker: () => {
+        throw new Error("fleet down");
+      },
+    });
+    const rejecting = createWsLaunchPort({
+      gateway,
+      selectWorker: async () => {
+        throw new Error("fleet timeout");
+      },
+    });
+
+    for (const [bridge, cause] of [
+      [throwing, "fleet down"],
+      [rejecting, "fleet timeout"],
+    ] as const) {
+      const failure = await bridge.launchPort.launch(request).then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+      expect(failure).toBeInstanceOf(WsLaunchError);
+      expect((failure as WsLaunchError).code).toBe("WS_WORKER_UNAVAILABLE");
+      expect((failure as WsLaunchError).message).toContain(cause);
+      expect((failure as WsLaunchError).message).toContain("a1");
+    }
+    expect(gateway.dispatched).toHaveLength(0);
+  });
+
   it("closes the escalation loop: answer, resolution frame, then report", async () => {
     const statuses: string[] = [];
     const resolveEscalation = vi.fn(async () => ({

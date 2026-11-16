@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { SqliteStore, type TicketStage, ticketStage } from "@gethen/master";
 import { defaultMasterDbPath } from "../paths";
+import { formatTable } from "../table";
 
 /** How many recent tickets `gethen status` reports. */
 const RECENT_LIMIT = 10;
@@ -141,16 +142,7 @@ function renderText(summary: StatusSummary, write: (line: string) => void): void
     String(ticket.assignments.length),
     ticket.openedAt,
   ]);
-  const widths = headers.map((header, column) =>
-    Math.max(header.length, ...rows.map((row) => (row[column] ?? "").length)),
-  );
-  const format = (cells: readonly string[]): string =>
-    cells
-      .map((cell, column) => cell.padEnd(widths[column] ?? 0))
-      .join("  ")
-      .trimEnd();
-  write(format(headers));
-  for (const row of rows) write(format(row));
+  for (const line of formatTable(headers, rows)) write(line);
   if (summary.tickets > summary.recent.length) {
     write(`(${summary.recent.length} of ${summary.tickets} tickets shown)`);
   }
