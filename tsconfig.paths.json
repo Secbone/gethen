@@ -5,17 +5,11 @@
       "@gethen/dsh-client/package.json": [
         "packages/dsh-client/package.json"
       ],
-      "@gethen/memory/write-rules": [
-        "packages/memory/src/write-rules.mjs"
-      ],
       "@gethen/dsh-client/client": [
         "packages/dsh-client/client.js"
       ],
       "@gethen/storage-file/lock": [
         "packages/storage-file/src/lock.mjs"
-      ],
-      "@gethen/memory-evolution": [
-        "packages/memory-evolution/src/index.ts"
       ],
       "@gethen/benchmark-file": [
         "packages/benchmark-file/src/index.ts"
@@ -41,26 +35,11 @@
       "@gethen/transport-pi": [
         "packages/transport-pi/src/index.ts"
       ],
-      "@gethen/memory-file": [
-        "packages/memory-file/src/index.ts"
-      ],
-      "@gethen/skills-file": [
-        "packages/skills-file/src/index.ts"
-      ],
       "@gethen/dsh-client": [
         "packages/dsh-client/index.js"
       ],
       "@gethen/evaluation": [
         "packages/evaluation/src/index.ts"
-      ],
-      "@gethen/memory-mcp": [
-        "packages/memory-mcp/src/index.ts"
-      ],
-      "@gethen/skills-mcp": [
-        "packages/skills-mcp/src/index.ts"
-      ],
-      "@gethen/assistant": [
-        "packages/assistant/src/index.ts"
       ],
       "@gethen/benchmark": [
         "packages/benchmark/src/index.ts"
@@ -92,17 +71,8 @@
       "@gethen/kernel": [
         "packages/kernel/src/index.ts"
       ],
-      "@gethen/memory": [
-        "packages/memory/src/index.ts"
-      ],
-      "@gethen/models": [
-        "packages/models/src/index.ts"
-      ],
       "@gethen/router": [
         "packages/router/src/index.ts"
-      ],
-      "@gethen/skills": [
-        "packages/skills/src/index.ts"
       ],
       "@gethen/worker": [
         "packages/worker/src/index.ts"
@@ -115,9 +85,6 @@
       ],
       "@gethen/core": [
         "packages/core/src/index.ts"
-      ],
-      "@gethen/host": [
-        "packages/host/src/index.ts"
       ],
       "@gethen/pack": [
         "packages/pack/src/index.ts"

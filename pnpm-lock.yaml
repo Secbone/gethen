@@ -27,18 +27,6 @@ importers:
         specifier: ^3.2.4
         version: 3.2.7(@types/node@24.19.2)(tsx@4.23.15)
 
-  packages/assistant:
-    dependencies:
-      '@gethen/core':
-        specifier: workspace:*
-        version: link:../core
-      '@gethen/memory':
-        specifier: workspace:*
-        version: link:../memory
-      '@gethen/session':
-        specifier: workspace:*
-        version: link:../session
-
   packages/benchmark: {}
 
   packages/benchmark-file:
@@ -56,53 +44,7 @@ importers:
         specifier: ^1.32.1
         version: 1.32.1(zod@4.6.7)
 
-  packages/cli:
-    dependencies:
-      '@gethen/assistant':
-        specifier: workspace:*
-        version: link:../assistant
-      '@gethen/benchmark':
-        specifier: workspace:*
-        version: link:../benchmark
-      '@gethen/benchmark-file':
-        specifier: workspace:*
-        version: link:../benchmark-file
-      '@gethen/core':
-        specifier: workspace:*
-        version: link:../core
-      '@gethen/evaluation':
-        specifier: workspace:*
-        version: link:../evaluation
-      '@gethen/evolution':
-        specifier: workspace:*
-        version: link:../evolution
-      '@gethen/harnesses':
-        specifier: workspace:*
-        version: link:../harnesses
-      '@gethen/host':
-        specifier: workspace:*
-        version: link:../host
-      '@gethen/memory':
-        specifier: workspace:*
-        version: link:../memory
-      '@gethen/memory-evolution':
-        specifier: workspace:*
-        version: link:../memory-evolution
-      '@gethen/memory-file':
-        specifier: workspace:*
-        version: link:../memory-file
-      '@gethen/observability':
-        specifier: workspace:*
-        version: link:../observability
-      '@gethen/session':
-        specifier: workspace:*
-        version: link:../session
-      '@gethen/transport-pi':
-        specifier: workspace:*
-        version: link:../transport-pi
-      '@gethen/workspace':
-        specifier: workspace:*
-        version: link:../workspace
+  packages/cli: {}
 
   packages/core: {}
 
@@ -206,96 +148,11 @@ importers:
         specifier: workspace:*
         version: link:../transport-pi
 
-  packages/host:
-    dependencies:
-      '@gethen/assistant':
-        specifier: workspace:*
-        version: link:../assistant
-      '@gethen/core':
-        specifier: workspace:*
-        version: link:../core
-      '@gethen/memory':
-        specifier: workspace:*
-        version: link:../memory
-      '@gethen/memory-file':
-        specifier: workspace:*
-        version: link:../memory-file
-      '@gethen/memory-mcp':
-        specifier: workspace:*
-        version: link:../memory-mcp
-      '@gethen/observability':
-        specifier: workspace:*
-        version: link:../observability
-      '@gethen/session':
-        specifier: workspace:*
-        version: link:../session
-      '@gethen/skills-mcp':
-        specifier: workspace:*
-        version: link:../skills-mcp
-
   packages/kernel:
     dependencies:
       '@gethen/core':
         specifier: workspace:*
         version: link:../core
-
-  packages/memory: {}
-
-  packages/memory-evolution:
-    dependencies:
-      '@gethen/core':
-        specifier: workspace:*
-        version: link:../core
-      '@gethen/evolution':
-        specifier: workspace:*
-        version: link:../evolution
-      '@gethen/memory':
-        specifier: workspace:*
-        version: link:../memory
-    devDependencies:
-      '@gethen/kernel':
-        specifier: workspace:*
-        version: link:../kernel
-
-  packages/memory-file:
-    dependencies:
-      '@gethen/memory':
-        specifier: workspace:*
-        version: link:../memory
-      '@gethen/storage-file':
-        specifier: workspace:*
-        version: link:../storage-file
-
-  packages/memory-mcp:
-    dependencies:
-      '@gethen/core':
-        specifier: workspace:*
-        version: link:../core
-      '@gethen/memory':
-        specifier: workspace:*
-        version: link:../memory
-      '@gethen/memory-file':
-        specifier: workspace:*
-        version: link:../memory-file
-      '@modelcontextprotocol/sdk':
-        specifier: ^1.32.1
-        version: 1.32.1(zod@4.6.7)
-      tsx:
-        specifier: ^4.20.6
-        version: 4.23.15
-      zod:
-        specifier: ^4.6.7
-        version: 4.6.7
-
-  packages/models:
-    dependencies:
-      '@gethen/core':
-        specifier: workspace:*
-        version: link:../core
-    devDependencies:
-      '@gethen/kernel':
-        specifier: workspace:*
-        version: link:../kernel
 
   packages/observability:
     dependencies:
@@ -335,38 +192,6 @@ importers:
       '@gethen/core':
         specifier: workspace:*
         version: link:../core
-
-  packages/skills: {}
-
-  packages/skills-file:
-    dependencies:
-      '@gethen/skills':
-        specifier: workspace:*
-        version: link:../skills
-      '@gethen/storage-file':
-        specifier: workspace:*
-        version: link:../storage-file
-
-  packages/skills-mcp:
-    dependencies:
-      '@gethen/core':
-        specifier: workspace:*
-        version: link:../core
-      '@gethen/skills':
-        specifier: workspace:*
-        version: link:../skills
-      '@gethen/skills-file':
-        specifier: workspace:*
-        version: link:../skills-file
-      '@modelcontextprotocol/sdk':
-        specifier: ^1.32.1
-        version: 1.32.1(zod@4.6.7)
-      tsx:
-        specifier: ^4.20.6
-        version: 4.23.15
-      zod:
-        specifier: ^4.6.7
-        version: 4.6.7
 
   packages/source-github:
     dependencies:

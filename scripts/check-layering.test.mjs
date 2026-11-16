@@ -42,9 +42,9 @@ test("accepts declared public dependencies and ignores import-like comments", (t
 test("rejects undeclared workspace imports and forbidden dependency directions", (t) => {
   const f = fixture(t);
   f.pkg("core");
-  f.pkg("memory", 'import "@gethen/core";');
+  f.pkg("benchmark", 'import "@gethen/core";');
   assert.match(f.check().join("\n"), /not declared/);
-  f.pkg("memory", 'import "@gethen/core";', { "@gethen/core": "workspace:*" });
+  f.pkg("benchmark", 'import "@gethen/core";', { "@gethen/core": "workspace:*" });
   assert.match(f.check().join("\n"), /not allowed/);
 });
 
@@ -69,28 +69,21 @@ test("finds cycles rather than accepting locally declared dependency edges", (t)
 test("pure packages cannot import Node via static, dynamic, require or import-type syntax", (t) => {
   const f = fixture(t);
   f.pkg(
-    "memory",
+    "core",
     'import "fs"; import("node:path"); require("node:crypto"); type X = import("node:fs").Stats;',
   );
   assert.equal(f.check().filter((v) => v.includes("must stay pure")).length, 4);
 });
 
-test("keeps test-only dependencies out of production and detects unused declarations", (t) => {
+test("validates test-only dependencies and detects unused declarations", (t) => {
   const f = fixture(t);
   f.pkg("core");
   f.pkg("kernel", 'import "@gethen/core";', { "@gethen/core": "workspace:*" });
-  const dir = f.pkg(
-    "models",
-    'import "@gethen/core";',
-    { "@gethen/core": "workspace:*" },
-    { "@gethen/kernel": "workspace:*" },
-  );
-  writeFileSync(join(dir, "artifact.test.ts"), 'import "@gethen/kernel"; import "node:fs";');
-  assert.deepEqual(f.check(), []);
-  writeFileSync(join(dir, "index.ts"), 'import "@gethen/core"; import "@gethen/kernel";');
-  assert.match(f.check().join("\n"), /declared only for tests/);
-  f.pkg("models", "export {};", { "@gethen/core": "workspace:*" });
-  assert.match(f.check().join("\n"), /stale dependency/);
+  const dir = f.pkg("benchmark", "export {};", {}, { "@gethen/kernel": "workspace:*" });
+  writeFileSync(join(dir, "artifact.test.ts"), 'import "@gethen/kernel";');
+  assert.match(f.check().join("\n"), /test dependency @gethen\/kernel is not allowed/);
+  f.pkg("benchmark", "export {};", { "@gethen/core": "workspace:*" });
+  assert.match(f.check().join("\n"), /stale dependency @gethen\/core/);
 });
 
 test("rejects imports of unknown packages and broken export targets", (t) => {

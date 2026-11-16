@@ -11,24 +11,8 @@
   "exports": {
     ".": "./src/index.ts"
   },
-  "dependencies": {
-    "@gethen/benchmark": "workspace:*",
-    "@gethen/benchmark-file": "workspace:*",
-    "@gethen/assistant": "workspace:*",
-    "@gethen/core": "workspace:*",
-    "@gethen/evaluation": "workspace:*",
-    "@gethen/evolution": "workspace:*",
-    "@gethen/memory": "workspace:*",
-    "@gethen/memory-evolution": "workspace:*",
-    "@gethen/memory-file": "workspace:*",
-    "@gethen/observability": "workspace:*",
-    "@gethen/transport-pi": "workspace:*",
-    "@gethen/workspace": "workspace:*",
-    "@gethen/session": "workspace:*",
-    "@gethen/host": "workspace:*",
-    "@gethen/harnesses": "workspace:*"
-  },
-  "description": "Command parsing, terminal interaction and engine assembly",
+  "dependencies": {},
+  "description": "Minimal operations CLI: gethen init, doctor, help",
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json"
   }

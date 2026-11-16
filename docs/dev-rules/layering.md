@@ -123,3 +123,18 @@ pnpm check 同时运行 TypeScript 行为测试和 PAST Python 审计测试。�
 - `@gethen/router`：硬过滤 + 加权打分路由、阻塞升级的判定策略、Assignment 生命周期（`running → waiting → running → ended`，另有 `parked`）。纯函数，无 IO。
 
 未经 ADR-0008 修订不得在 `router` 中引入 DSH 类型或直接发网络请求；引擎与传输的边界见该 ADR 第 3、4 条。
+
+## 2026-11-16 P0 清场
+
+按 [重构计划](../refactor-plan-gethen.md) 的 P0，删除了旧 CLI runtime 的 10 个包
+（`assistant`、`host`、`memory`、`memory-file`、`memory-mcp`、`memory-evolution`、
+`skills`、`skills-file`、`skills-mcp`、`models`）、`experiments/` 与全部 `.ts` 探针
+脚本；`cli` 改为只提供 `init`/`doctor`/`help` 的运维入口且不再依赖任何 workspace 包。
+当前 26 个包，`pnpm check` 通过（378 项行为测试）。
+
+尚未删除、将在后续阶段并入或移出的包：`domain`（→ 自研 master 的类型）、
+`effects`/`store`/`storage-file`（→ master 的持久化与 outbox）、`source-github`
+（→ master 的 sources）、`observability`/`evolution`（→ `evidence`）、
+`transport-pi`/`transport-acp`/`harnesses`（→ `bridge-remote`/`worker`）、
+`benchmark`/`benchmark-file`/`evaluation`/`workspace`（→ P7 移出产品）。
+最终目标为 14 个产品包，见重构计划 §3.1。
