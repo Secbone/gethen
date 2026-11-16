@@ -261,3 +261,24 @@ legacy 保留一个版本周期。
 | C4-a harness 端口 | ✅ | `@gethen/harness`：HarnessExecutor/HarnessTask/Sink/Report 纯端口，12 tests |
 | C3 link/agent/bridge | 🚧 | `@gethen/mailbox-link`、`@gethen/agent`、`@gethen/bridge-mailbox` 并行开发中 |
 | 集成 | ⏳ | `master-runtime` 增加 `comms.mode=legacy\|mailbox`，CLI/DSH 开关，fake-harness e2e |
+
+### 2026-11-17 更新：C3 完成
+
+| 阶段 | 状态 | 产出 |
+|---|---|---|
+| C3-a mailbox-link | ✅ | L2 mailbox over L1 transport（server/client、subscribe/ack/lease、request/reply、attach 重连），20 tests |
+| C3-b agent consumer | ✅ | Worker 侧 mailbox consumer + HarnessExecutor（assign/ask/answer/result/cancel、续租、quota），18 tests |
+| C3-c bridge-mailbox | ✅ | Master LaunchPort over mailbox（assign/result、ask/answer、parked、timeout、receipt），15 tests |
+| C3-d master-runtime | ✅ | `comms.mode=legacy\|mailbox`：sqlite mailbox store + ws transport server + 每 session mailbox link + bridge；health/close 扩展，11 loopback tests |
+| C3-e CLI | ✅ | `gethen serve --comms mailbox`、`gethen worker --comms mailbox`、`pnpm verify:mailbox` |
+| C4-b harness adapter | ✅ | `executor-sdk` 提供 `createSdkHarnessExecutor`（DSH 作为 harness 实现） |
+
+剩余：C5（agent 间消息/人工 mailbox/面板时间线/DLQ 运维）、C6（ssh-stdio 传输 adapter 验证可替换性）。
+
+本地验证：
+
+```bash
+pnpm verify:ws        # legacy WS 栈
+pnpm verify:mailbox   # L1 transport + L2 mailbox 栈（fake harness，不花模型钱）
+GETHEN_E2E=1 node scripts/e2e-sdk.mjs   # legacy + 真实 dsh
+```
