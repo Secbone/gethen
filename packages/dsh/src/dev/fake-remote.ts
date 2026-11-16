@@ -18,6 +18,7 @@ export function createScriptedRemoteClient(): RemoteClientLike {
       // logging is best-effort
     }
   };
+  const runs = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   const reads = new Map<string, number>();
   log("scripted client created");
 
@@ -31,7 +32,7 @@ export function createScriptedRemoteClient(): RemoteClientLike {
     async runSessionTool(operation: string, args: unknown): Promise<unknown> {
       log(operation);
       if (operation === "remote_create_session") {
-        const sessionId = `sess-dev-${reads.size + 1}`;
+        const sessionId = `sess-dev-${runs}-${reads.size + 1}`;
         reads.set(sessionId, 0);
         return { sessionId };
       }
