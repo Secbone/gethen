@@ -164,7 +164,7 @@ Environment=GETHEN_DSH=/usr/local/bin/dsh
 
 | # | 决策 | 建议 |
 |---|---|---|
-| D1 | Worker 执行驱动方式 | 先"DSH 内 agent 插件 + 本地 UDS 代理"（复用 worker.js，改动小）；后续需要更强隔离再换 DSH SDK/stdio 子进程 |
+| D1 | Worker 执行驱动方式 | **修订（见调研笔记）**：daemon spawn `dsh --profile sdk`，用 SDK JSON-RPC（session/prompt、session/event、approval/request、user-question/ask）驱动会话；`worker.js` 工具保留为兼容路径 |
 | D2 | Master 独立进程的 HTTP/WS 实现 | 独立形态用 `ws` 库 + `node:http`；插件形态复用 DSH webServer；两者共用 `transport-ws` 协议层 |
 | D3 | 人工旁观 | Worker DSH web 绑 loopback + SSH/VPN；Master 提供只读时间线，不做远程交互 UI |
 | D4 | dsh-remote 去留 | 保留为可选适配器；R4 验证通过后再决定下线 |

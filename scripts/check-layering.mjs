@@ -38,6 +38,21 @@ export const ALLOWED_WORKSPACE_DEPS = {
 };
 
 const TEST_ONLY_DEPS = {};
+/** Packages that must not depend on DSH (or other hosts) at all. */
+export const CONTROL_PLANE_PACKAGES = new Set([
+  "@gethen/core",
+  "@gethen/master",
+  "@gethen/router",
+  "@gethen/fleet",
+  "@gethen/evidence",
+  "@gethen/pack",
+  "@gethen/evolve",
+  "@gethen/memory-client",
+  "@gethen/worker-protocol",
+  "@gethen/worker-bridge",
+  "@gethen/panel",
+]);
+
 const PURE_PACKAGES = new Set([
   "@gethen/evidence",
   "@gethen/benchmark",
@@ -158,6 +173,9 @@ export function checkLayering(root, options = {}) {
         }
         if (PURE_PACKAGES.has(name) && !test && isBuiltin(alias)) {
           violations.push(`${label}: ${name} must stay pure; cannot import ${alias}`);
+        }
+        if (CONTROL_PLANE_PACKAGES.has(name) && alias.startsWith("@deepseek-ai/")) {
+          violations.push(`${label}: ${name} must not import DSH (${alias})`);
         }
         if (!alias.startsWith("@gethen/")) continue;
         const dependency = names.find(
