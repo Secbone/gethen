@@ -26,6 +26,9 @@
       "@gethen/core/testing": [
         "packages/core/src/testing/contract.ts"
       ],
+      "@gethen/executor-sdk": [
+        "packages/executor-sdk/src/index.ts"
+      ],
       "@gethen/storage-file": [
         "packages/storage-file/src/index.ts"
       ],
@@ -46,6 +49,9 @@
       ],
       "@gethen/benchmark": [
         "packages/benchmark/src/index.ts"
+      ],
+      "@gethen/bridge-ws": [
+        "packages/bridge-ws/src/index.ts"
       ],
       "@gethen/evolution": [
         "packages/evolution/src/index.ts"

@@ -56,6 +56,18 @@ importers:
         specifier: workspace:*
         version: link:../worker-bridge
 
+  packages/bridge-ws:
+    dependencies:
+      '@gethen/master':
+        specifier: workspace:*
+        version: link:../master
+      '@gethen/transport-ws':
+        specifier: workspace:*
+        version: link:../transport-ws
+      '@gethen/worker-protocol':
+        specifier: workspace:*
+        version: link:../worker-protocol
+
   packages/cli:
     dependencies:
       '@gethen/master':
@@ -126,6 +138,18 @@ importers:
       '@gethen/storage-file':
         specifier: workspace:*
         version: link:../storage-file
+
+  packages/executor-sdk:
+    dependencies:
+      '@gethen/master':
+        specifier: workspace:*
+        version: link:../master
+      '@gethen/sdk-driver':
+        specifier: workspace:*
+        version: link:../sdk-driver
+      '@gethen/worker-agent':
+        specifier: workspace:*
+        version: link:../worker-agent
 
   packages/fleet:
     dependencies:

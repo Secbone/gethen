@@ -17,6 +17,8 @@ export const ALLOWED_WORKSPACE_DEPS = {
   "@gethen/transport-ws": ["@gethen/worker-protocol"],
   "@gethen/worker-agent": ["@gethen/worker-protocol"],
   "@gethen/sdk-driver": [],
+  "@gethen/bridge-ws": ["@gethen/master", "@gethen/transport-ws", "@gethen/worker-protocol"],
+  "@gethen/executor-sdk": ["@gethen/master", "@gethen/sdk-driver", "@gethen/worker-agent"],
   "@gethen/router": ["@gethen/fleet", "@gethen/worker-bridge"],
   "@gethen/worker-bridge": [],
   "@gethen/bridge-remote": ["@gethen/worker-bridge"],
@@ -58,6 +60,8 @@ export const CONTROL_PLANE_PACKAGES = new Set([
   "@gethen/transport-ws",
   "@gethen/worker-agent",
   "@gethen/sdk-driver",
+  "@gethen/bridge-ws",
+  "@gethen/executor-sdk",
   "@gethen/panel",
 ]);
 
