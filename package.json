@@ -25,7 +25,8 @@
     "typecheck:packages": "pnpm -r typecheck",
     "verify:escalation": "node scripts/verify-escalation.mjs",
     "dev:dsh": "node scripts/build-dsh.mjs --watch",
-    "serve": "tsx packages/cli/src/bin.ts serve"
+    "serve": "tsx packages/cli/src/bin.ts serve",
+    "verify:ws": "node scripts/verify-ws.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.3.8",

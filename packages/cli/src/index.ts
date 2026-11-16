@@ -1,6 +1,7 @@
 import { doctorCommand } from "./commands/doctor";
 import { initCommand } from "./commands/init";
 import { serveCommand } from "./commands/serve";
+import { workerCommand } from "./commands/worker";
 import { USAGE } from "./usage";
 
 export function run(argv: string[]): Promise<number> {
@@ -22,6 +23,8 @@ async function dispatch(argv: string[]): Promise<number> {
       return doctorCommand();
     case "serve":
       return serveCommand(argv.slice(1));
+    case "worker":
+      return workerCommand(argv.slice(1));
     default:
       process.stderr.write(`unknown command: ${command}\n\n${USAGE}\n`);
       return 1;

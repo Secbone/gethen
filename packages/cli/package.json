@@ -12,9 +12,14 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@gethen/master": "workspace:*"
+    "@gethen/bridge-ws": "workspace:*",
+    "@gethen/executor-sdk": "workspace:*",
+    "@gethen/master": "workspace:*",
+    "@gethen/transport-ws": "workspace:*",
+    "@gethen/worker-agent": "workspace:*",
+    "@gethen/worker-protocol": "workspace:*"
   },
-  "description": "Minimal operations CLI: gethen init, doctor, help",
+  "description": "Operations CLI: init, doctor, help, master serve (WS gateway) and worker daemon",
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json"
   }

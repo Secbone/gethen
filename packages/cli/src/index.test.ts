@@ -21,6 +21,8 @@ it.each([["help"], ["-h"], ["--help"]])("prints usage for %s", async (command: s
 
   const output = outputOf(stdout);
   expect(output).toContain("gethen init");
+  expect(output).toContain("gethen serve");
+  expect(output).toContain("gethen worker");
   expect(output).toContain("gethen doctor");
   expect(output).toContain("gethen help");
   expect(output).not.toContain("bench");

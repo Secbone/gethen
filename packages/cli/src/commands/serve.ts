@@ -1,8 +1,28 @@
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { createFakeLaunch, MasterService, type Policy, type Trigger } from "@gethen/master";
+import { createWsLaunchPort, type WsLaunchBridge } from "@gethen/bridge-ws";
+import {
+  createFakeLaunch,
+  type EscalationRecord,
+  type EscalationResolutionInput,
+  type LaunchPort,
+  type LaunchRequest,
+  MasterService,
+  type Policy,
+  type Trigger,
+} from "@gethen/master";
+import {
+  createMemoryTokenStore,
+  createWorkerGateway,
+  type WorkerGateway,
+  type WorkerTokenRecord,
+} from "@gethen/transport-ws";
+import { PROTOCOL_NAME } from "@gethen/worker-protocol";
+
+/** The only upgrade path this host accepts for the worker control plane. */
+export const WORKER_PATH = "/gethen/worker";
 
 export interface ServeConfig {
   /** SQLite file; defaults to `$GETHEN_STATE_DIR/master.sqlite` or `~/.gethen/master.sqlite`. */
@@ -11,12 +31,32 @@ export interface ServeConfig {
   host?: string;
   /** Port; defaults to an ephemeral port (0). */
   port?: number;
+  /**
+   * Worker credentials served by the WS gateway. Absent or empty keeps the
+   * fake launch and does not expose the worker endpoint.
+   */
+  tokens?: readonly WorkerTokenRecord[];
+  /**
+   * Answers a worker escalation. Without it, an escalation is parked and the
+   * launch reports `waiting` (a person has to decide), which is the safe default.
+   */
+  resolveEscalation?: (record: EscalationRecord) => Promise<EscalationResolutionInput | undefined>;
+  /**
+   * Worker-side workspace put into the dispatch when the engine leaves the
+   * assignment workspace empty (defaults to `process.cwd()`). The P1 engine does
+   * not model a workspace yet; until it does, the host supplies the default.
+   */
+  workspace?: string;
+  /** Pack digest recorded for dispatches without one; defaults to `DEFAULT_PACK_DIGEST`. */
+  packDigest?: string;
 }
 
 export interface ServeHandle {
   server: Server;
   service: MasterService;
   port: number;
+  /** `"ws"` when the worker gateway is attached, else the fake launch. */
+  launch: "ws" | "fake";
   close(): Promise<void>;
 }
 
@@ -28,6 +68,9 @@ const POLICY: Policy = {
 };
 
 const MAX_BODY_BYTES = 64 * 1024;
+
+/** Pack digest recorded when the engine has none (no real pack pinning yet). */
+const DEFAULT_PACK_DIGEST = "sha256:local-unpinned";
 
 function text(value: unknown): Trigger {
   const message = typeof value === "string" ? value.trim() : "";
@@ -68,15 +111,79 @@ function send(response: ServerResponse, status: number, value: unknown): void {
 }
 
 /**
- * Start the standalone master control plane (R1): sqlite + outbox + fake launch,
- * a small HTTP surface for health and local dispatch. The worker WS endpoint is
- * added in R2 on the same server.
+ * The P1 engine persists assignments without a workspace or pack digest, which
+ * the WS dispatch frame rejects. Fill host-level defaults in at the launch
+ * boundary only; the engine's own rows stay untouched.
+ */
+function withLaunchDefaults(
+  port: LaunchPort,
+  defaults: { workspace: string; packDigest: string },
+): LaunchPort {
+  return {
+    launch(request: LaunchRequest) {
+      const assignment = {
+        ...request.assignment,
+        workspace:
+          request.assignment.workspace.length > 0
+            ? request.assignment.workspace
+            : defaults.workspace,
+        packDigest:
+          request.assignment.packDigest.length > 0
+            ? request.assignment.packDigest
+            : defaults.packDigest,
+      };
+      return port.launch({
+        ...request,
+        assignment,
+        packDigest: request.packDigest.length > 0 ? request.packDigest : defaults.packDigest,
+      });
+    },
+  };
+}
+
+/**
+ * Start the master control plane: sqlite + outbox, a small HTTP surface for
+ * health and local dispatch, and (when worker tokens are configured) the
+ * `gethen.worker/v1` WS endpoint on the same server, with the Master launching
+ * assignments through the WS `LaunchPort` instead of the fake one.
  */
 export async function startServe(config: ServeConfig = {}): Promise<ServeHandle> {
   const stateDir = process.env.GETHEN_STATE_DIR ?? join(homedir(), ".gethen");
   const dbPath = config.dbPath ?? join(stateDir, "master.sqlite");
   mkdirSync(dirname(dbPath), { recursive: true });
-  const service = new MasterService({ dbPath, policy: POLICY, launch: createFakeLaunch() });
+
+  const tokens = config.tokens ?? [];
+  let gateway: WorkerGateway | undefined;
+  let bridge: WsLaunchBridge | undefined;
+  if (tokens.length > 0) {
+    const tokenStore = createMemoryTokenStore(tokens);
+    gateway = createWorkerGateway({
+      verifyToken: (token) => tokenStore.lookup(token),
+      onHello: () => undefined,
+      // `bridge` is assigned below; frames can only arrive after the server
+      // starts listening, so the closure always observes the finished bridge.
+      onFrame: (connection, frame) => bridge?.handleFrame(connection, frame),
+      onClose: () => undefined,
+      onError: () => undefined,
+    });
+    bridge = createWsLaunchPort({
+      gateway,
+      ...(config.resolveEscalation === undefined
+        ? {}
+        : { resolveEscalation: config.resolveEscalation }),
+    });
+  }
+  const launch: "ws" | "fake" = bridge === undefined ? "fake" : "ws";
+  const launchPort = withLaunchDefaults(bridge?.launchPort ?? createFakeLaunch(), {
+    workspace: config.workspace ?? process.cwd(),
+    packDigest: config.packDigest ?? DEFAULT_PACK_DIGEST,
+  });
+
+  const service = new MasterService({
+    dbPath,
+    policy: POLICY,
+    launch: launchPort,
+  });
   service.start();
   const startedAt = Date.now();
 
@@ -86,6 +193,11 @@ export async function startServe(config: ServeConfig = {}): Promise<ServeHandle>
       try {
         if (request.method === "GET" && pathname === "/health") {
           const tickets = service.store.tickets.list();
+          const workers =
+            gateway === undefined
+              ? 0
+              : gateway.connections().filter((connection) => connection.workerId !== undefined)
+                  .length;
           send(response, 200, {
             ok: true,
             uptimeMs: Date.now() - startedAt,
@@ -93,7 +205,9 @@ export async function startServe(config: ServeConfig = {}): Promise<ServeHandle>
             open: tickets.filter((ticket) => ticket.endedAt === undefined).length,
             receipts: service.store.listReceipts().length,
             escalations: service.store.listEscalations().length,
-            launch: "fake",
+            workers,
+            launch,
+            protocol: PROTOCOL_NAME,
           });
           return;
         }
@@ -120,6 +234,18 @@ export async function startServe(config: ServeConfig = {}): Promise<ServeHandle>
     })();
   });
 
+  // Only the worker control-plane path upgrades; everything else is a plain
+  // 404 and a destroyed socket (never a half-open connection).
+  server.on("upgrade", (request, socket, head) => {
+    const { pathname } = new URL(request.url ?? "/", "http://localhost");
+    if (gateway === undefined || pathname !== WORKER_PATH) {
+      socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
+      socket.destroy();
+      return;
+    }
+    gateway.handleUpgrade(request, socket, head);
+  });
+
   const port = await new Promise<number>((resolve, reject) => {
     server.once("error", reject);
     server.listen(config.port ?? 0, config.host ?? "127.0.0.1", () => {
@@ -128,23 +254,65 @@ export async function startServe(config: ServeConfig = {}): Promise<ServeHandle>
     });
   });
 
+  let closed = false;
   return {
     server,
     service,
     port,
+    launch,
     async close() {
+      if (closed) return;
+      closed = true;
+      // Gateway first: it closes worker sockets, so `server.close` can finish.
+      await gateway?.close();
       await new Promise<void>((resolve) => server.close(() => resolve()));
       service.stop();
     },
   };
 }
 
-/** `gethen serve [--db <file>] [--host <addr>] [--port <n>]` */
+/**
+ * Parse the worker credential JSON: `[{"workerId":"...","token":"..."}]`.
+ * Structural validation only; duplicate/invalid entries are rejected by
+ * `createMemoryTokenStore` when the server starts.
+ */
+export function parseWorkerTokens(raw: string): WorkerTokenRecord[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    throw new Error(`invalid worker tokens JSON: ${messageOf(error)}`);
+  }
+  if (!Array.isArray(parsed)) {
+    throw new Error("worker tokens must be a JSON array of { workerId, token }");
+  }
+  return parsed.map((entry: unknown, index: number): WorkerTokenRecord => {
+    if (!isRecord(entry)) throw new Error(`worker token entry ${index} must be an object`);
+    const workerId = entry.workerId;
+    const token = entry.token;
+    if (typeof workerId !== "string" || workerId.length === 0) {
+      throw new Error(`worker token entry ${index} needs a non-empty string workerId`);
+    }
+    if (typeof token !== "string" || token.length === 0) {
+      throw new Error(`worker token entry ${index} needs a non-empty string token`);
+    }
+    return { workerId, token };
+  });
+}
+
+/** `gethen serve [--db <file>] [--host <addr>] [--port <n>] [--tokens <file>]` */
 export async function serveCommand(argv: string[]): Promise<number> {
   if (argv.includes("-h") || argv.includes("--help")) {
     process.stdout.write(
       "Usage: gethen serve [--db <file>] [--host <addr>] [--port <n>]\n" +
-        "Starts the standalone master control plane (no DSH required).\n",
+        "                    [--tokens <file>] [--workspace <dir>]\n" +
+        "Starts the master control plane.\n" +
+        "Worker tokens come from --tokens <file> or GETHEN_WORKER_TOKENS_JSON\n" +
+        `([{"workerId":"...","token":"..."}]); with them the ${PROTOCOL_NAME} endpoint is\n` +
+        `served at ${WORKER_PATH}. Without them the fake launch is used.\n` +
+        "--workspace is the worker-side path dispatched assignments run in\n" +
+        "(the engine has no per-assignment workspace yet). Worker escalations are\n" +
+        "parked for a person; this CLI has no interactive resolver yet.\n",
     );
     return 0;
   }
@@ -152,18 +320,55 @@ export async function serveCommand(argv: string[]): Promise<number> {
     const index = argv.indexOf(name);
     return index >= 0 ? argv[index + 1] : undefined;
   };
+
+  let tokens: WorkerTokenRecord[] | undefined;
+  const tokensPath = option("--tokens");
+  try {
+    const raw =
+      tokensPath === undefined
+        ? process.env.GETHEN_WORKER_TOKENS_JSON
+        : readFileSync(tokensPath, "utf8");
+    if (raw !== undefined) tokens = parseWorkerTokens(raw);
+  } catch (error) {
+    process.stderr.write(`gethen serve: ${messageOf(error)}\n`);
+    return 1;
+  }
+
+  const host = option("--host") ?? "127.0.0.1";
+  const dbPath = option("--db");
   const portValue = option("--port");
+  const workspace = option("--workspace");
   const handle = await startServe({
-    ...(option("--db") === undefined ? {} : { dbPath: option("--db") as string }),
-    ...(option("--host") === undefined ? {} : { host: option("--host") as string }),
+    host,
+    ...(dbPath === undefined ? {} : { dbPath }),
     ...(portValue === undefined ? {} : { port: Number(portValue) }),
+    ...(workspace === undefined ? {} : { workspace }),
+    ...(tokens === undefined ? {} : { tokens }),
   });
-  process.stdout.write(`gethen master listening on http://127.0.0.1:${handle.port}\n`);
+
+  process.stdout.write(`gethen master listening on http://${host}:${handle.port}\n`);
+  if (handle.launch === "ws") {
+    process.stdout.write(
+      `worker endpoint: ws://${host}:${handle.port}${WORKER_PATH} (launch: ws)\n`,
+    );
+  }
   await new Promise<void>((resolve) => {
-    const shutdown = () => resolve();
+    const shutdown = (): void => {
+      process.off("SIGINT", shutdown);
+      process.off("SIGTERM", shutdown);
+      resolve();
+    };
     process.once("SIGINT", shutdown);
     process.once("SIGTERM", shutdown);
   });
   await handle.close();
   return 0;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
