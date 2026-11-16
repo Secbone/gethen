@@ -412,7 +412,7 @@ class WorkerAgentImpl implements WorkerAgent {
       return;
     }
     socket.send(text, (error?: Error) => {
-      if (error !== undefined) this.logError(`send failed: ${messageOf(error)}`);
+      if (error != null) this.logError(`send failed: ${messageOf(error)}`);
     });
   }
 
