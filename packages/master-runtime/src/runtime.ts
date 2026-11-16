@@ -10,6 +10,10 @@
  *   `gateway`), a `WorkerGateway` plus the `@gethen/bridge-ws` `WsLaunchBridge`,
  *   with the bridge's `selectWorker` hook backed by the runtime's live
  *   `WorkerSnapshot[]`;
+ * - with `comms.mode = "mailbox"`, the L1 ws transport + L2 sqlite mailbox stack
+ *   (`@gethen/transport` server, one `@gethen/mailbox-link` link per session,
+ *   `@gethen/bridge-mailbox` as the `LaunchPort`) instead of the legacy
+ *   gateway/bridge; the `handleUpgrade` entry point stays the same;
  * - the host-facing helpers: `handleUpgrade` (route matched by the host), the
  *   frame sink for injected gateways, `workers()` snapshots and `health()`.
  *
@@ -18,8 +22,17 @@
  * code, so the CLI and the plugin share exactly the same control plane.
  */
 import type { IncomingMessage } from "node:http";
+import { dirname, join } from "node:path";
 import type { Duplex } from "node:stream";
+import {
+  createMailboxLaunchPort,
+  DEFAULT_MAILBOX_PREFIX,
+  MASTER_MAILBOX,
+  type MailboxLaunchBridge,
+} from "@gethen/bridge-mailbox";
 import { createWsLaunchPort, type WorkerSelection, type WsLaunchBridge } from "@gethen/bridge-ws";
+import { MailboxClient, SqliteMailboxStore } from "@gethen/mailbox";
+import { createMailboxServerLink, type MailboxServerLink } from "@gethen/mailbox-link";
 import {
   createFakeLaunch,
   type EscalationRecord,
@@ -29,6 +42,7 @@ import {
   MasterService,
   type Policy,
 } from "@gethen/master";
+import { createWsTransportServer, type WsTransportServer } from "@gethen/transport";
 import {
   createMemoryTokenStore,
   createWorkerGateway,
@@ -51,8 +65,48 @@ export const DEFAULT_MASTER_POLICY: Policy = {
   sources: { local: { allowed: ["local-user"], bots: [] } },
 };
 
-/** `"ws"` when the worker gateway/bridge are attached, else the fake launch. */
+/** `"ws"` when a remote launch bridge is attached, else the fake launch. */
 export type LaunchMode = "ws" | "fake";
+
+/** Which communication stack the runtime assembles. */
+export type CommsMode = "legacy" | "mailbox";
+
+/**
+ * `comms` selects the communication stack:
+ *
+ * - `"legacy"` (default): `WorkerGateway` (`gethen.worker.v1` frames) plus
+ *   `@gethen/bridge-ws`, exactly as before;
+ * - `"mailbox"`: L1 `@gethen/transport` ws server + L2 `@gethen/mailbox`
+ *   sqlite store + one `@gethen/mailbox-link` per session, launching through
+ *   `@gethen/bridge-mailbox`.
+ */
+export interface CommsOptions {
+  mode: CommsMode;
+  /**
+   * Single worker served in mailbox mode. Defaults to the only configured
+   * token's worker id; otherwise required.
+   */
+  workerId?: string;
+  /** Mailbox sqlite file; defaults to `<dirname(dbPath)>/mailbox.sqlite`. */
+  mailboxDbPath?: string;
+  /**
+   * Full Master mailbox name, which must be `<prefix>master` (C3 derives both
+   * mailbox names from one prefix); defaults to `mailbox:master`.
+   */
+  masterMailbox?: string;
+  /** Lease/visibility timeout for deliveries; default from `@gethen/mailbox`. */
+  visibilityTimeoutMs?: number;
+  /** Poll interval for the master mailbox and link delivery loops. */
+  pollIntervalMs?: number;
+}
+
+/** Mailbox queue counters rendered by `health()` in mailbox mode. */
+export interface MailboxHealth {
+  /** Ready + leased messages on the worker and master mailboxes. */
+  pending: number;
+  leased: number;
+  dead: number;
+}
 
 /** What a host HTTP server hands the gateway's upgrade handler. */
 export type UpgradeHandler = (request: IncomingMessage, socket: Duplex, head: Buffer) => void;
@@ -127,24 +181,34 @@ export interface MasterRuntimeOptions {
    * When absent, {@link defaultSelectWorker} is used.
    */
   selectWorker?: (request: LaunchRequest, workers: WorkerSnapshot[]) => WorkerSnapshot | undefined;
+  /** Communication stack; defaults to `"legacy"`. */
+  comms?: CommsOptions;
   now?: () => Date;
 }
 
 /** Counts a host renders on `/health` or a status widget. */
 export interface MasterRuntimeHealth {
   launch: LaunchMode;
+  /** The assembled communication stack. */
+  comms: CommsMode;
   workers: number;
   tickets: number;
   open: number;
   receipts: number;
   escalations: number;
+  /** Mailbox queue counters; present only in `comms.mode = "mailbox"`. */
+  mailbox?: MailboxHealth;
 }
 
 export interface MasterRuntime {
   readonly service: MasterService;
   readonly gateway: WorkerGatewayLike | undefined;
-  readonly bridge: WsLaunchBridge | undefined;
+  /** Active launch bridge: the legacy WS bridge or the mailbox bridge. */
+  readonly bridge: WsLaunchBridge | MailboxLaunchBridge | undefined;
+  /** Mailbox-mode bridge (same object as `bridge` in that mode). */
+  readonly mailboxBridge: MailboxLaunchBridge | undefined;
   readonly launch: LaunchMode;
+  readonly comms: CommsMode;
   /** Forward the host server's worker upgrade here (path routing is the host's). */
   readonly handleUpgrade: UpgradeHandler | undefined;
   /** Feed gateway frames here when the host injected its own gateway. */
@@ -152,7 +216,10 @@ export interface MasterRuntime {
   health(): MasterRuntimeHealth;
   /** Live worker snapshots, sorted by worker id. */
   workers(): WorkerSnapshot[];
-  /** Close the gateway first (worker sockets), then stop the Master service. */
+  /**
+   * Close the transport stack first (gateway, or mailbox bridge -> session
+   * links -> server -> store), then stop the Master service.
+   */
   close(): Promise<void>;
 }
 
@@ -172,8 +239,14 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
   const workspace = options.workspace ?? process.cwd();
   const packDigest = options.packDigest ?? DEFAULT_PACK_DIGEST;
   const helloCache = new Map<string, CachedWorker>();
+  const commsMode: CommsMode = options.comms?.mode ?? "legacy";
   let bridge: WsLaunchBridge | undefined;
   let gateway: WorkerGatewayLike | undefined = options.gateway;
+  let mailboxBridge: MailboxLaunchBridge | undefined;
+  let mailboxStore: SqliteMailboxStore | undefined;
+  let mailboxServer: WsTransportServer | undefined;
+  const serverLinks = new Set<MailboxServerLink>();
+  let closed = false;
 
   function cacheHello(frame: HelloFrame): void {
     helloCache.set(frame.workerId, { hello: frame, load: frame.load, lastSeenAt: nowIso() });
@@ -208,7 +281,13 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
       : undefined;
   const verifyToken = options.verifyToken ?? tokenStore?.lookup;
 
-  if (gateway === undefined && verifyToken !== undefined) {
+  if (commsMode === "mailbox" && options.gateway !== undefined) {
+    throw new Error(
+      'master-runtime: options.gateway is legacy-only; use comms.mode = "mailbox" instead',
+    );
+  }
+
+  if (commsMode === "legacy" && gateway === undefined && verifyToken !== undefined) {
     gateway = createWorkerGateway({
       verifyToken,
       onHello: (_conn, frame) => cacheHello(frame),
@@ -221,7 +300,7 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
     });
   }
 
-  if (gateway !== undefined) {
+  if (commsMode === "legacy" && gateway !== undefined) {
     bridge = createWsLaunchPort({
       gateway,
       selectWorker: select,
@@ -234,10 +313,82 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
     });
   }
 
-  const launchPort = withLaunchDefaults(bridge?.launchPort ?? createFakeLaunch(), {
-    workspace,
-    packDigest,
-  });
+  if (commsMode === "mailbox") {
+    const comms = options.comms;
+    if (verifyToken === undefined) {
+      throw new Error(
+        'master-runtime: comms.mode = "mailbox" needs tokens or verifyToken for ws transport auth',
+      );
+    }
+    const workerId = resolveMailboxWorkerId(comms, options.tokens);
+    const masterMailboxName = comms?.masterMailbox ?? `${DEFAULT_MAILBOX_PREFIX}${MASTER_MAILBOX}`;
+    const mailboxPrefix = mailboxPrefixFor(masterMailboxName);
+    const store = new SqliteMailboxStore(
+      comms?.mailboxDbPath ?? join(dirname(options.dbPath), "mailbox.sqlite"),
+      options.now === undefined ? {} : { now: options.now },
+    );
+    mailboxStore = store;
+    const client = new MailboxClient({
+      store,
+      ...(options.now === undefined ? {} : { now: options.now }),
+      ...(comms?.visibilityTimeoutMs === undefined
+        ? {}
+        : { visibilityTimeoutMs: comms.visibilityTimeoutMs }),
+      ...(comms?.pollIntervalMs === undefined ? {} : { pollIntervalMs: comms.pollIntervalMs }),
+    });
+    mailboxBridge = createMailboxLaunchPort({
+      client,
+      workerId,
+      mailboxPrefix,
+      ...(comms?.visibilityTimeoutMs === undefined ? {} : { leaseMs: comms.visibilityTimeoutMs }),
+      ...(comms?.pollIntervalMs === undefined ? {} : { pollIntervalMs: comms.pollIntervalMs }),
+      ...(options.resolveEscalation === undefined
+        ? {}
+        : { resolveEscalation: options.resolveEscalation }),
+      ...(options.onEscalation === undefined ? {} : { onEscalation: options.onEscalation }),
+      ...(options.onResolution === undefined ? {} : { onResolution: options.onResolution }),
+      ...(options.now === undefined ? {} : { now: options.now }),
+    });
+    const workerMailbox = mailboxBridge.workerMailbox;
+    mailboxServer = createWsTransportServer({
+      verifyAuth: async (auth) => {
+        if (auth.kind !== "bearer" || auth.token.length === 0) return undefined;
+        const identity = await verifyToken(auth.token);
+        // C3 is single-worker: only the configured worker may attach.
+        if (identity === undefined || identity.workerId !== workerId) return undefined;
+        return identity;
+      },
+      onSession: (session) => {
+        const link = createMailboxServerLink({
+          session,
+          store,
+          workers: [workerMailbox],
+          ...(comms?.visibilityTimeoutMs === undefined
+            ? {}
+            : { visibilityTimeoutMs: comms.visibilityTimeoutMs }),
+          ...(comms?.pollIntervalMs === undefined ? {} : { pollIntervalMs: comms.pollIntervalMs }),
+          ...(options.now === undefined ? {} : { now: options.now }),
+          onError: () => undefined,
+        });
+        serverLinks.add(link);
+        session.onState((state) => {
+          if (state !== "closed") return;
+          link.close();
+          serverLinks.delete(link);
+        });
+      },
+      onError: () => undefined,
+      ...(options.heartbeatMs === undefined ? {} : { heartbeatMs: options.heartbeatMs }),
+    });
+  }
+
+  const launchPort = withLaunchDefaults(
+    bridge?.launchPort ?? mailboxBridge?.launchPort ?? createFakeLaunch(),
+    {
+      workspace,
+      packDigest,
+    },
+  );
   const service = new MasterService({
     dbPath: options.dbPath,
     policy: options.policy ?? DEFAULT_MASTER_POLICY,
@@ -246,14 +397,19 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
   });
   service.start();
 
+  const upgradeServer = mailboxServer;
   const upgradeGateway = gateway;
-  const upgrade = upgradeGateway?.handleUpgrade;
+  const gatewayUpgrade = upgradeGateway?.handleUpgrade;
   const handleUpgrade: UpgradeHandler | undefined =
-    upgrade === undefined || upgradeGateway === undefined
-      ? undefined
-      : (request, socket, head) => {
-          upgrade.call(upgradeGateway, request, socket, head);
-        };
+    upgradeServer !== undefined
+      ? (request, socket, head) => {
+          upgradeServer.handleUpgrade(request, socket, head);
+        }
+      : gatewayUpgrade === undefined || upgradeGateway === undefined
+        ? undefined
+        : (request, socket, head) => {
+            gatewayUpgrade.call(upgradeGateway, request, socket, head);
+          };
 
   function workers(): WorkerSnapshot[] {
     const current = gateway;
@@ -282,25 +438,74 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
   }
 
   function health(): MasterRuntimeHealth {
+    const launch: LaunchMode = bridge === undefined && mailboxBridge === undefined ? "fake" : "ws";
+    if (closed) {
+      // The service/store are stopped; report a clean zero snapshot instead of
+      // throwing from /health after shutdown.
+      return {
+        launch,
+        comms: commsMode,
+        workers: 0,
+        tickets: 0,
+        open: 0,
+        receipts: 0,
+        escalations: 0,
+        ...(mailboxStore === undefined ? {} : { mailbox: { pending: 0, leased: 0, dead: 0 } }),
+      };
+    }
     const tickets = service.store.tickets.list();
-    return {
-      launch: bridge === undefined ? "fake" : "ws",
-      workers: workers().length,
+    const counters: MasterRuntimeHealth = {
+      launch,
+      comms: commsMode,
+      workers: mailboxServer === undefined ? workers().length : mailboxServer.sessions().length,
       tickets: tickets.length,
       open: tickets.filter((ticket) => ticket.endedAt === undefined).length,
       receipts: service.store.listReceipts().length,
       escalations: service.store.listEscalations().length,
     };
+    if (mailboxStore !== undefined) counters.mailbox = mailboxHealth();
+    return counters;
   }
 
-  let closed = false;
+  function mailboxHealth(): MailboxHealth {
+    const counters: MailboxHealth = { pending: 0, leased: 0, dead: 0 };
+    const store = mailboxStore;
+    if (store === undefined || closed) return counters;
+    const mailboxes = new Set<string>();
+    if (mailboxBridge !== undefined) {
+      mailboxes.add(mailboxBridge.workerMailbox);
+      mailboxes.add(mailboxBridge.masterMailbox);
+    }
+    try {
+      for (const mailbox of mailboxes) {
+        const stats = store.stats(mailbox);
+        counters.pending += stats.pending;
+        counters.leased += stats.leased;
+        counters.dead += stats.dead;
+      }
+    } catch {
+      // A closing/closed store reports zeros rather than breaking /health.
+    }
+    return counters;
+  }
+
   async function close(): Promise<void> {
     if (closed) return;
     closed = true;
     try {
-      await gateway?.close();
+      if (commsMode === "mailbox") {
+        // Bridge first (stops launches), then the session links, the ws
+        // server and the mailbox store; the service stops in `finally`.
+        mailboxBridge?.close();
+        for (const link of [...serverLinks]) link.close();
+        serverLinks.clear();
+        await mailboxServer?.close();
+        mailboxStore?.close();
+      } else {
+        await gateway?.close();
+      }
     } finally {
-      // The service must stop even if the socket teardown fails.
+      // The service must stop even if the transport teardown fails.
       service.stop();
     }
   }
@@ -308,8 +513,10 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
   return {
     service,
     gateway,
-    bridge,
-    launch: bridge === undefined ? "fake" : "ws",
+    bridge: bridge ?? mailboxBridge,
+    mailboxBridge,
+    launch: bridge === undefined && mailboxBridge === undefined ? "fake" : "ws",
+    comms: commsMode,
     handleUpgrade,
     handleFrame,
     health,
@@ -384,4 +591,40 @@ function withLaunchDefaults(
       });
     },
   };
+}
+
+/**
+ * Mailbox mode serves exactly one worker: `comms.workerId`, or the only
+ * configured token's worker id. More workers need the C5 multi-worker routing.
+ */
+function resolveMailboxWorkerId(
+  comms: CommsOptions | undefined,
+  tokens: readonly WorkerTokenRecord[] | undefined,
+): string {
+  const configured = comms?.workerId;
+  if (configured !== undefined && configured.length > 0) return configured;
+  const only = tokens?.length === 1 ? tokens[0] : undefined;
+  if (only !== undefined) return only.workerId;
+  throw new Error(
+    'master-runtime: comms.mode = "mailbox" needs comms.workerId (or exactly one configured worker token)',
+  );
+}
+
+/**
+ * `@gethen/bridge-mailbox` derives both mailbox names from one prefix
+ * (`<prefix><workerId>` / `<prefix>master`), so the configured Master mailbox
+ * must be `<prefix>master`.
+ */
+function mailboxPrefixFor(masterMailbox: string): string {
+  const suffix = MASTER_MAILBOX;
+  if (!masterMailbox.endsWith(suffix)) {
+    throw new Error(
+      `master-runtime: comms.masterMailbox must be "<prefix>${suffix}" (got "${masterMailbox}")`,
+    );
+  }
+  const prefix = masterMailbox.slice(0, -suffix.length);
+  if (prefix.length === 0) {
+    throw new Error(`master-runtime: comms.masterMailbox "${masterMailbox}" has an empty prefix`);
+  }
+  return prefix;
 }

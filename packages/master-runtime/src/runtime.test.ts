@@ -258,6 +258,7 @@ describe("createMasterRuntime", () => {
     expect(runtime.workers()).toEqual([]);
     expect(runtime.health()).toEqual({
       launch: "fake",
+      comms: "legacy",
       workers: 0,
       tickets: 0,
       open: 0,
@@ -269,6 +270,7 @@ describe("createMasterRuntime", () => {
     expect(result.decision?.outcome).toBe("accept");
     expect(runtime.health()).toEqual({
       launch: "fake",
+      comms: "legacy",
       workers: 0,
       tickets: 1,
       open: 1,
@@ -384,6 +386,7 @@ describe("createMasterRuntime", () => {
 
     expect(runtime.health()).toEqual({
       launch: "ws",
+      comms: "legacy",
       workers: 2,
       tickets: 1,
       open: 1,

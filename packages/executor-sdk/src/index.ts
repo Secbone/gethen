@@ -9,3 +9,4 @@
  * semantics.
  */
 export * from "./executor";
+export * from "./harness-adapter";

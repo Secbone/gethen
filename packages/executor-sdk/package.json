@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@gethen/harness": "workspace:*",
     "@gethen/master": "workspace:*",
     "@gethen/sdk-driver": "workspace:*",
     "@gethen/worker-agent": "workspace:*"

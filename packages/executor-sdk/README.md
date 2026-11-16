@@ -6,6 +6,11 @@ The real Worker execution driver: it implements the `SessionExecutor` port from
 per workspace; each dispatch runs in its own DSH session named after its
 assignment (`sessionId = assignmentId`).
 
+It also ships a `HarnessExecutor` adapter (`src/harness-adapter.ts`) over the
+same implementation, so the newer `@gethen/agent` mailbox consumer can run DSH
+behind the harness-agnostic port without importing DSH. See
+[HarnessExecutor adapter](#harnessexecutor-adapter).
+
 ## Flow
 
 1. `start(task, sink)` ensures the workspace runtime exists, starts it with
@@ -63,6 +68,50 @@ its own runtime, or wait for a per-session cancel in the DSH SDK protocol.
 
 `SdkExecutor.close()` shuts down every pooled runtime and stops accepting work;
 the daemon calls it when the agent stops.
+
+## HarnessExecutor adapter
+
+`createSdkHarnessExecutor(options)` wraps `createSdkExecutor` and exposes it as
+the `HarnessExecutor` port from [`@gethen/harness`](../harness). The options are
+the same (`provider`, `model`, `dshCommand`, `dshArgs`, `cwdFor`,
+`clientFactory`, `requestTimeoutMs`, `now`); the per-workspace DSH client pool,
+JSON-RPC sessions, transcript scanning and approval/question answering are
+unchanged.
+
+```ts
+import { createMailboxAgent } from "@gethen/agent";
+import { createSdkHarnessExecutor } from "@gethen/executor-sdk";
+
+const harness = createSdkHarnessExecutor({
+  provider: "deepseek",
+  model: "deepseek-v4.1-flash",
+  dshArgs: ["--profile", "sdk", "--patch", "/path/to/sdk-profile.patch.yml"],
+});
+const agent = createMailboxAgent({ workerId: "worker-1", mailbox, harness });
+// ... agent.start(); on shutdown: await agent.stop(); await harness.close();
+```
+
+Shape mapping:
+
+| worker-protocol / DSH | harness port |
+|---|---|
+| `ExecutorTask` | `HarnessTask` — the rendered `prompt` is folded into the envelope (`{...envelope, prompt}`), `metadata.packDigest` becomes `packDigest` |
+| `ExecutorEvent` (session event) | `HarnessEvent` — `type`, RFC 3339 `at` from the event `time` (or `now()`), opaque `data` |
+| `ExecutorEscalation` | `HarnessEscalation` — `escalationId` → `id`, options/defaultOption pass through, `blocking: true` |
+| `ResolutionBody` | `HarnessResolution` — missing `text` becomes `""` |
+| `ExecutorReport` | `HarnessReport` — `ready`/`dropped → ready`, `failed → failed`, `waiting`/`progress`/`blocked → waiting` (question preserved, so a blocked report becomes `waiting` + `question`) |
+
+Errors (runtime initialize, prompt, a later resolution/cancel delivery) become a
+single `HarnessReport{kind:"failed"}`; `start` never rejects at the consumer.
+`sendResolution`/`cancel` delegate to the underlying execution handle.
+`cancel` keeps the existing DSH limitation: the SDK protocol has no per-turn
+cancel, so it closes the workspace runtime (all sessions on it) and reports
+`failed`. `SdkHarnessExecutor.close()` releases every pooled runtime.
+
+When migrating a Worker from `@gethen/worker-agent` (transport-owned execute
+loop) to `@gethen/agent` (mailbox consumer), replace `createSdkExecutor(...)` in
+the wiring with `createSdkHarnessExecutor(...)`; the old `SessionExecutor`
+exports stay for the legacy WS agent.
 
 ## Options
 

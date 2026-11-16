@@ -177,6 +177,9 @@ importers:
 
   packages/executor-sdk:
     dependencies:
+      '@gethen/harness':
+        specifier: workspace:*
+        version: link:../harness
       '@gethen/master':
         specifier: workspace:*
         version: link:../master
@@ -216,18 +219,30 @@ importers:
 
   packages/master-runtime:
     dependencies:
+      '@gethen/bridge-mailbox':
+        specifier: workspace:*
+        version: link:../bridge-mailbox
       '@gethen/bridge-ws':
         specifier: workspace:*
         version: link:../bridge-ws
       '@gethen/fleet':
         specifier: workspace:*
         version: link:../fleet
+      '@gethen/mailbox':
+        specifier: workspace:*
+        version: link:../mailbox
+      '@gethen/mailbox-link':
+        specifier: workspace:*
+        version: link:../mailbox-link
       '@gethen/master':
         specifier: workspace:*
         version: link:../master
       '@gethen/router':
         specifier: workspace:*
         version: link:../router
+      '@gethen/transport':
+        specifier: workspace:*
+        version: link:../transport
       '@gethen/transport-ws':
         specifier: workspace:*
         version: link:../transport-ws

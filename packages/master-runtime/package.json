@@ -17,7 +17,11 @@
     "@gethen/bridge-ws": "workspace:*",
     "@gethen/worker-protocol": "workspace:*",
     "@gethen/fleet": "workspace:*",
-    "@gethen/router": "workspace:*"
+    "@gethen/router": "workspace:*",
+    "@gethen/bridge-mailbox": "workspace:*",
+    "@gethen/mailbox": "workspace:*",
+    "@gethen/mailbox-link": "workspace:*",
+    "@gethen/transport": "workspace:*"
   },
   "description": "Control-plane assembly shared by `gethen serve` and the DSH plugin: MasterService, WS gateway/bridge or fake launch, worker snapshots and health"
 }
