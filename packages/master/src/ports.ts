@@ -73,6 +73,8 @@ export interface LaunchRequest {
 export interface LaunchResult {
   report: Report;
   receipt: AssignmentReceipt;
+  /** Escalations seen during the launch, in order (P3b). */
+  escalations?: import("./model").EscalationRecord[];
 }
 
 /**

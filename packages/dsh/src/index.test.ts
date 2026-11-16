@@ -18,6 +18,7 @@ interface StatusResult {
   open: number;
   receipts: number;
   running: number;
+  escalations: number;
   launch: "fake" | "remote";
 }
 
@@ -87,6 +88,7 @@ describe("Gethen DSH plugin", () => {
       "gethen_status",
       "gethen_run",
       "gethen_overview",
+      "gethen_escalations",
     ]);
   });
 
@@ -116,6 +118,7 @@ describe("Gethen DSH plugin", () => {
       open: 1,
       receipts: 1,
       running: 0,
+      escalations: 0,
       launch: "fake",
     } satisfies StatusResult);
     const overview = (await tool(tools, "gethen_overview").execute({}, {})) as OverviewResult;

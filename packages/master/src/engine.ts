@@ -18,6 +18,9 @@ import {
   DEFAULT_EVAL_DEADLINE_MS,
   type Decision,
   type DecisionOutcome,
+  type EscalationInput,
+  type EscalationRecord,
+  type EscalationResolutionInput,
   type Eval,
   type Input,
   MAX_EVAL_EXPIRIES,
@@ -29,6 +32,7 @@ import {
   type Strength,
   type Thread,
   type Ticket,
+  type TicketAttention,
   type Trigger,
 } from "./model";
 import type { Clock, Ids, PendingEffect, Repositories } from "./ports";
@@ -77,6 +81,12 @@ export class Engine {
   private readonly evalDeadlineMs: number;
   private readonly maxEvalExpiries: number;
   private readonly effects: PendingEffect[] = [];
+  /**
+   * Escalations this process saw, keyed by Ticket. `resolve` returns the same
+   * record it was given by `escalate`; the caller persists records through the
+   * store, so the engine keeps only the in-flight ones.
+   */
+  private readonly waitingEscalations = new Map<string, EscalationRecord>();
 
   constructor(options: EngineOptions) {
     this.repos = options.repos;
@@ -216,6 +226,100 @@ export class Engine {
     }
     this.repos.tickets.save(ticket);
     this.endRunningAssignments(ticket, report.at);
+  }
+
+  /**
+   * A Worker asks for a decision: the Ticket shows Attention (stage
+   * `person/answer`) and its Assignment waits for an answer or for a person.
+   * Returns the record the caller persists; `resolve` updates the same one.
+   */
+  escalate(ticketId: string, input: EscalationInput): EscalationRecord {
+    const ticket = this.requireTicket(ticketId);
+    if (ticket.endedAt !== undefined) {
+      throw new EngineError(`ticket ${ticketId} has ended and cannot escalate`);
+    }
+    const at = this.timestamp();
+    const options = input.options.map((option) => ({ ...option }));
+    const assignment = this.assignmentFor(ticket, input.assignment);
+    if (assignment !== undefined) {
+      assignment.state = "waiting";
+      this.repos.assignments.save(assignment);
+    }
+
+    ticket.attention = {
+      question: input.question,
+      options: options.map((option) => ({ ...option })),
+      askedAt: at,
+    };
+    this.repos.tickets.save(ticket);
+
+    const record: EscalationRecord = {
+      id: input.id,
+      ticket: ticket.id,
+      assignment: assignment?.id ?? input.assignment,
+      session: input.session,
+      kind: input.kind,
+      question: input.question,
+      options,
+      status: "waiting",
+      at,
+    };
+    if (input.defaultOption !== undefined) record.defaultOption = input.defaultOption;
+    this.waitingEscalations.set(ticketId, record);
+    return record;
+  }
+
+  /**
+   * Answer a waiting escalation (or any Attention written by a report): clear
+   * the Attention, resume the Assignment that waited, append the answer as a
+   * text Input, and return the escalation record with its resolution.
+   */
+  resolve(ticketId: string, resolution: EscalationResolutionInput): EscalationRecord {
+    const ticket = this.requireTicket(ticketId);
+    const at = this.timestamp();
+    const pending = this.waitingEscalations.get(ticketId);
+    const attention = ticket.attention;
+
+    let record: EscalationRecord;
+    if (pending !== undefined) {
+      record = { ...pending };
+    } else if (attention !== undefined) {
+      // Attention written by a report, or an escalation from before a restart:
+      // rebuild what is still stored on the Ticket instead of losing it.
+      record = this.fallbackEscalation(ticket, attention);
+    } else {
+      throw new EngineError(`ticket ${ticketId} has no escalation waiting`);
+    }
+    this.waitingEscalations.delete(ticketId);
+
+    const resolutionRecord: NonNullable<EscalationRecord["resolution"]> = {
+      kind: resolution.kind,
+      text: resolution.text,
+      at,
+    };
+    if (resolution.option !== undefined) resolutionRecord.option = resolution.option;
+    record.status = resolution.kind === "answer" ? "resolved" : "parked";
+    record.resolution = resolutionRecord;
+
+    const input: Input = {
+      id: this.ids.next("input"),
+      ticket: ticketId,
+      kind: "text",
+      text: resolution.text,
+      fromPerson: false,
+    };
+    this.repos.inputs.save(input);
+    ticket.inputs.push(input.id);
+    delete ticket.attention;
+    this.repos.tickets.save(ticket);
+
+    for (const assignmentId of ticket.assignments) {
+      const assignment = this.repos.assignments.get(assignmentId);
+      if (assignment?.state !== "waiting") continue;
+      assignment.state = "running";
+      this.repos.assignments.save(assignment);
+    }
+    return record;
   }
 
   /**
@@ -474,6 +578,32 @@ export class Engine {
       assignment.endedAt = at;
       this.repos.assignments.save(assignment);
     }
+  }
+
+  /** The Assignment an escalation waits: the named one, else the latest. */
+  private assignmentFor(ticket: Ticket, preferred: string): Assignment | undefined {
+    if (preferred.length > 0) {
+      const named = this.repos.assignments.get(preferred);
+      if (named !== undefined && named.ticket === ticket.id) return named;
+    }
+    const latestId = ticket.assignments.at(-1);
+    return latestId === undefined ? undefined : this.repos.assignments.get(latestId);
+  }
+
+  /** Rebuild an escalation record from Attention the engine did not create. */
+  private fallbackEscalation(ticket: Ticket, attention: TicketAttention): EscalationRecord {
+    const latestId = ticket.assignments.at(-1);
+    return {
+      id: this.ids.next("escalation"),
+      ticket: ticket.id,
+      assignment: latestId ?? "",
+      session: "",
+      kind: "decision",
+      question: attention.question,
+      options: (attention.options ?? []).map((option) => ({ ...option })),
+      status: "waiting",
+      at: attention.askedAt,
+    };
   }
 
   private release(thread: Thread): void {

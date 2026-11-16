@@ -392,3 +392,19 @@ Node 上每个项目一个 profile（如 `gethen-project-a`），由
   `launch:"remote"`。
 - **待办**：真实远端 e2e（需要远端 DSH 已登录 Remote 并配置 `remote.hostId/workspaceId`）；
   阻塞升级（`gethen_escalate` 工具 + Master 召回）留到 P3b。
+
+### P3b 进度（2026-11-16 晚 2）
+
+阻塞升级闭环已打通：
+
+- master：`Engine.escalate/resolve`（attention、Assignment `waiting`、写回 Input），
+  store 第 14 张表 `escalations` + `saveEscalation/getEscalation/listEscalations`。
+- dsh：`remote-launch` 支持升级感知循环（wait → read → 先解 ESCALATION → resolver →
+  send RESOLUTION → 同 session 续跑；无 resolver → parked；`maxRounds` 默认 3）；
+  `onEscalation/onResolution` 回调把记录写进 store；`gethen_escalations` 工具可查。
+- worker：`packages/dsh/src/worker-entry.ts` 提供 `gethen_escalate` / `gethen_report`
+  两个工具，构建出 `worker.js`，可作为 Worker profile 的 Cordis 入口。
+- 验证：`node scripts/verify-escalation.mjs`（10 项断言，含 answered→resolved→续跑、
+  parked 不自动继续、worker bundle 工具注册）；gate 23 包 / 455 tests 全绿。
+- 待用户验证：真实远端 e2e（远端 DSH 登录 Remote、master 配 `remote` + 可选
+  `escalation.answer`，worker profile 挂 `worker.js`）。

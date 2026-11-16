@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Engine, EngineError, type LaunchEffectPayload } from "./engine";
 import { MemoryRepositories } from "./memory";
 import {
+  type EscalationInput,
   type Policy,
   type Report,
   type StageFacts,
@@ -458,5 +459,174 @@ describe("inputs", () => {
 
     expect(ctx.engine.drain()).toEqual([]);
     expect(() => ctx.engine.attach(ticket.id, "missing")).toThrow(EngineError);
+  });
+});
+
+describe("escalations", () => {
+  function escalationInput(overrides: Partial<EscalationInput> = {}): EscalationInput {
+    return {
+      id: "esc-1",
+      assignment: "",
+      session: "session-1",
+      kind: "decision",
+      question: "Merge or rebase?",
+      options: [
+        { id: "merge", label: "Merge" },
+        { id: "rebase", label: "Rebase" },
+      ],
+      ...overrides,
+    };
+  }
+
+  it("writes Attention, waits the Assignment and returns a waiting record", () => {
+    const ctx = setup();
+    const { ticket } = accepted(ctx);
+    const assignment = lastAssignment(ctx, ticket);
+    ctx.engine.assignmentStarted(ticket.id, assignment.id);
+
+    const record = ctx.engine.escalate(
+      ticket.id,
+      escalationInput({ assignment: assignment.id, defaultOption: "rebase" }),
+    );
+
+    expect(record).toEqual({
+      id: "esc-1",
+      ticket: ticket.id,
+      assignment: assignment.id,
+      session: "session-1",
+      kind: "decision",
+      question: "Merge or rebase?",
+      options: [
+        { id: "merge", label: "Merge" },
+        { id: "rebase", label: "Rebase" },
+      ],
+      defaultOption: "rebase",
+      status: "waiting",
+      at: START,
+    });
+    expect(assignment.state).toBe("waiting");
+    expect(ctx.repos.assignments.get(assignment.id)?.state).toBe("waiting");
+    expect(ticket.attention).toEqual({
+      question: "Merge or rebase?",
+      options: [
+        { id: "merge", label: "Merge" },
+        { id: "rebase", label: "Rebase" },
+      ],
+      askedAt: START,
+    });
+    expect(ctx.repos.tickets.get(ticket.id)?.attention).toEqual(ticket.attention);
+    expect(ticketStage(ticket, facts())).toBe("person/answer");
+  });
+
+  it("prefers the named Assignment and otherwise waits the latest one", () => {
+    const ctx = setup();
+    const { ticket } = accepted(ctx);
+    const first = lastAssignment(ctx, ticket);
+    const replacement = ctx.engine.retryTicket(ticket.id);
+
+    ctx.engine.escalate(ticket.id, escalationInput({ assignment: first.id }));
+    expect(first.state).toBe("waiting");
+    expect(replacement.state).toBe("pending");
+
+    ctx.engine.resolve(ticket.id, { kind: "answer", text: "Use the first." });
+    expect(first.state).toBe("running");
+
+    const second = ctx.engine.escalate(
+      ticket.id,
+      escalationInput({ id: "esc-2", assignment: "unknown-assignment" }),
+    );
+    expect(second.assignment).toBe(replacement.id);
+    expect(replacement.state).toBe("waiting");
+  });
+
+  it("refuses to escalate an ended Ticket", () => {
+    const ctx = setup();
+    const { ticket } = accepted(ctx);
+    const assignment = lastAssignment(ctx, ticket);
+    ctx.engine.assignmentStarted(ticket.id, assignment.id);
+    ctx.engine.stopTicket(ticket.id, "done");
+
+    expect(() => ctx.engine.escalate(ticket.id, escalationInput())).toThrow(EngineError);
+  });
+
+  it("resolves an escalation: clears Attention, resumes the Assignment, writes an Input", () => {
+    const ctx = setup();
+    const { ticket } = accepted(ctx);
+    const assignment = lastAssignment(ctx, ticket);
+    ctx.engine.assignmentStarted(ticket.id, assignment.id);
+    const asked = ctx.engine.escalate(ticket.id, escalationInput({ assignment: assignment.id }));
+
+    ctx.advance(1_000);
+    const resolved = ctx.engine.resolve(ticket.id, {
+      kind: "answer",
+      text: "Rebase on main.",
+      option: "rebase",
+    });
+
+    expect(resolved.id).toBe(asked.id);
+    expect(resolved.status).toBe("resolved");
+    expect(resolved.resolution).toEqual({
+      kind: "answer",
+      text: "Rebase on main.",
+      option: "rebase",
+      at: ctx.at(),
+    });
+    expect(ticket.attention).toBeUndefined();
+    expect(ctx.repos.tickets.get(ticket.id)?.attention).toBeUndefined();
+    expect(assignment.state).toBe("running");
+    expect(ticketStage(ticket, facts({ liveAssignment: true }))).toBe("working");
+
+    const input = ctx.repos.inputs.list().at(-1);
+    expect(input).toMatchObject({
+      ticket: ticket.id,
+      kind: "text",
+      text: "Rebase on main.",
+      fromPerson: false,
+    });
+    expect(ticket.inputs).toContain(input?.id);
+  });
+
+  it("parks the escalation when the Master cannot answer", () => {
+    const ctx = setup();
+    const { ticket } = accepted(ctx);
+    const assignment = lastAssignment(ctx, ticket);
+    ctx.engine.assignmentStarted(ticket.id, assignment.id);
+    ctx.engine.escalate(ticket.id, escalationInput({ assignment: assignment.id }));
+
+    const parked = ctx.engine.resolve(ticket.id, {
+      kind: "escalate",
+      text: "A person must decide this.",
+    });
+
+    expect(parked.status).toBe("parked");
+    expect(parked.resolution).toEqual({
+      kind: "escalate",
+      text: "A person must decide this.",
+      at: ctx.at(),
+    });
+    expect(parked.resolution).not.toHaveProperty("option");
+    expect(ticket.attention).toBeUndefined();
+  });
+
+  it("resolves an Attention written by a report", () => {
+    const ctx = setup();
+    const { ticket } = accepted(ctx);
+    ctx.engine.report(ticket.id, report("blocked", { question: "Which environment?" }));
+    expect(ticket.attention?.question).toBe("Which environment?");
+
+    const resolved = ctx.engine.resolve(ticket.id, { kind: "answer", text: "Staging." });
+
+    expect(resolved.ticket).toBe(ticket.id);
+    expect(resolved.id).toMatch(/^escalation-/);
+    expect(resolved.question).toBe("Which environment?");
+    expect(resolved.status).toBe("resolved");
+    expect(ticket.attention).toBeUndefined();
+    expect(ctx.repos.inputs.list().at(-1)?.text).toBe("Staging.");
+  });
+
+  it("refuses to resolve when nothing waits", () => {
+    const ctx = setup();
+    const { ticket } = accepted(ctx);
+    expect(() => ctx.engine.resolve(ticket.id, { kind: "answer", text: "x" })).toThrow(EngineError);
   });
 });

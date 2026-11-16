@@ -12,8 +12,9 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@gethen/bridge-remote": "workspace:*",
     "@gethen/master": "workspace:*",
-    "@gethen/bridge-remote": "workspace:*"
+    "@gethen/worker": "workspace:*"
   },
   "description": "Cordis plugin that mounts the self-built Gethen master inside DeepSeek Harness"
 }

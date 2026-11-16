@@ -22,7 +22,8 @@
     "test:architecture": "node --test scripts/check-layering.test.mjs",
     "test:audits": "python3 -m unittest discover -s benchmarks/past-bench -p 'test_*.py' && python3 -m unittest discover -s benchmarks/swe-bench -p 'test_*.py'",
     "check": "node scripts/gen-aliases.mjs && node scripts/check-layering.mjs && node --test scripts/check-layering.test.mjs && tsc --noEmit && pnpm typecheck:packages && vitest run && pnpm test:audits && biome check .",
-    "typecheck:packages": "pnpm -r typecheck"
+    "typecheck:packages": "pnpm -r typecheck",
+    "verify:escalation": "node scripts/verify-escalation.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.3.8",

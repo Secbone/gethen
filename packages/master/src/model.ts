@@ -17,7 +17,7 @@ export type EffectId = string;
 export type Strength = "explicit" | "inferred" | "not_admitted";
 export type AcceptMode = "off" | "observe" | "auto";
 export type DecisionOutcome = "accept" | "stop" | "ignore" | "unavailable";
-export type AssignmentState = "pending" | "running" | "ended";
+export type AssignmentState = "pending" | "waiting" | "running" | "ended";
 export type ReportKind = "progress" | "waiting" | "ready" | "blocked" | "failed" | "dropped";
 export type TicketOutcome = "merged" | "closed" | "completed" | "dropped" | "stopped";
 export type Addressed = "mention" | "direct" | "none";
@@ -263,4 +263,43 @@ export function ticketStage(ticket: Ticket, facts: StageFacts): Exclude<TicketSt
 /** A ticket is open while it has no end; `stop` ends it and withdraws the mandate. */
 export function isOpen(ticket: Ticket): boolean {
   return ticket.endedAt === undefined;
+}
+
+/** A Worker's structured request for a decision (P3b). */
+export type EscalationKindLike = "decision" | "blocked" | "permission" | "scope" | "conflict";
+export type EscalationStatus = "waiting" | "resolved" | "parked";
+
+export interface EscalationOptionLike {
+  id: string;
+  label: string;
+}
+
+export interface EscalationRecord {
+  id: string;
+  ticket: TicketId;
+  assignment: AssignmentId;
+  session: string;
+  kind: EscalationKindLike;
+  question: string;
+  options: EscalationOptionLike[];
+  defaultOption?: string;
+  status: EscalationStatus;
+  at: string;
+  resolution?: { kind: "answer" | "escalate" | "drop"; text: string; option?: string; at: string };
+}
+
+export interface EscalationInput {
+  id: string;
+  assignment: AssignmentId;
+  session: string;
+  kind: EscalationKindLike;
+  question: string;
+  options: EscalationOptionLike[];
+  defaultOption?: string;
+}
+
+export interface EscalationResolutionInput {
+  kind: "answer" | "escalate" | "drop";
+  text: string;
+  option?: string;
 }

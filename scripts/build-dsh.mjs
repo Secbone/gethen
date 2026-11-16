@@ -25,6 +25,12 @@ await build({
   entryPoints: [join(root, "packages/dsh/src/index.ts")],
   outfile: join(out, "index.js"),
 });
+// Worker-role entry: tools that let an agent escalate or report a finished turn.
+await build({
+  ...common,
+  entryPoints: [join(root, "packages/dsh/src/worker-entry.ts")],
+  outfile: join(out, "worker.js"),
+});
 
 for (const file of ["client.js", "index.js", "package.json"])
   cpSync(join(root, "packages/dsh-client", file), join(out, "dsh-client", file));

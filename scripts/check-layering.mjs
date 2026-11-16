@@ -17,7 +17,12 @@ export const ALLOWED_WORKSPACE_DEPS = {
   "@gethen/bridge-remote": ["@gethen/worker-bridge"],
   "@gethen/worker": ["@gethen/worker-bridge"],
   "@gethen/dsh-client": [],
-  "@gethen/dsh": ["@gethen/master", "@gethen/bridge-remote", "@gethen/worker-bridge"],
+  "@gethen/dsh": [
+    "@gethen/master",
+    "@gethen/bridge-remote",
+    "@gethen/worker",
+    "@gethen/worker-bridge",
+  ],
   "@gethen/effects": ["@gethen/core", "@gethen/storage-file"],
   "@gethen/pack": ["@gethen/core"],
   "@gethen/panel": ["@gethen/domain"],

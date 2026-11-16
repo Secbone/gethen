@@ -24,6 +24,10 @@ import type {
   Decision,
   DecisionOutcome,
   Effect,
+  EscalationKindLike,
+  EscalationOptionLike,
+  EscalationRecord,
+  EscalationStatus,
   Eval,
   Input,
   Mandate,
@@ -206,6 +210,20 @@ CREATE TABLE IF NOT EXISTS receipts (
   "at" TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS receipts_ticket ON receipts (ticket);
+
+CREATE TABLE IF NOT EXISTS escalations (
+  id TEXT PRIMARY KEY,
+  ticket TEXT NOT NULL,
+  assignment TEXT NOT NULL,
+  session TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  question TEXT NOT NULL,
+  options_json TEXT NOT NULL,
+  default_option TEXT,
+  status TEXT NOT NULL,
+  "at" TEXT NOT NULL,
+  resolution_json TEXT
+);
 `;
 
 export interface StoredOperation {
@@ -602,6 +620,37 @@ export class SqliteStore implements Repositories, ReceiptSink {
     return this.all("SELECT * FROM receipts ORDER BY id").map((row) => mapReceipt(row));
   }
 
+  // ------------------------------------------------------------------ escalations
+
+  /** Insert or replace one escalation; the Worker owns its id. */
+  saveEscalation(record: EscalationRecord): void {
+    this.upsert("escalations", {
+      id: record.id,
+      ticket: record.ticket,
+      assignment: record.assignment,
+      session: record.session,
+      kind: record.kind,
+      question: record.question,
+      options_json: toJson(record.options),
+      default_option: record.defaultOption ?? null,
+      status: record.status,
+      at: rfc3339(record.at),
+      resolution_json: record.resolution === undefined ? null : toJson(record.resolution),
+    });
+  }
+
+  getEscalation(id: string): EscalationRecord | undefined {
+    const row = this.one("SELECT * FROM escalations WHERE id = ?", id);
+    return row === undefined ? undefined : mapEscalation(row);
+  }
+
+  /** Every escalation, oldest first; `rowid` breaks ties at the same `at`. */
+  listEscalations(): EscalationRecord[] {
+    return this.all('SELECT * FROM escalations ORDER BY "at", rowid').map((row) =>
+      mapEscalation(row),
+    );
+  }
+
   // ------------------------------------------------------------------------ close
 
   close(): void {
@@ -872,6 +921,28 @@ function mapReceipt(row: Row): AssignmentReceipt {
   };
   const usage = optionalJsonField<NonNullable<AssignmentReceipt["usage"]>>(row, "usage_json");
   if (usage !== undefined) value.usage = usage;
+  return value;
+}
+
+function mapEscalation(row: Row): EscalationRecord {
+  const value: EscalationRecord = {
+    id: text(row, "id"),
+    ticket: text(row, "ticket"),
+    assignment: text(row, "assignment"),
+    session: text(row, "session"),
+    kind: text(row, "kind") as EscalationKindLike,
+    question: text(row, "question"),
+    options: jsonField<EscalationOptionLike[]>(row, "options_json"),
+    status: text(row, "status") as EscalationStatus,
+    at: text(row, "at"),
+  };
+  const defaultOption = optionalText(row, "default_option");
+  if (defaultOption !== undefined) value.defaultOption = defaultOption;
+  const resolution = optionalJsonField<NonNullable<EscalationRecord["resolution"]>>(
+    row,
+    "resolution_json",
+  );
+  if (resolution !== undefined) value.resolution = resolution;
   return value;
 }
 

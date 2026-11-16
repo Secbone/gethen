@@ -49,6 +49,11 @@ export interface GethenConfig {
    * `dshRemoteClient` service; without it the fake launch is used.
    */
   remote?: RemoteLaunchConfig;
+  /**
+   * Temporary deterministic resolver for verification: answers every Worker
+   * escalation with this text. Without it an escalation is parked for a person.
+   */
+  escalation?: { answer?: string };
 }
 
 export const name = "gethen";
@@ -91,11 +96,43 @@ export function apply(ctx: DshContext, config: GethenConfig = {}): void {
   const remoteClient = ctx.get?.("dshRemoteClient") as RemoteClientLike | undefined;
   const useRemote = config.remote !== undefined && remoteClient !== undefined;
   const launchMode = useRemote ? "remote" : "fake";
+  let service: MasterService | undefined;
+  const answer = config.escalation?.answer;
+  const resolveEscalation =
+    answer === undefined ? undefined : async () => ({ kind: "answer" as const, text: answer });
   const launch: LaunchPort =
     useRemote && config.remote !== undefined
-      ? createRemoteLaunchPort(config.remote, remoteClient as RemoteClientLike)
+      ? createRemoteLaunchPort(
+          {
+            ...config.remote,
+            ...(resolveEscalation === undefined ? {} : { resolveEscalation }),
+            onEscalation: (record) => {
+              const saved = service?.engine.escalate(record.ticket, {
+                id: record.id,
+                assignment: record.assignment,
+                session: record.session,
+                kind: record.kind,
+                question: record.question,
+                options: record.options,
+                ...(record.defaultOption === undefined
+                  ? {}
+                  : { defaultOption: record.defaultOption }),
+              });
+              if (saved !== undefined) service?.store.saveEscalation(saved);
+            },
+            onResolution: (record) => {
+              if (record.resolution === undefined) {
+                service?.store.saveEscalation(record);
+                return;
+              }
+              const saved = service?.engine.resolve(record.ticket, record.resolution);
+              service?.store.saveEscalation(saved ?? record);
+            },
+          },
+          remoteClient as RemoteClientLike,
+        )
       : createFakeLaunch();
-  const service = createMasterService(dir, launch);
+  service = createMasterService(dir, launch);
   service.start();
   ctx.provide("gethen", service);
   ctx.effect?.(() => () => service.stop());
@@ -111,9 +148,10 @@ export function apply(ctx: DshContext, config: GethenConfig = {}): void {
           open: { type: "number" },
           receipts: { type: "number" },
           running: { type: "number" },
+          escalations: { type: "number" },
           launch: { type: "string", enum: ["fake", "remote"] },
         },
-        ["tickets", "open", "receipts", "running", "launch"],
+        ["tickets", "open", "receipts", "running", "escalations", "launch"],
       ),
       render: (_args, value) => text(value),
     },
@@ -126,6 +164,7 @@ export function apply(ctx: DshContext, config: GethenConfig = {}): void {
         running: service.store.assignments
           .list()
           .filter((assignment) => assignment.state === "running").length,
+        escalations: service.store.listEscalations().length,
         launch: launchMode,
       };
     },
@@ -215,4 +254,21 @@ export function apply(ctx: DshContext, config: GethenConfig = {}): void {
       };
     },
   });
+
+  ctx.tools.register({
+    name: "gethen_escalations",
+    description: "List Worker escalations with their question, status and resolution.",
+    parameters: {},
+    output: {
+      schema: objectSchema({ escalations: { type: "array", items: { type: "object" } } }, [
+        "escalations",
+      ]),
+      render: (_args, value) => text(value),
+    },
+    async execute() {
+      return { escalations: service.store.listEscalations() };
+    },
+  });
 }
+
+export { applyWorker } from "./worker-entry";

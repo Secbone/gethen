@@ -9,6 +9,7 @@ import type {
   Assignment,
   AssignmentReceipt,
   Decision,
+  EscalationRecord,
   Eval,
   Input,
   Mandate,
@@ -533,5 +534,80 @@ describe("FileLock", () => {
     expect(existsSync(path)).toBe(false);
     expect(withFileLock(path, () => "ok")).toBe("ok");
     expect(existsSync(path)).toBe(false);
+  });
+});
+
+describe("SqliteStore escalations", () => {
+  const escalation: EscalationRecord = {
+    id: "esc-1",
+    ticket: "tkt-1",
+    assignment: "asg-1",
+    session: "session-1",
+    kind: "decision",
+    question: "Merge or rebase?",
+    options: [
+      { id: "merge", label: "Merge" },
+      { id: "rebase", label: "Rebase" },
+    ],
+    defaultOption: "rebase",
+    status: "waiting",
+    at: AT,
+  };
+
+  it("round-trips an escalation, including its resolution", () => {
+    const store = openStore();
+    store.saveEscalation(escalation);
+    expect(store.getEscalation("esc-1")).toEqual(escalation);
+
+    const resolved: EscalationRecord = {
+      ...escalation,
+      status: "resolved",
+      resolution: { kind: "answer", option: "rebase", text: "Rebase on main.", at: LATER },
+    };
+    store.saveEscalation(resolved);
+    expect(store.listEscalations()).toEqual([resolved]);
+    expect(store.getEscalation("missing")).toBeUndefined();
+  });
+
+  it("replaces a record by id instead of duplicating it", () => {
+    const store = openStore();
+    store.saveEscalation(escalation);
+    store.saveEscalation({ ...escalation, status: "parked" });
+
+    expect(store.listEscalations()).toHaveLength(1);
+    expect(defined(store.getEscalation("esc-1")).status).toBe("parked");
+  });
+
+  it("omits optional fields and lists escalations oldest first", () => {
+    const store = openStore();
+    const minimal: EscalationRecord = {
+      id: "esc-2",
+      ticket: "tkt-1",
+      assignment: "asg-1",
+      session: "session-2",
+      kind: "blocked",
+      question: "Which environment?",
+      options: [],
+      status: "parked",
+      at: LATER,
+    };
+    store.saveEscalation(escalation);
+    store.saveEscalation(minimal);
+
+    const read = defined(store.getEscalation("esc-2"));
+    expect(read).toEqual(minimal);
+    expect(read).not.toHaveProperty("defaultOption");
+    expect(read).not.toHaveProperty("resolution");
+    expect(store.listEscalations().map((item) => item.id)).toEqual(["esc-1", "esc-2"]);
+  });
+
+  it("keeps escalations across close and reopen", () => {
+    const path = tempPath("escalations.db");
+    const first = openStore(path);
+    first.saveEscalation(escalation);
+    first.close();
+
+    const reopened = openStore(path);
+    expect(reopened.getEscalation("esc-1")).toEqual(escalation);
   });
 });

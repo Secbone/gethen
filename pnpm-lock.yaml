@@ -64,6 +64,9 @@ importers:
       '@gethen/master':
         specifier: workspace:*
         version: link:../master
+      '@gethen/worker':
+        specifier: workspace:*
+        version: link:../worker
 
   packages/dsh-client: {}
 
