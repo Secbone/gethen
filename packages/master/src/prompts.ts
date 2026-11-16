@@ -105,7 +105,11 @@ const DEFAULT_REPORT_FORMAT =
 const ASSIGNMENT_INSTRUCTIONS =
   "You are the Gethen Worker for this Assignment. Work only inside the workspace " +
   "named above, complete the objective, then report exactly once using the report " +
-  "contract in the envelope. Do not edit or echo the envelope itself.";
+  "contract in the envelope (you may emit the block yourself or call gethen_report). " +
+  "If a decision can change scope, spend money, touch production data, or is not " +
+  "covered by the objective, call gethen_escalate when that tool is available, then " +
+  "end your turn with the returned block unchanged and wait for the resolution " +
+  "message before continuing. Do not edit or echo the envelope itself.";
 
 /**
  * Render the task sent to a Worker session: a marker-delimited JSON envelope
