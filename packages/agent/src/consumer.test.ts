@@ -418,10 +418,12 @@ describe("MailboxAgent failures and limits", () => {
 
     harness.emitEvent(0, { type: "message", at: AT, data: { text: "one" } });
     harness.emitEvent(0, { type: "message", at: AT, data: { text: "two" } });
+    await tick();
     expect(mailbox.sentByType(MESSAGE_TYPES.progress)).toHaveLength(1);
 
     clock = new Date(Date.parse(AT) + 1_000);
     harness.emitEvent(0, { type: "message", at: AT, data: { text: "three" } });
+    await tick();
     expect(mailbox.sentByType(MESSAGE_TYPES.progress)).toHaveLength(2);
   });
 });
@@ -585,5 +587,26 @@ describe("MailboxAgent lifecycle", () => {
     expect(bound.sent.map((envelope) => envelope.type)).toEqual([MESSAGE_TYPES.result]);
     expect(bound.acks).toContain("env-assign-1");
     expect(agent.active).toBe(0);
+  });
+
+  it("serializes concurrent flushes so a burst never drops a queued envelope", async () => {
+    const { agent, mailbox, harness } = setup();
+    mailbox.enqueue(MAILBOX, assignEnvelope());
+    await agent.runOnce();
+    expect(harness.tasks).toHaveLength(1);
+
+    // A harness that emits an event and a terminal report back-to-back queues
+    // two outgoing envelopes; two overlapping flushes used to drop the second.
+    harness.emitEvent(0, { type: "message", at: AT, data: { text: "burst" } });
+    harness.report(0, { kind: "ready", summary: "done" });
+
+    const [first, second] = await Promise.all([agent.flush(), agent.flush()]);
+    // Both callers share the same in-flight drain.
+    expect(first).toBe(2);
+    expect(second).toBe(2);
+    const types = mailbox.sent.map((envelope) => envelope.type);
+    expect(types.filter((type) => type === MESSAGE_TYPES.progress)).toHaveLength(1);
+    expect(types.filter((type) => type === MESSAGE_TYPES.result)).toHaveLength(1);
+    expect(mailbox.acks.some((record) => record.ids.includes("env-assign-1"))).toBe(true);
   });
 });

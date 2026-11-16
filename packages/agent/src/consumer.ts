@@ -454,6 +454,7 @@ class MailboxAgentImpl implements MailboxAgent {
   private started = false;
   private stopping = false;
   private stoppingPromise: Promise<void> | undefined;
+  private flushing: Promise<number> | undefined;
   private ticking = false;
 
   constructor(options: MailboxAgentOptions) {
@@ -542,6 +543,18 @@ class MailboxAgentImpl implements MailboxAgent {
   }
 
   async flush(): Promise<number> {
+    // Single-flight: concurrent callers share one drain loop. Without this a
+    // second flush could observe the same head twice and shift the *next*
+    // queued envelope after the first one was already sent (dropping it).
+    if (this.flushing !== undefined) return this.flushing;
+    const running = this.drainOutbox().finally(() => {
+      this.flushing = undefined;
+    });
+    this.flushing = running;
+    return running;
+  }
+
+  private async drainOutbox(): Promise<number> {
     let delivered = 0;
     while (this.outbox.length > 0) {
       const item = this.outbox[0];
