@@ -2,6 +2,7 @@ export const USAGE = `gethen — operations CLI
 
 Usage:
   gethen init      Create ~/.gethen and print next steps
+  gethen serve     Start the standalone master control plane
   gethen doctor    Check Node, dsh and the local environment
   gethen help      Show this help
 

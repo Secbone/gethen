@@ -34,7 +34,7 @@ export const ALLOWED_WORKSPACE_DEPS = {
   "@gethen/evolution": ["@gethen/core", "@gethen/kernel"],
   "@gethen/evaluation": ["@gethen/core", "@gethen/evolution"],
   "@gethen/workspace": ["@gethen/core", "@gethen/evolution", "@gethen/storage-file"],
-  "@gethen/cli": [],
+  "@gethen/cli": ["@gethen/master"],
 };
 
 const TEST_ONLY_DEPS = {};

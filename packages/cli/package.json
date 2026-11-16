@@ -11,7 +11,9 @@
   "exports": {
     ".": "./src/index.ts"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@gethen/master": "workspace:*"
+  },
   "description": "Minimal operations CLI: gethen init, doctor, help",
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json"

@@ -1,12 +1,13 @@
 import { doctorCommand } from "./commands/doctor";
 import { initCommand } from "./commands/init";
+import { serveCommand } from "./commands/serve";
 import { USAGE } from "./usage";
 
 export function run(argv: string[]): Promise<number> {
-  return Promise.resolve(dispatch(argv));
+  return dispatch(argv);
 }
 
-function dispatch(argv: string[]): number {
+async function dispatch(argv: string[]): Promise<number> {
   const command = argv[0];
   switch (command) {
     case undefined:
@@ -19,6 +20,8 @@ function dispatch(argv: string[]): number {
       return initCommand();
     case "doctor":
       return doctorCommand();
+    case "serve":
+      return serveCommand(argv.slice(1));
     default:
       process.stderr.write(`unknown command: ${command}\n\n${USAGE}\n`);
       return 1;

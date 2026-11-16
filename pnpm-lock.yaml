@@ -50,7 +50,11 @@ importers:
         specifier: workspace:*
         version: link:../worker-bridge
 
-  packages/cli: {}
+  packages/cli:
+    dependencies:
+      '@gethen/master':
+        specifier: workspace:*
+        version: link:../master
 
   packages/core: {}
 
