@@ -33,7 +33,9 @@ import {
   DEFAULT_MASTER_POLICY,
   type MailboxHealth,
   type MasterRuntime,
+  type MasterRuntimeTasks,
 } from "@gethen/master-runtime";
+import { registerTaskTool, taskSummary } from "./task-tool";
 
 /** The narrow DSH surface this plugin uses; no DSH package is imported. */
 export interface DshToolDefinition {
@@ -225,6 +227,8 @@ interface ToolDeps {
   workers(): number;
   /** Mailbox queue counters; `undefined` in fake mode. */
   mailbox?(): MailboxHealth | undefined;
+  /** Runtime task state/control; fake mode reports `RUNTIME_COMMS_UNAVAILABLE`. */
+  tasks?: MasterRuntimeTasks;
 }
 
 /** Register the read/write tool surface against one master service. */
@@ -256,6 +260,14 @@ function registerTools(ctx: DshContext, deps: ToolDeps): void {
             },
             required: ["pending", "leased", "dead"],
           },
+          tasks: {
+            type: "object",
+            properties: {
+              count: { type: "number" },
+              recent: { type: "array", items: { type: "object" } },
+            },
+            required: ["count", "recent"],
+          },
         },
         ["tickets", "open", "receipts", "running", "escalations", "launch", "workers"],
       ),
@@ -264,6 +276,7 @@ function registerTools(ctx: DshContext, deps: ToolDeps): void {
     async execute() {
       const tickets = service.store.tickets.list();
       const mailbox = deps.mailbox?.();
+      const tasks = taskSummary(deps.tasks);
       return {
         tickets: tickets.length,
         open: tickets.filter((ticket) => ticket.endedAt === undefined).length,
@@ -275,6 +288,7 @@ function registerTools(ctx: DshContext, deps: ToolDeps): void {
         launch: deps.launch(),
         workers: deps.workers(),
         ...(mailbox === undefined ? {} : { mailbox }),
+        ...(tasks === undefined ? {} : { tasks }),
       };
     },
   });
@@ -378,6 +392,8 @@ function registerTools(ctx: DshContext, deps: ToolDeps): void {
       return { escalations: service.store.listEscalations() };
     },
   });
+
+  if (deps.tasks !== undefined) registerTaskTool(ctx, deps.tasks);
 }
 
 /**
@@ -452,6 +468,7 @@ export function apply(ctx: DshContext, config: GethenConfig = {}): void {
     launch: () => mounted.launch,
     workers: () => mounted.health().workers,
     mailbox: () => (mounted.launch === "ws" ? mounted.health().mailbox : undefined),
+    tasks: mounted.tasks,
   });
 }
 

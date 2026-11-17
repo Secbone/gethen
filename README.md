@@ -12,6 +12,9 @@ Worker 只出站连接；执行由 Worker 上的 `dsh --profile sdk` 完成。
 gethen serve --tokens /etc/gethen/worker-tokens.json --host 127.0.0.1 --port 8080
 gethen run --master http://127.0.0.1:8080 "在 /tmp/demo 下创建 ok.txt"
 gethen status --db /var/lib/gethen/master.sqlite
+gethen task status <assignmentId> --master http://127.0.0.1:8080
+gethen task steer <assignmentId> "…" --master http://127.0.0.1:8080
+gethen task cancel <assignmentId> --master http://127.0.0.1:8080
 
 # Worker
 gethen worker add --db /var/lib/gethen/master.sqlite --worker-id build-1 \

@@ -132,6 +132,7 @@ curl -s http://127.0.0.1:8080/health    # 期望 workers:0, launch:"ws"
   "workspaces": ["/srv/projects"],
   "quota": 1,
   "dshArgs": ["--profile", "sdk", "--patch", "/etc/gethen/sdk-profile.patch.yml"],
+  "isolation": "shared",
   // 可选：本机 DNS 不可用/分流时，直接覆盖主机解析（TLS SNI 仍是原域名）
   "dnsOverrides": { "gethen.example.com": "203.0.113.10" },
   // 可选：Master 侧路径 → 本机路径（跨机 worker）
@@ -158,6 +159,11 @@ curl -s https://<master>/health
 gethen run --master https://<master> "在 /tmp/demo 下创建 ok.txt，然后报告 ready"
 gethen run --master https://<master> --json "…"     # 原样响应
 gethen status --db /var/lib/gethen/master.sqlite
+
+# 运行中任务：状态查询 / 干预
+gethen task status <assignmentId> --master https://<master>
+gethen task steer <assignmentId> "改用最小改动" --master https://<master>
+gethen task cancel <assignmentId> --reason "验证取消" --master https://<master>
 
 # 本地不花钱的两级验证
 pnpm verify:mailbox

@@ -106,6 +106,10 @@ HTTP 表面：
 |---|---|---|
 | `GET` | `/health` | `ok`、`uptimeMs`、`tickets`、`open`、`receipts`、`escalations`、`workers`、`launch`(`ws`/`fake`)、`protocol` |
 | `POST` | `/gethen/run` | 本地投递一次工单（body `{"text":"..."}`），等待一次 launch 完成 |
+| `GET` | `/gethen/tasks` | 当前已知 assignment 的实时状态（phase/step/lastTool/lastMessage） |
+| `GET` | `/gethen/tasks/:id[?timeoutMs=n]` | 查询单个 assignment（缓存优先，否则向 worker 发 status 请求） |
+| `POST` | `/gethen/tasks/:id/steer` | `{"text":"..."}` 给运行中的 session 追加输入（best-effort） |
+| `POST` | `/gethen/tasks/:id/cancel` | `{"reason":"..."?}` 取消执行（worker 发 failed/cancelled report） |
 | `GET`(upgrade) | `/gethen/worker` | `gethen.worker/v1` WS 端点（仅此路径；其它路径 404） |
 
 ### 1.3 TLS / 反向代理
@@ -239,6 +243,8 @@ agent 用 `gethen_run` 工具派活，`/gethen/worker` 由 DSH 的 webServer 托
 | `masterUrl` | ✅ | Worker WS 地址；也接受 `https://host:port`（自动变 `wss` 并补 `/gethen/worker`） |
 | `token` | ✅ | 与 Master tokens 文件中该 `workerId` 的 token 一致 |
 | `dnsOverrides` | 可选 | `{"master.example.com":"203.0.113.10"}`，DNS 分流/伪造时保留真实域名与 TLS SNI |
+| `requestTimeoutMs` | 可选 | 单次 SDK JSON-RPC 超时（默认 600000；不再限制整轮时长） |
+| `isolation` | 可选 | `shared`（默认）或 `process`（每任务独立 dsh，cancel 可精确终止） |
 | `workspaceMap` | 可选 | `{"/srv/projects":"/home/me/project"}`，Master 下发路径映射到本机路径 |
 | `workerId` | ✅ | 必须与 token 绑定的 id 一致（hello 校验） |
 | `provider` / `model` | ✅ | 传给 `dsh --profile sdk` 的 initialize 参数 |
@@ -353,6 +359,9 @@ gethen run --master http://127.0.0.1:8080 "在 /tmp/demo 下创建 ok.txt"
 gethen run --master http://127.0.0.1:8080 --json "..."   # 原样输出 Master 响应
 
 gethen status --db /var/lib/gethen/master.sqlite          # 计数 + 最近工单
+gethen task status <assignmentId> --master http://127.0.0.1:8080
+gethen task steer <assignmentId> "先跑测试再改" --master http://127.0.0.1:8080
+gethen task cancel <assignmentId> --reason "停止" --master http://127.0.0.1:8080
 gethen worker ls --db /var/lib/gethen/master.sqlite
 gethen doctor --json
 ```

@@ -154,7 +154,13 @@ function fakeSocket(): FakeSocket {
   return { socket: socket as unknown as Duplex, writes, isDestroyed: () => destroyed };
 }
 
-const TOOL_NAMES = ["gethen_status", "gethen_run", "gethen_overview", "gethen_escalations"];
+const TOOL_NAMES = [
+  "gethen_status",
+  "gethen_run",
+  "gethen_overview",
+  "gethen_escalations",
+  "gethen_task",
+];
 
 describe("worker token config", () => {
   it("parses the worker token format and rejects malformed input", () => {
@@ -200,7 +206,21 @@ describe("mailbox control-plane mount", () => {
       tickets: 0,
       receipts: 0,
       mailbox: { pending: 0, leased: 0, dead: 0 },
+      tasks: { count: 0, recent: [] },
     });
+  });
+
+  it("gethen_task reports an unanswered assignment as a clear error", async () => {
+    const server = webServer();
+    const { ctx, tools } = context({ webServer: server });
+    apply(ctx, { dir: stateDir(), ws: { tokensJson: tokensJson() } });
+
+    await expect(
+      tool(tools, "gethen_task").execute(
+        { action: "status", assignmentId: "assignment-unknown", timeoutMs: 10 },
+        {},
+      ),
+    ).rejects.toThrow(/assignment assignment-unknown did not answer a status request/);
   });
 
   it("forwards the upgrade to the mailbox transport (unauthenticated gets 401)", async () => {

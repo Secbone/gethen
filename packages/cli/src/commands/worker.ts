@@ -24,6 +24,8 @@ export interface WorkerConfig {
   workspaceMap?: Record<string, string>;
   /** Per-JSON-RPC timeout for the DSH SDK session (default 10 minutes). */
   requestTimeoutMs?: number;
+  /** Process model: shared workspace runtime (default) or one runtime per assignment. */
+  isolation?: "shared" | "process";
 }
 
 export interface WorkerConfigOptions {
@@ -48,6 +50,8 @@ interface WorkerConfigFile {
   workspaceMap?: Record<string, string>;
   /** Per-JSON-RPC timeout for the DSH SDK session (default 10 minutes). */
   requestTimeoutMs?: number;
+  /** Process model: shared workspace runtime (default) or one runtime per assignment. */
+  isolation?: "shared" | "process";
 }
 
 /**
@@ -92,6 +96,7 @@ export function parseWorkerConfig(argv: string[], options: WorkerConfigOptions =
     flagValue(argv, "--request-timeout-ms") ?? file.requestTimeoutMs,
     "requestTimeoutMs",
   );
+  const isolation = parseIsolation(flagValue(argv, "--isolation") ?? file.isolation);
 
   return {
     masterUrl: normalizeMasterUrl(masterUrl),
@@ -107,6 +112,7 @@ export function parseWorkerConfig(argv: string[], options: WorkerConfigOptions =
     ...(dnsOverrides === undefined ? {} : { dnsOverrides }),
     ...(workspaceMap === undefined ? {} : { workspaceMap }),
     ...(requestTimeoutMs === undefined ? {} : { requestTimeoutMs }),
+    ...(isolation === undefined ? {} : { isolation }),
   };
 }
 
@@ -130,6 +136,15 @@ function parseDnsOverrides(
     }
   }
   return entries.length === 0 ? undefined : Object.fromEntries(entries);
+}
+
+/** Validate the executor isolation mode. */
+function parseIsolation(value: string | undefined): "shared" | "process" | undefined {
+  if (value === undefined) return undefined;
+  if (value !== "shared" && value !== "process") {
+    throw new Error('worker config: isolation must be "shared" or "process"');
+  }
+  return value;
 }
 
 /** Parse `{"masterPath":"localPath"}` from a flag or the config file. */
@@ -257,6 +272,7 @@ async function runMailboxWorker(config: WorkerConfig): Promise<number> {
     provider: config.provider,
     model: config.model,
     requestTimeoutMs: config.requestTimeoutMs ?? 600_000,
+    ...(config.isolation === undefined ? {} : { isolation: config.isolation }),
     cwdFor: resolveWorkspace,
     ...(config.dshCommand === undefined ? {} : { dshCommand: config.dshCommand }),
     ...(config.dshArgs === undefined ? {} : { dshArgs: config.dshArgs }),
@@ -450,6 +466,7 @@ function configFile(argv: string[]): WorkerConfigFile {
   const dnsOverrides = parsed.dnsOverrides;
   const workspaceMap = parsed.workspaceMap;
   const requestTimeoutMs = optionalNumber(parsed, "requestTimeoutMs");
+  const isolation = optionalString(parsed, "isolation");
   if (masterUrl !== undefined) file.masterUrl = masterUrl;
   if (token !== undefined) file.token = token;
   if (workerId !== undefined) file.workerId = workerId;
@@ -463,6 +480,7 @@ function configFile(argv: string[]): WorkerConfigFile {
   if (dnsOverrides !== undefined) file.dnsOverrides = dnsOverrides as Record<string, string>;
   if (workspaceMap !== undefined) file.workspaceMap = workspaceMap as Record<string, string>;
   if (requestTimeoutMs !== undefined) file.requestTimeoutMs = requestTimeoutMs;
+  if (isolation !== undefined) file.isolation = isolation as "shared" | "process";
   return file;
 }
 

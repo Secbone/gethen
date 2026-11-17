@@ -93,6 +93,7 @@ describe("Gethen DSH plugin", () => {
       "gethen_run",
       "gethen_overview",
       "gethen_escalations",
+      "gethen_task",
     ]);
   });
 
@@ -132,6 +133,14 @@ describe("Gethen DSH plugin", () => {
     expect(ticket?.latestReport).toBe("ready");
     expect(ticket?.assignments).toBe(1);
     expect(ticket?.stage).toBe("person/review");
+  });
+
+  it("gethen_task fails clearly with the fake launch", async () => {
+    const { ctx, tools } = context();
+    apply(ctx, { dir: stateDir() });
+    await expect(
+      tool(tools, "gethen_task").execute({ action: "status", assignmentId: "assignment-1" }, {}),
+    ).rejects.toThrow(/requires the mailbox runtime/);
   });
 
   it("keeps escalation history available through gethen_escalations", async () => {

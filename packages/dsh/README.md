@@ -95,10 +95,33 @@ mailbox 继续，不需要重放 Assignment。
 
 | 工具 | 作用 |
 |---|---|
-| `gethen_status` | `{tickets, open, receipts, running, escalations, launch, workers, mailbox?}`；`launch` 为 `fake`/`ws`，`workers` 是当前 transport 会话数，`mailbox` 仅 ws 模式返回 `{pending, leased, dead}` |
+| `gethen_status` | `{tickets, open, receipts, running, escalations, launch, workers, mailbox?, tasks?}`；`launch` 为 `fake`/`ws`，`workers` 是当前 transport 会话数，`mailbox` 仅 ws 模式返回 `{pending, leased, dead}`，`tasks` 是任务摘要 `{count, recent}`（仅 mailbox 模式） |
 | `gethen_run` | 接收一句话，走 receive → eval → accept → assignment → launch → report → receipt |
 | `gethen_overview` | 每张 Ticket 的 `stage`（`ticketStage`）、outcome、latestReport、assignment 数 |
 | `gethen_escalations` | Worker 升级列表：question、status（waiting/resolved/parked）、resolution |
+| `gethen_task` | 查看/控制一个运行中的 Assignment：`status`（先读缓存，再问 Worker）/ `steer`（追加指令）/ `cancel`（请求停止）；仅 mailbox 模式可用 |
+
+## 任务查看与控制（gethen_task）
+
+mailbox 模式下，`gethen_status` 的 `tasks` 字段给出缓存摘要（`count` + 最近 5 个
+assignment 的 phase/step/lastEventAt）。需要细节或干预时用 `gethen_task`：
+
+```jsonc
+// status：优先返回缓存的 live state；没有缓存才向 Worker 发 gethen.task.status
+{ "action": "status", "assignmentId": "assignment-…", "timeoutMs": 2000 }
+
+// steer：给运行中的 Assignment 追加一条指令（text 非空）
+{ "action": "steer", "assignmentId": "assignment-…", "text": "focus on the failing test" }
+
+// cancel：请求 Worker 停止（reason 可选）
+{ "action": "cancel", "assignmentId": "assignment-…", "reason": "user asked" }
+```
+
+返回：`status` → `{assignmentId, action, state: {phase, step, lastTool?, lastMessage?,
+lastEventAt, seq} | null, cached, message?}`；`steer` → `{…, text, steered: true}`；
+`cancel` → `{…, cancelled: true, reason?}`。fake 模式没有 Worker，调用会返回明确错误
+（`task state/control requires the mailbox runtime…`）；未知/已结束/离线的 assignment
+在 status 超时后返回可读的 “did not answer a status request” 错误。
 
 ## 边界
 

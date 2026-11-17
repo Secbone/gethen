@@ -215,4 +215,21 @@ describe("gethen worker config", () => {
     ).toThrow(/workspaceMap/);
     rmSync(dir, { recursive: true, force: true });
   });
+
+  it("accepts the isolation mode and rejects unknown values", () => {
+    const base = [
+      "--master-url",
+      "wss://m.example/gethen/worker",
+      "--token",
+      "t",
+      "--worker-id",
+      "w",
+      "--provider",
+      "p",
+      "--model",
+      "m",
+    ];
+    expect(parseWorkerConfig([...base, "--isolation", "process"]).isolation).toBe("process");
+    expect(() => parseWorkerConfig([...base, "--isolation", "namespace"])).toThrow(/isolation/);
+  });
 });
