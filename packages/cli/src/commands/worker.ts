@@ -354,6 +354,7 @@ async function runMailboxWorker(config: WorkerConfig): Promise<number> {
   async function reconnectOnce(): Promise<void> {
     if (stopping || reconnecting) return;
     reconnecting = true;
+    let failed = false;
     try {
       const next = await connect();
       if (stopping) {
@@ -366,11 +367,15 @@ async function runMailboxWorker(config: WorkerConfig): Promise<number> {
       attempt = 0;
       process.stdout.write(`worker ${workerId} reconnected (mailbox: ${mailbox})\n`);
     } catch (error) {
+      failed = true;
       process.stderr.write(`gethen worker: reconnect failed: ${messageOf(error)}\n`);
-      scheduleReconnect();
     } finally {
       reconnecting = false;
     }
+    // Retry after the flag is cleared: scheduling from inside `catch` was a
+    // no-op because `reconnecting` was still true, which stopped the loop
+    // after a single transient failure (e.g. a 502 while the master restarts).
+    if (failed && !stopping) scheduleReconnect();
   }
 
   watch(session);
