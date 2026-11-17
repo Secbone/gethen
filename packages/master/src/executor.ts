@@ -49,6 +49,26 @@ export function createLaunchHandler(deps: LaunchHandlerDeps): LaunchHandler {
   const clock = deps.clock ?? SYSTEM_CLOCK;
   return async (payload: unknown): Promise<void> => {
     const { ticket, assignment, packDigest } = asLaunchPayload(payload);
+    // A person may close the Ticket after the effect was queued. Do not start a
+    // Worker for closed work; record the aborted attempt and settle the effect.
+    const current = deps.engine.ticket(ticket.id);
+    if (current === undefined || current.endedAt !== undefined) {
+      deps.receipts.append({
+        assignment: assignment.id,
+        ticket: ticket.id,
+        worker: assignment.worker,
+        workspace: assignment.workspace,
+        packDigest,
+        at: clock.now().toISOString(),
+        outcome: "aborted",
+        summary:
+          current === undefined
+            ? "ticket disappeared before the launch effect ran"
+            : `ticket closed as ${current.outcome ?? "unknown"} before the launch effect ran`,
+        events: 0,
+      });
+      return;
+    }
     deps.engine.assignmentStarted(ticket.id, assignment.id);
 
     const request = buildLaunchRequest(deps, ticket, assignment, packDigest);

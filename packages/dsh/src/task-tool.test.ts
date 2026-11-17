@@ -1,13 +1,15 @@
 import {
+  createTaskControl,
   type HarnessSessionSummary,
   MasterRuntimeError,
   type MasterRuntimeTasks,
   type TaskEvent,
   type TaskState,
+  taskSummary,
 } from "@gethen/master-runtime";
 import { describe, expect, it, vi } from "vitest";
 import type { DshContext, DshToolDefinition } from "./index";
-import { registerTaskTool, TASK_ACTIONS, taskSummary } from "./task-tool";
+import { registerTaskTool, TASK_ACTIONS } from "./task-tool";
 
 const STATE: TaskState = {
   phase: "tool",
@@ -62,7 +64,7 @@ function stubTasks(overrides: Partial<MasterRuntimeTasks> = {}): MasterRuntimeTa
 
 function registered(tasks: MasterRuntimeTasks = stubTasks()): DshToolDefinition {
   const { ctx, tools } = context();
-  registerTaskTool(ctx, tasks);
+  registerTaskTool(ctx, createTaskControl(tasks));
   const definition = tools[0];
   if (definition === undefined) throw new Error("gethen_task was not registered");
   return definition;

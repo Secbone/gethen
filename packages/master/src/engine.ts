@@ -14,6 +14,13 @@
  *   accept returns the recorded Decision and creates nothing.
  */
 import {
+  type ArchivePolicy,
+  acknowledgeTicket as applyAck,
+  archiveCandidates,
+  DEFAULT_ARCHIVE_POLICY,
+  archiveTicket as stampArchived,
+} from "./lifecycle";
+import {
   type Assignment,
   DEFAULT_EVAL_DEADLINE_MS,
   DEFAULT_SESSION_SPEC,
@@ -36,6 +43,8 @@ import {
   type Thread,
   type Ticket,
   type TicketAttention,
+  type TicketCloseOutcome,
+  type TicketOutcome,
   type Trigger,
 } from "./model";
 import type { Clock, Ids, PendingEffect, Repositories } from "./ports";
@@ -348,21 +357,69 @@ export class Engine {
    * resumed) and end its running work. There is no resume command in P1.
    */
   stopTicket(ticketId: string, reason: string): void {
-    const ticket = this.requireTicket(ticketId);
-    const at = this.timestamp();
-    ticket.endedAt = at;
-    ticket.outcome = "stopped";
-    this.repos.tickets.save(ticket);
-
-    const mandate = this.repos.mandates.get(ticket.mandate);
-    if (mandate) {
-      mandate.withdrawnAt = at;
-      this.repos.mandates.save(mandate);
-    }
-    this.endRunningAssignments(ticket, at);
-    // The reason belongs to the caller's audit trail; P1 writes no Decision for
-    // a manual stop.
+    this.endTicket(this.requireTicket(ticketId), "stopped");
+    // The reason belongs to the caller's audit trail; the engine writes no
+    // Decision for a manual stop.
     void reason;
+  }
+
+  /**
+   * Close a Ticket with an explicit terminal outcome. Closing is idempotent for
+   * the same outcome and refuses to rewrite a different one. The Mandate is
+   * withdrawn and every live Assignment ends, so an outbox retry cannot keep
+   * working on a Ticket a person has already finished.
+   */
+  closeTicket(ticketId: string, outcome: TicketCloseOutcome = "completed"): Ticket {
+    return this.endTicket(this.requireTicket(ticketId), outcome);
+  }
+
+  /**
+   * Mark the Ticket's current needs-action state as seen. A later report,
+   * question or delivery failure changes the fingerprint and asks again.
+   */
+  acknowledge(ticketId: string): Ticket {
+    const ticket = this.requireTicket(ticketId);
+    if (ticket.endedAt !== undefined) {
+      throw new EngineError(`ticket ${ticketId} has ended and needs no acknowledgement`);
+    }
+    const updated = applyAck(ticket, this.timestamp(), this.repos.assignments.list());
+    this.repos.tickets.save(updated);
+    return updated;
+  }
+
+  /** Hide a terminal Ticket from the default overview. */
+  archive(ticketId: string): Ticket {
+    const ticket = this.requireTicket(ticketId);
+    if (ticket.endedAt === undefined) {
+      throw new EngineError(`ticket ${ticketId} is open; close it before archiving`);
+    }
+    const updated = stampArchived(ticket, this.timestamp());
+    if (updated !== ticket) this.repos.tickets.save(updated);
+    return updated;
+  }
+
+  /**
+   * Archive every terminal Ticket whose outcome retention has elapsed. The
+   * caller flushes and is responsible for running this where a clock exists
+   * (overview/status refresh), so the pure engine never starts a timer.
+   */
+  archiveDue(
+    now: Date = this.clock.now(),
+    policy: ArchivePolicy = DEFAULT_ARCHIVE_POLICY,
+  ): string[] {
+    const at = now.toISOString();
+    const due = archiveCandidates(this.repos.tickets.list(), now, policy);
+    for (const candidate of due) {
+      const ticket = this.repos.tickets.get(candidate.id);
+      if (ticket === undefined) continue;
+      this.repos.tickets.save(stampArchived(ticket, at));
+    }
+    return due.map((ticket) => ticket.id);
+  }
+
+  /** Read one Ticket; used by host-side guards such as the launch effect. */
+  ticket(ticketId: string): Ticket | undefined {
+    return this.repos.tickets.get(ticketId);
   }
 
   /** Start another Assignment for the same open Ticket and queue its launch. */
@@ -631,6 +688,47 @@ export class Engine {
       assignment.endedAt = at;
       this.repos.assignments.save(assignment);
     }
+  }
+
+  /** End every live Assignment; a closed Ticket must not leave work pending. */
+  private endAssignments(ticket: Ticket, at: string): void {
+    for (const assignmentId of ticket.assignments) {
+      const assignment = this.repos.assignments.get(assignmentId);
+      if (
+        assignment === undefined ||
+        (assignment.state !== "pending" &&
+          assignment.state !== "waiting" &&
+          assignment.state !== "running")
+      ) {
+        continue;
+      }
+      assignment.state = "ended";
+      assignment.endedAt = at;
+      this.repos.assignments.save(assignment);
+    }
+  }
+
+  private endTicket(ticket: Ticket, outcome: TicketOutcome): Ticket {
+    if (ticket.endedAt !== undefined) {
+      if (ticket.outcome === outcome) return ticket;
+      throw new EngineError(
+        `ticket ${ticket.id} already ended as ${ticket.outcome ?? "unknown"}; ` +
+          `refusing to close it as ${outcome}`,
+      );
+    }
+    const at = this.timestamp();
+    ticket.endedAt = at;
+    ticket.outcome = outcome;
+    delete ticket.attention;
+    this.repos.tickets.save(ticket);
+
+    const mandate = this.repos.mandates.get(ticket.mandate);
+    if (mandate) {
+      mandate.withdrawnAt = at;
+      this.repos.mandates.save(mandate);
+    }
+    this.endAssignments(ticket, at);
+    return ticket;
   }
 
   /** The Assignment an escalation waits: the named one, else the latest. */

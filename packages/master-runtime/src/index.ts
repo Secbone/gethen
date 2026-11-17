@@ -14,4 +14,5 @@ export type {
   Slot,
 } from "@gethen/fleet";
 export type { RouteDecision, TaskRequirement } from "@gethen/router";
+export * from "./control";
 export * from "./runtime";

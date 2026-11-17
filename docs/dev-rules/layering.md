@@ -138,3 +138,12 @@ pnpm check 同时运行 TypeScript 行为测试和 PAST Python 审计测试。�
 `transport-pi`/`transport-acp`/`harnesses`（历史层，`bridge-remote` 已在 C7 删除）、
 `benchmark`/`benchmark-file`/`evaluation`/`workspace`（→ P7 移出产品）。
 最终目标为 14 个产品包，见重构计划 §3.1。
+
+## 2026-11-17 控制面单一实现
+
+`@gethen/master` 的 `lifecycle`/`overview` 是纯票据状态与投影规则；`@gethen/master-runtime`
+的 `ControlPlane`（`runtime.control`）把它们与 store、task bridge 组装成
+status/overview、ticket ack/close/archive、task status/logs/steer/cancel 与 session
+list/history 的唯一实现。CLI 的 HTTP 路由和 `@gethen/dsh` 工具只能做参数与线路适配；
+新增控制动作时先扩展 `ControlPlane`，不要在 CLI 或 DSH 里复制状态推导。离线
+`gethen status` 可复用 `@gethen/master` 的纯投影，但不得在只读路径上执行归档写入。

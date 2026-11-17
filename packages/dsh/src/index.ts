@@ -28,16 +28,18 @@ import {
   parseSessionSpec,
   type SessionSpec,
   type Trigger,
-  ticketStage,
 } from "@gethen/master";
 import {
+  type ControlPlane,
   createMasterRuntime,
   DEFAULT_MASTER_POLICY,
   type MailboxHealth,
   type MasterRuntime,
   type MasterRuntimeTasks,
+  taskSummary,
 } from "@gethen/master-runtime";
-import { registerTaskTool, taskSummary } from "./task-tool";
+import { registerTaskTool } from "./task-tool";
+import { registerTicketTool } from "./ticket-tool";
 
 /** The narrow DSH surface this plugin uses; no DSH package is imported. */
 export interface DshToolDefinition {
@@ -225,6 +227,8 @@ function escalationHooks(serviceOf: () => MasterService | undefined): {
 
 interface ToolDeps {
   service: MasterService;
+  /** Shared control surface: status/overview/ticket actions. */
+  control: ControlPlane;
   /** What the launch port currently is: mailbox transport or the fake. */
   launch(): "ws" | "fake";
   /** Connected workers reported by the runtime (0 in fake mode). */
@@ -244,14 +248,16 @@ function registerTools(ctx: DshContext, deps: ToolDeps): void {
   ctx.tools.register({
     name: "gethen_status",
     description:
-      "Return master counts: tickets, open tickets, receipts, running Assignments, " +
-      "workers and mailbox counters.",
+      "Return master counts: tickets, open and needs-action tickets, receipts, running " +
+      "Assignments, workers and mailbox counters.",
     parameters: {},
     output: {
       schema: objectSchema(
         {
           tickets: { type: "number" },
           open: { type: "number" },
+          needsAction: { type: "number" },
+          archived: { type: "number" },
           receipts: { type: "number" },
           running: { type: "number" },
           escalations: { type: "number" },
@@ -275,22 +281,34 @@ function registerTools(ctx: DshContext, deps: ToolDeps): void {
             required: ["count", "recent"],
           },
         },
-        ["tickets", "open", "receipts", "running", "escalations", "launch", "workers"],
+        [
+          "tickets",
+          "open",
+          "needsAction",
+          "archived",
+          "receipts",
+          "running",
+          "escalations",
+          "launch",
+          "workers",
+        ],
       ),
       render: (_args, value) => text(value),
     },
     async execute() {
-      const tickets = service.store.tickets.list();
+      const status = deps.control.status();
       const mailbox = deps.mailbox?.();
       const tasks = taskSummary(deps.tasks);
       return {
-        tickets: tickets.length,
-        open: tickets.filter((ticket) => ticket.endedAt === undefined).length,
-        receipts: service.store.listReceipts().length,
+        tickets: status.counts.tickets,
+        open: status.counts.open,
+        needsAction: status.counts.needsAction,
+        archived: status.counts.archived,
+        receipts: status.counts.receipts,
         running: service.store.assignments
           .list()
           .filter((assignment) => assignment.state === "running").length,
-        escalations: service.store.listEscalations().length,
+        escalations: status.counts.escalations,
         launch: deps.launch(),
         workers: deps.workers(),
         ...(mailbox === undefined ? {} : { mailbox }),
@@ -384,34 +402,51 @@ function registerTools(ctx: DshContext, deps: ToolDeps): void {
 
   ctx.tools.register({
     name: "gethen_overview",
-    description: "Return every ticket with its computed stage, report and Assignment count.",
-    parameters: {},
+    description:
+      "Return tickets that need a person by default; pass filter=open or filter=all " +
+      "(archived included) for an explicit operator view. Each ticket carries its stage, " +
+      "lifecycle, outcome and Assignment count.",
+    parameters: {
+      filter: {
+        type: "string",
+        required: false,
+        enum: ["needs-action", "open", "all"],
+        description: "needs-action (default) | open | all",
+      },
+    },
     output: {
-      schema: objectSchema({ tickets: { type: "array", items: { type: "object" } } }, ["tickets"]),
+      schema: objectSchema(
+        {
+          filter: { type: "string", enum: ["needs-action", "open", "all"] },
+          counts: {
+            type: "object",
+            properties: {
+              tickets: { type: "number" },
+              open: { type: "number" },
+              needsAction: { type: "number" },
+              archived: { type: "number" },
+              receipts: { type: "number" },
+              escalations: { type: "number" },
+            },
+            required: ["tickets", "open", "needsAction", "archived"],
+          },
+          tickets: { type: "array", items: { type: "object" } },
+        },
+        ["filter", "counts", "tickets"],
+      ),
       render: (_args, value) => text(value),
     },
-    async execute() {
-      const assignments = service.store.assignments.list();
-      const counts = new Map<string, number>();
-      const live = new Set<string>();
-      for (const assignment of assignments) {
-        counts.set(assignment.ticket, (counts.get(assignment.ticket) ?? 0) + 1);
-        if (assignment.state === "pending" || assignment.state === "running") {
-          live.add(assignment.ticket);
-        }
+    async execute(raw) {
+      const args = raw as { filter?: unknown };
+      const filter = args.filter ?? "needs-action";
+      if (filter !== "needs-action" && filter !== "open" && filter !== "all") {
+        throw new Error('gethen_overview "filter" must be needs-action, open or all');
       }
+      const overview = deps.control.overview({ filter });
       return {
-        tickets: service.store.tickets.list().map((ticket) => ({
-          id: ticket.id,
-          stage: ticketStage(ticket, {
-            liveAssignment: live.has(ticket.id),
-            personSinceReport: false,
-            deliveryFailed: ticket.delivery !== undefined,
-          }),
-          outcome: ticket.outcome ?? "",
-          latestReport: ticket.latestReport ?? "",
-          assignments: counts.get(ticket.id) ?? 0,
-        })),
+        filter: overview.filter,
+        counts: overview.counts,
+        tickets: overview.tickets,
       };
     },
   });
@@ -431,7 +466,8 @@ function registerTools(ctx: DshContext, deps: ToolDeps): void {
     },
   });
 
-  if (deps.tasks !== undefined) registerTaskTool(ctx, deps.tasks);
+  registerTaskTool(ctx, deps.control);
+  registerTicketTool(ctx, deps.control);
 }
 
 /**
@@ -503,6 +539,7 @@ export function apply(ctx: DshContext, config: GethenConfig = {}): void {
   });
   registerTools(ctx, {
     service: mounted.service,
+    control: mounted.control,
     launch: () => mounted.launch,
     workers: () => mounted.health().workers,
     mailbox: () => (mounted.launch === "ws" ? mounted.health().mailbox : undefined),

@@ -1,6 +1,11 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { SqliteStore, type TicketStage, ticketStage } from "@gethen/master";
+import {
+  buildControlStatus,
+  SqliteStore,
+  type TicketLifecycle,
+  type TicketStage,
+} from "@gethen/master";
 import { defaultMasterDbPath } from "../paths";
 import { formatTable } from "../table";
 
@@ -21,12 +26,15 @@ export interface StatusOptions {
 /** One row of the `recent` section, in newest-first order. */
 export interface RecentTicket {
   id: string;
-  /** Derived exactly like the master's panel stage (`ticketStage`). */
+  /** Derived exactly like the master's overview stage. */
   stage: TicketStage;
+  lifecycle: TicketLifecycle;
+  needsAction: boolean;
   latestReport: string;
   assignments: string[];
   openedAt: string;
   endedAt?: string;
+  archivedAt?: string;
 }
 
 /** The persisted master state that `gethen status` reports. */
@@ -34,6 +42,8 @@ export interface StatusSummary {
   db: string;
   tickets: number;
   open: number;
+  needsAction: number;
+  archived: number;
   receipts: number;
   escalations: number;
   /** The newest {@link RECENT_LIMIT} tickets, newest first. */
@@ -44,43 +54,44 @@ export interface StatusSummary {
  * Read a master sqlite file without starting the outbox, acquiring the master
  * lock or issuing any business write. The store opens the schema idempotently
  * and every query is a read; this is safe against a live master (WAL mode).
+ * Archive retention is applied by the live overview, not by this offline read.
  */
 export function readStatus(dbPath: string): StatusSummary {
   const store = new SqliteStore(dbPath);
   try {
     const tickets = store.tickets.list();
-    const liveTickets = new Set(
-      store.assignments
-        .list()
-        .filter((assignment) => assignment.state === "pending" || assignment.state === "running")
-        .map((assignment) => assignment.ticket),
+    const byId = new Map(tickets.map((ticket) => [ticket.id, ticket]));
+    const status = buildControlStatus(
+      {
+        tickets,
+        assignments: store.assignments.list(),
+        receipts: store.listReceipts(),
+        escalations: store.listEscalations(),
+      },
+      { recentLimit: RECENT_LIMIT },
     );
-    const recent = tickets
-      .slice(-RECENT_LIMIT)
-      .reverse()
-      .map((ticket): RecentTicket => {
-        const stage = ticketStage(ticket, {
-          liveAssignment: liveTickets.has(ticket.id),
-          // Ticket rows do not carry the report timestamp, so the persisted
-          // view cannot tell whether a person spoke after the last report.
-          personSinceReport: false,
-          deliveryFailed: ticket.delivery !== undefined,
-        });
-        return {
-          id: ticket.id,
-          stage,
-          latestReport: ticket.latestReport ?? "",
-          assignments: [...ticket.assignments],
-          openedAt: ticket.openedAt,
-          ...(ticket.endedAt === undefined ? {} : { endedAt: ticket.endedAt }),
-        };
-      });
+    const recent = status.recent.map((summary): RecentTicket => {
+      const ticket = byId.get(summary.id);
+      return {
+        id: summary.id,
+        stage: summary.stage,
+        lifecycle: summary.lifecycle,
+        needsAction: summary.needsAction,
+        latestReport: summary.latestReport ?? "",
+        assignments: ticket === undefined ? [] : [...ticket.assignments],
+        openedAt: summary.openedAt,
+        ...(summary.endedAt === undefined ? {} : { endedAt: summary.endedAt }),
+        ...(summary.archivedAt === undefined ? {} : { archivedAt: summary.archivedAt }),
+      };
+    });
     return {
       db: dbPath,
-      tickets: tickets.length,
-      open: tickets.filter((ticket) => ticket.endedAt === undefined).length,
-      receipts: store.listReceipts().length,
-      escalations: store.listEscalations().length,
+      tickets: status.counts.tickets,
+      open: status.counts.open,
+      needsAction: status.counts.needsAction,
+      archived: status.counts.archived,
+      receipts: status.counts.receipts,
+      escalations: status.counts.escalations,
       recent,
     };
   } finally {
@@ -126,6 +137,7 @@ function renderText(summary: StatusSummary, write: (line: string) => void): void
   write(`db: ${summary.db}`);
   write(
     `tickets: ${summary.tickets}  open: ${summary.open}  ` +
+      `needs action: ${summary.needsAction}  archived: ${summary.archived}  ` +
       `receipts: ${summary.receipts}  escalations: ${summary.escalations}`,
   );
   write("");
@@ -134,10 +146,11 @@ function renderText(summary: StatusSummary, write: (line: string) => void): void
     return;
   }
 
-  const headers = ["ID", "STAGE", "REPORT", "ASSIGN", "OPENED"];
+  const headers = ["ID", "STAGE", "ACT", "REPORT", "ASSIGN", "OPENED"];
   const rows = summary.recent.map((ticket) => [
     ticket.id,
     ticket.stage,
+    ticket.needsAction ? "yes" : "no",
     ticket.latestReport === "" ? "-" : ticket.latestReport,
     String(ticket.assignments.length),
     ticket.openedAt,
@@ -153,7 +166,9 @@ function renderText(summary: StatusSummary, write: (line: string) => void): void
 const STATUS_USAGE = `Usage: gethen status [--db <file>] [--json]
 
 Reads the master sqlite file (no outbox or launch port is started) and reports
-ticket/receipt/escalation counts plus the last ${RECENT_LIMIT} tickets.
+ticket/receipt/escalation counts plus the last ${RECENT_LIMIT} tickets. "needs
+action" is the same projection gethen_overview defaults to; archived tickets are
+terminal and hidden from that default view.
 The default database is $GETHEN_STATE_DIR/master.sqlite or ~/.gethen/master.sqlite.
 --json prints the same data as one JSON document (including assignment ids).
 `;

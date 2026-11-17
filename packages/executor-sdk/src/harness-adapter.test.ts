@@ -598,6 +598,23 @@ describe("live state, steering and lifecycle timers", () => {
     }
   });
 
+  it("pauses the silence watchdog while an escalation waits for a person", async () => {
+    vi.useFakeTimers();
+    try {
+      const escalated = setup({ idleTimeoutMs: 1_000 });
+      const execution = await escalated.executor.start(task(), escalated.sink);
+      const allowed = escalated.client.askApproval({ sessionId: "a1", toolName: "shell" });
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(escalated.sink.reports).toEqual([]);
+      await execution.sendResolution({ kind: "answer", option: "allow", text: "go" });
+      await expect(allowed).resolves.toBe("allowed-once");
+      await vi.advanceTimersByTimeAsync(1_500);
+      expect(escalated.sink.reports[0]?.summary).toMatch(/no session events/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("defaults the watchdog to five minutes", () => {
     expect(DEFAULT_IDLE_TIMEOUT_MS).toBe(300_000);
     expect(STOP_STEER_TEXT.length).toBeGreaterThan(0);

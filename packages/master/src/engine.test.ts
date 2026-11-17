@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Engine, EngineError, type LaunchEffectPayload } from "./engine";
+import { needsAction } from "./lifecycle";
 import { MemoryRepositories } from "./memory";
 import {
   type EscalationInput,
@@ -628,5 +629,81 @@ describe("escalations", () => {
     const ctx = setup();
     const { ticket } = accepted(ctx);
     expect(() => ctx.engine.resolve(ticket.id, { kind: "answer", text: "x" })).toThrow(EngineError);
+  });
+});
+
+describe("ticket lifecycle commands", () => {
+  it("acknowledges the current needs-action state and asks again on a new report", () => {
+    const ctx = setup();
+    const { ticket } = accepted(ctx);
+    ctx.engine.report(ticket.id, report("ready"));
+    expect(needsAction(ticket, ctx.repos.assignments.list())).toBe(true);
+
+    const acknowledged = ctx.engine.acknowledge(ticket.id);
+    expect(acknowledged.ack).toMatchObject({ at: START, stage: "person/review" });
+    expect(needsAction(acknowledged, ctx.repos.assignments.list())).toBe(false);
+
+    ctx.engine.report(ticket.id, report("blocked"));
+    expect(needsAction(ticket, ctx.repos.assignments.list())).toBe(true);
+  });
+
+  it("closes with an explicit outcome, ends live work and withdraws the mandate", () => {
+    const ctx = setup();
+    const { ticket } = accepted(ctx);
+    const assignment = lastAssignment(ctx, ticket);
+    const replacement = ctx.engine.retryTicket(ticket.id);
+    ctx.engine.assignmentStarted(ticket.id, assignment.id);
+    expect(replacement.state).toBe("pending");
+
+    ctx.engine.report(ticket.id, report("progress", { question: "Merge or rebase?" }));
+    const closed = ctx.engine.closeTicket(ticket.id, "merged");
+
+    expect(closed.endedAt).toBe(START);
+    expect(closed.outcome).toBe("merged");
+    expect(closed.attention).toBeUndefined();
+    expect(ctx.repos.mandates.get(ticket.mandate)?.withdrawnAt).toBe(START);
+    expect(ctx.repos.assignments.get(assignment.id)?.state).toBe("ended");
+    expect(ctx.repos.assignments.get(replacement.id)?.state).toBe("ended");
+    expect(needsAction(ticket, ctx.repos.assignments.list())).toBe(false);
+  });
+
+  it("treats the same close as idempotent and refuses to rewrite a different outcome", () => {
+    const ctx = setup();
+    const { ticket } = accepted(ctx);
+    ctx.engine.closeTicket(ticket.id, "completed");
+    expect(ctx.engine.closeTicket(ticket.id, "completed").outcome).toBe("completed");
+    expect(() => ctx.engine.closeTicket(ticket.id, "dropped")).toThrow(/already ended/);
+  });
+
+  it("refuses to acknowledge an ended Ticket", () => {
+    const ctx = setup();
+    const { ticket } = accepted(ctx);
+    ctx.engine.closeTicket(ticket.id, "completed");
+    expect(() => ctx.engine.acknowledge(ticket.id)).toThrow(/has ended/);
+  });
+
+  it("archives only closed Tickets and applies the retention sweep", () => {
+    const ctx = setup();
+    const { ticket } = accepted(ctx);
+    expect(() => ctx.engine.archive(ticket.id)).toThrow(/close it before archiving/);
+
+    ctx.engine.closeTicket(ticket.id, "completed");
+    const archived = ctx.engine.archive(ticket.id);
+    expect(archived.archivedAt).toBe(START);
+    expect(ctx.engine.archive(ticket.id).archivedAt).toBe(START);
+
+    ctx.advance(30 * 86_400_000);
+    expect(ctx.engine.archiveDue()).toEqual([]);
+  });
+
+  it("sweeps ended Tickets whose outcome retention has elapsed", () => {
+    const ctx = setup();
+    const { ticket } = accepted(ctx);
+    ctx.engine.closeTicket(ticket.id, "dropped");
+    ctx.advance(2 * 86_400_000);
+
+    expect(ctx.engine.archiveDue()).toEqual([ticket.id]);
+    expect(ctx.repos.tickets.get(ticket.id)?.archivedAt).toBe(ctx.at());
+    expect(ctx.engine.archiveDue()).toEqual([]);
   });
 });

@@ -696,6 +696,14 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
     state.watchdogTimer.unref?.();
   }
 
+  /** Stop the silence watchdog without touching the deadline timer. */
+  private pauseWatchdog(state: ExecutionState): void {
+    if (state.watchdogTimer !== undefined) {
+      clearTimeout(state.watchdogTimer);
+      state.watchdogTimer = undefined;
+    }
+  }
+
   private clearLifecycleTimers(state: ExecutionState): void {
     if (state.watchdogTimer !== undefined) {
       clearTimeout(state.watchdogTimer);
@@ -1187,15 +1195,24 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
     state: ExecutionState,
     escalation: HarnessEscalation,
   ): Promise<HarnessResolution> {
-    if (state.pending === undefined) {
+    // Waiting for a person/Master answer produces no session events by design;
+    // the silence watchdog must not kill the execution while it is parked.
+    this.pauseWatchdog(state);
+    const start = (): Promise<HarnessResolution> => {
       const run = this.emitEscalation(state, escalation);
+      return run.finally(() => {
+        if (!state.settled && !state.cancelled) this.resetWatchdog(state);
+      });
+    };
+    if (state.pending === undefined) {
+      const run = start();
       state.escalationChain = run.then(
         () => undefined,
         () => undefined,
       );
       return run;
     }
-    const run = state.escalationChain.then(() => this.emitEscalation(state, escalation));
+    const run = state.escalationChain.then(start);
     state.escalationChain = run.then(
       () => undefined,
       () => undefined,

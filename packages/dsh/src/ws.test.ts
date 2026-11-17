@@ -160,6 +160,7 @@ const TOOL_NAMES = [
   "gethen_overview",
   "gethen_escalations",
   "gethen_task",
+  "gethen_ticket",
 ];
 
 describe("worker token config", () => {

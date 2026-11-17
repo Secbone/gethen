@@ -143,6 +143,20 @@ export interface TicketAttention {
   askedAt: string;
 }
 
+/**
+ * A person has seen the Ticket's current needs-action state. The fingerprint
+ * covers the stage and the facts that produced it, so a new report, question or
+ * delivery failure makes the Ticket actionable again without a timer.
+ */
+export interface TicketAck {
+  at: string;
+  stage: TicketStage;
+  fingerprint: string;
+}
+
+/** Outcomes a person may close a Ticket with. `stopped` belongs to `stopTicket`. */
+export type TicketCloseOutcome = "merged" | "closed" | "completed" | "dropped";
+
 /** A unit of authorized work. Its state never follows a Worker session. */
 export interface Ticket {
   id: TicketId;
@@ -158,6 +172,10 @@ export interface Ticket {
   outcome?: TicketOutcome;
   latestReport?: ReportKind;
   attention?: TicketAttention;
+  /** Last acknowledgement of the current needs-action fingerprint. */
+  ack?: TicketAck;
+  /** Hidden from the default overview; only terminal Tickets can be archived. */
+  archivedAt?: string;
   /** Last input delivery failed; retried with backoff. */
   delivery?: { error: string; at: string; attempt: number };
 }

@@ -122,6 +122,8 @@ describe("SqliteStore repositories", () => {
         askedAt: AT,
       },
       delivery: { error: "timeout", at: AT, attempt: 2 },
+      ack: { at: LATER, stage: "person/review", fingerprint: "person/review|ready||" },
+      archivedAt: LATER,
     };
     const assignment: Assignment = {
       id: "asg-1",
@@ -206,6 +208,8 @@ describe("SqliteStore repositories", () => {
     expect(read).not.toHaveProperty("endedAt");
     expect(read).not.toHaveProperty("latestReport");
     expect(read).not.toHaveProperty("attention");
+    expect(read).not.toHaveProperty("ack");
+    expect(read).not.toHaveProperty("archivedAt");
 
     const trigger: Trigger = {
       id: "trg-1",

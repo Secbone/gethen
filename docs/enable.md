@@ -160,6 +160,12 @@ gethen run --master https://<master> "在 /tmp/demo 下创建 ok.txt，然后报
 gethen run --master https://<master> --json "…"     # 原样响应
 gethen status --db /var/lib/gethen/master.sqlite
 
+# Ticket 生命周期：默认 overview 只列“需要人行动”的项
+# （DSH 用 gethen_overview / gethen_ticket；CLI 用 ticket 子命令）
+gethen ticket ack <ticketId> --master https://<master>
+gethen ticket close <ticketId> --outcome completed --master https://<master>
+gethen ticket archive <ticketId> --master https://<master>
+
 # 运行中任务：状态查询 / 干预
 gethen task status <assignmentId> --master https://<master>
 gethen task steer <assignmentId> "改用最小改动" --master https://<master>
@@ -191,6 +197,7 @@ GETHEN_E2E=1 node scripts/e2e-sdk.mjs               # 真实 dsh SDK + 模型
 | Upgrade 返回 401 | token 不一致：重新 `gethen worker add` 或核对 worker.json |
 | `workers: 0` | Worker 没连上：网络/隧道、`masterUrl` 协议（ws/wss）、token、`hello` 校验 |
 | 任务 `report:"waiting"` | 升级在等人：`--escalation auto`（测试）或人工答复；检查 `gethen_status.escalations` |
+| 默认 overview 为空但任务仍在 | 已 ack 或已 closed/archived：用 `gethen_overview filter=all` 或 `gethen status` 查看全部；`open` 只看未结束项 |
 | Worker 侧 `dsh` 启动失败 | `dshArgs`/patch 路径错、SDK profile 缺 provider、凭证未配置 |
 | 插件工具消失 / 路由失效 | bundle 更新后重启 DSH（HMR 不可靠） |
 

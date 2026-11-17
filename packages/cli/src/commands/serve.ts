@@ -5,10 +5,13 @@ import {
   type EscalationRecord,
   type EscalationResolutionInput,
   type MasterService,
+  type OverviewFilter,
   parseSessionSpec,
+  type TicketCloseOutcome,
   type Trigger,
 } from "@gethen/master";
 import {
+  type ControlPlane,
   createMasterRuntime,
   type MasterRuntime,
   type TaskEventQuery,
@@ -175,6 +178,7 @@ export async function startServe(config: ServeConfig = {}): Promise<ServeHandle>
       : { visibilityTimeoutMs: config.mailboxVisibilityTimeoutMs }),
   });
   const service = runtime.service;
+  const control = runtime.control;
   const startedAt = Date.now();
 
   const server = createServer((request, response) => {
@@ -183,11 +187,23 @@ export async function startServe(config: ServeConfig = {}): Promise<ServeHandle>
       const { pathname } = url;
       try {
         if (request.method === "GET" && pathname === "/health") {
+          const counts = control.status(0).counts;
           send(response, 200, {
             ok: true,
             uptimeMs: Date.now() - startedAt,
             ...runtime.health(),
+            needsAction: counts.needsAction,
+            archived: counts.archived,
           });
+          return;
+        }
+        if (request.method === "GET" && pathname === "/gethen/overview") {
+          const filter = parseOverviewFilter(url.searchParams);
+          send(response, 200, control.overview({ filter }));
+          return;
+        }
+        if (pathname === "/gethen/tickets" || pathname.startsWith("/gethen/tickets/")) {
+          await handleTicketRoutes(control, request, response, pathname, url.searchParams);
           return;
         }
         if (request.method === "POST" && pathname === "/gethen/run") {
@@ -220,11 +236,11 @@ export async function startServe(config: ServeConfig = {}): Promise<ServeHandle>
           return;
         }
         if (pathname === "/gethen/tasks" || pathname.startsWith("/gethen/tasks/")) {
-          await handleTaskRoutes(runtime, request, response, pathname, url.searchParams);
+          await handleTaskRoutes(control, request, response, pathname, url.searchParams);
           return;
         }
         if (pathname === "/gethen/sessions" || pathname.startsWith("/gethen/sessions/")) {
-          await handleSessionRoutes(runtime, request, response, pathname, url.searchParams);
+          await handleSessionRoutes(control, request, response, pathname, url.searchParams);
           return;
         }
         send(response, 404, { error: "not found" });
@@ -284,7 +300,7 @@ const SESSION_ROUTE = /^\/gethen\/sessions(?:\/([^/]+)\/history)?$/;
  * unanswered worker to 504 and an unknown assignment to 404.
  */
 async function handleTaskRoutes(
-  runtime: MasterRuntime,
+  control: ControlPlane,
   request: IncomingMessage,
   response: ServerResponse,
   pathname: string,
@@ -313,7 +329,7 @@ async function handleTaskRoutes(
         send(response, 405, { error: "method not allowed" });
         return;
       }
-      send(response, 200, { tasks: runtime.tasks.states() });
+      send(response, 200, { tasks: control.states() });
       return;
     }
     if (action === undefined) {
@@ -321,20 +337,16 @@ async function handleTaskRoutes(
         send(response, 405, { error: "method not allowed" });
         return;
       }
-      const known = runtime.tasks.state(assignmentId);
-      if (known !== undefined) {
-        send(response, 200, { assignmentId, state: known });
-        return;
-      }
-      const state = await runtime.tasks.status(
+      const result = await control.task({
+        action: "status",
         assignmentId,
-        timeoutMs === undefined ? {} : { timeoutMs },
-      );
-      if (state === null) {
+        ...(timeoutMs === undefined ? {} : { timeoutMs }),
+      });
+      if (result.state === null || result.state === undefined) {
         send(response, 404, { error: `unknown task "${assignmentId}"` });
         return;
       }
-      send(response, 200, { assignmentId, state });
+      send(response, 200, { assignmentId, state: result.state });
       return;
     }
     if (action === "events") {
@@ -349,11 +361,12 @@ async function handleTaskRoutes(
         send(response, 400, { error: messageOf(error) });
         return;
       }
+      const result = await control.task({ action: "logs", assignmentId, ...query });
       send(response, 200, {
         assignmentId,
-        events: runtime.tasks.events(assignmentId, query),
-        count: runtime.tasks.eventCount(assignmentId),
-        dropped: runtime.tasks.eventDropped(assignmentId),
+        events: result.events ?? [],
+        count: result.count ?? 0,
+        dropped: result.dropped ?? 0,
       });
       return;
     }
@@ -368,14 +381,18 @@ async function handleTaskRoutes(
         send(response, 400, { error: "steer needs a non-empty text" });
         return;
       }
-      await runtime.tasks.steer(assignmentId, message);
+      await control.task({ action: "steer", assignmentId, text: message });
       send(response, 202, { ok: true, assignmentId, action: "steer" });
       return;
     }
     const body = await readJson(request);
     const reason =
       typeof body.reason === "string" && body.reason.length > 0 ? body.reason : undefined;
-    await runtime.tasks.cancel(assignmentId, reason);
+    await control.task({
+      action: "cancel",
+      assignmentId,
+      ...(reason === undefined ? {} : { reason }),
+    });
     send(response, 202, { ok: true, assignmentId, action: "cancel" });
   } catch (error) {
     const code = taskErrorCode(error);
@@ -384,6 +401,98 @@ async function handleTaskRoutes(
       ...(code === undefined ? {} : { code }),
     });
   }
+}
+
+const TICKET_ROUTE = /^\/gethen\/tickets(?:\/([^/]+)\/(ack|close|archive))?$/;
+
+function parseOverviewFilter(search: URLSearchParams): OverviewFilter {
+  const raw = search.get("filter") ?? "needs-action";
+  if (raw !== "needs-action" && raw !== "open" && raw !== "all") {
+    throw new Error('filter must be "needs-action", "open" or "all"');
+  }
+  return raw;
+}
+
+const CLOSE_OUTCOMES: readonly TicketCloseOutcome[] = ["completed", "closed", "merged", "dropped"];
+
+/**
+ * `GET /gethen/tickets?filter=needs-action|open|all` and
+ * `POST /gethen/tickets/:id/ack|close|archive`. These routes and the DSH tool
+ * call the same `ControlPlane` methods; only the wire format differs.
+ */
+async function handleTicketRoutes(
+  control: ControlPlane,
+  request: IncomingMessage,
+  response: ServerResponse,
+  pathname: string,
+  search: URLSearchParams,
+): Promise<void> {
+  const match = TICKET_ROUTE.exec(pathname);
+  if (match === null) {
+    send(response, 404, { error: "not found" });
+    return;
+  }
+  const encodedId = match[1];
+  const action = match[2];
+
+  try {
+    if (encodedId === undefined) {
+      if (request.method !== "GET") {
+        send(response, 405, { error: "method not allowed" });
+        return;
+      }
+      send(response, 200, control.overview({ filter: parseOverviewFilter(search) }));
+      return;
+    }
+    if (request.method !== "POST") {
+      send(response, 405, { error: "method not allowed" });
+      return;
+    }
+    const ticketId = decodeURIComponent(encodedId);
+    if (action === "ack") {
+      send(response, 200, { ok: true, action, ticket: control.acknowledge(ticketId) });
+      return;
+    }
+    if (action === "archive") {
+      send(response, 200, { ok: true, action, ticket: control.archive(ticketId) });
+      return;
+    }
+    const body = await readJson(request);
+    const outcome = optionalOutcome(body.outcome);
+    const reason =
+      typeof body.reason === "string" && body.reason.trim().length > 0
+        ? body.reason.trim()
+        : undefined;
+    const ticket = await control.close({
+      ticketId,
+      ...(outcome === undefined ? {} : { outcome }),
+      ...(reason === undefined ? {} : { reason }),
+    });
+    send(response, 200, { ok: true, action, ticket });
+  } catch (error) {
+    const message = messageOf(error);
+    send(response, ticketErrorStatus(message), { error: message });
+  }
+}
+
+function optionalOutcome(value: unknown): TicketCloseOutcome | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || !(CLOSE_OUTCOMES as readonly string[]).includes(value)) {
+    throw new Error(`outcome must be one of: ${CLOSE_OUTCOMES.join(", ")}`);
+  }
+  return value as TicketCloseOutcome;
+}
+
+function ticketErrorStatus(message: string): number {
+  if (message.startsWith("unknown ticket")) return 404;
+  if (
+    message.includes("has ended") ||
+    message.includes("already ended") ||
+    message.includes("is open")
+  ) {
+    return 409;
+  }
+  return 400;
 }
 
 function taskErrorCode(error: unknown): string | undefined {
@@ -440,7 +549,7 @@ function eventsQuery(search: URLSearchParams): TaskEventQuery {
  * `GET /gethen/sessions/:id/history[?limit=&afterSeq=&timeoutMs=]`.
  */
 async function handleSessionRoutes(
-  runtime: MasterRuntime,
+  control: ControlPlane,
   request: IncomingMessage,
   response: ServerResponse,
   pathname: string,
@@ -471,12 +580,12 @@ async function handleSessionRoutes(
   const encoded = match[1];
   try {
     if (encoded === undefined) {
-      const sessions = await runtime.tasks.sessions(timeoutMs === undefined ? {} : { timeoutMs });
+      const sessions = await control.sessions(timeoutMs === undefined ? {} : { timeoutMs });
       send(response, 200, { sessions });
       return;
     }
     const sessionId = decodeURIComponent(encoded);
-    const history = await runtime.tasks.sessionHistory(sessionId, {
+    const history = await control.sessionHistory(sessionId, {
       ...(limit === undefined ? {} : { limit }),
       ...(afterSeq === undefined ? {} : { afterSeq }),
       ...(timeoutMs === undefined ? {} : { timeoutMs }),

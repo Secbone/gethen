@@ -125,6 +125,8 @@ CREATE TABLE IF NOT EXISTS tickets (
   outcome TEXT,
   latest_report TEXT,
   attention_json TEXT,
+  ack_json TEXT,
+  archived_at TEXT,
   delivery_json TEXT
 );
 CREATE INDEX IF NOT EXISTS tickets_mandate ON tickets (mandate);
@@ -418,6 +420,13 @@ export class SqliteStore implements Repositories, ReceiptSink, WorkerRegistry {
       this.db.exec("ALTER TABLE assignments ADD COLUMN session_json TEXT");
     } catch (error) {
       if (!errorMessage(error).includes("duplicate column name")) throw error;
+    }
+    for (const column of ["ack_json TEXT", "archived_at TEXT"]) {
+      try {
+        this.db.exec(`ALTER TABLE tickets ADD COLUMN ${column}`);
+      } catch (error) {
+        if (!errorMessage(error).includes("duplicate column name")) throw error;
+      }
     }
   }
 
@@ -795,6 +804,8 @@ export class SqliteStore implements Repositories, ReceiptSink, WorkerRegistry {
         outcome: ticket.outcome ?? null,
         latest_report: ticket.latestReport ?? null,
         attention_json: ticket.attention === undefined ? null : toJson(ticket.attention),
+        ack_json: ticket.ack === undefined ? null : toJson(ticket.ack),
+        archived_at: ticket.archivedAt === undefined ? null : rfc3339(ticket.archivedAt),
         delivery_json: ticket.delivery === undefined ? null : toJson(ticket.delivery),
       });
       this.run("DELETE FROM subscriptions WHERE ticket = ?", ticket.id);
@@ -829,6 +840,10 @@ export class SqliteStore implements Repositories, ReceiptSink, WorkerRegistry {
     if (latestReport !== undefined) ticket.latestReport = latestReport as ReportKind;
     const attention = optionalJsonField<TicketAttention>(row, "attention_json");
     if (attention !== undefined) ticket.attention = attention;
+    const ack = optionalJsonField<NonNullable<Ticket["ack"]>>(row, "ack_json");
+    if (ack !== undefined) ticket.ack = ack;
+    const archivedAt = optionalText(row, "archived_at");
+    if (archivedAt !== undefined) ticket.archivedAt = archivedAt;
     const delivery = optionalJsonField<NonNullable<Ticket["delivery"]>>(row, "delivery_json");
     if (delivery !== undefined) ticket.delivery = delivery;
     return ticket;

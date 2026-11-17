@@ -621,3 +621,67 @@ describe("gethen serve", () => {
     await link.ack([stale.envelope.id]);
   });
 });
+
+describe("ticket lifecycle routes", () => {
+  it("defaults overview to needs-action and serves ack/close/archive", async () => {
+    const handle = await serve();
+    const run = await postJson(handle, "/gethen/run", { text: "fix the failing test" });
+    const ticketId = String(run.ticket);
+
+    const overview = await getJson(handle, "/gethen/overview");
+    expect(overview.filter).toBe("needs-action");
+    expect(overview.counts).toMatchObject({ tickets: 1, open: 1, needsAction: 1, archived: 0 });
+    expect((overview.tickets as Array<{ id: string }>).map((ticket) => ticket.id)).toEqual([
+      ticketId,
+    ]);
+
+    const ack = await postJson(handle, `/gethen/tickets/${ticketId}/ack`, {});
+    expect(ack).toMatchObject({ ok: true, action: "ack" });
+    expect((await getJson(handle, "/gethen/tickets")).tickets).toEqual([]);
+
+    const all = await getJson(handle, "/gethen/tickets?filter=all");
+    expect((all.tickets as Array<{ needsAction: boolean }>)[0]?.needsAction).toBe(false);
+
+    const closed = await postJson(handle, `/gethen/tickets/${ticketId}/close`, {
+      outcome: "completed",
+      reason: "reviewed",
+    });
+    expect(closed.ticket).toMatchObject({ lifecycle: "closed", outcome: "completed" });
+
+    const archived = await postJson(handle, `/gethen/tickets/${ticketId}/archive`, {});
+    expect(archived.ticket).toMatchObject({ lifecycle: "archived" });
+    expect((await getJson(handle, "/gethen/tickets?filter=all")).counts).toMatchObject({
+      archived: 1,
+      needsAction: 0,
+    });
+  });
+
+  it("maps lifecycle conflicts to 409 and unknown tickets to 404", async () => {
+    const handle = await serve();
+    const run = await postJson(handle, "/gethen/run", { text: "fix the failing test" });
+    const ticketId = String(run.ticket);
+
+    const open = await fetch(`${baseUrl(handle)}/gethen/tickets/${ticketId}/archive`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    expect(open.status).toBe(409);
+    const openBody = (await open.json()) as { error?: string };
+    expect(openBody.error).toContain("close it before archiving");
+
+    const missing = await fetch(`${baseUrl(handle)}/gethen/tickets/missing/close`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    expect(missing.status).toBe(404);
+
+    const invalid = await fetch(`${baseUrl(handle)}/gethen/tickets/${ticketId}/close`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ outcome: "stopped" }),
+    });
+    expect(invalid.status).toBe(400);
+  });
+});

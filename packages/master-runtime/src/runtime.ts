@@ -48,6 +48,7 @@ import {
   type TokenRecord,
   type WsTransportServer,
 } from "@gethen/transport";
+import { type ControlPlane, createControlPlane } from "./control";
 
 /** Task state/event and session types (re-exported from bridge-mailbox). */
 export type {
@@ -190,6 +191,8 @@ export interface MasterRuntime {
   readonly launch: LaunchMode;
   /** Live task state/control; fake mode reports `RUNTIME_COMMS_UNAVAILABLE`. */
   readonly tasks: MasterRuntimeTasks;
+  /** Shared status/overview/ticket/task control for every host adapter. */
+  readonly control: ControlPlane;
   /** Forward the host server's worker upgrade here; `undefined` in fake mode. */
   readonly handleUpgrade: UpgradeHandler | undefined;
   health(): MasterRuntimeHealth;
@@ -388,6 +391,12 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
     sessionHistory: async (sessionId, options) => taskBridge().sessionHistory(sessionId, options),
   };
 
+  const control = createControlPlane({
+    service,
+    tasks,
+    ...(options.now === undefined ? {} : { now: options.now }),
+  });
+
   async function close(): Promise<void> {
     if (closed) return;
     closed = true;
@@ -410,6 +419,7 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
     bridge: mailboxBridge,
     launch: mailboxBridge === undefined ? "fake" : "ws",
     tasks,
+    control,
     handleUpgrade,
     health,
     close,

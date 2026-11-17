@@ -48,3 +48,22 @@ HostOverrides.modelSelector 是可选模型路由接口，兼容 ModelCatalog；
 完整 `pnpm check` 通过：24 包分层校验、8 项架构规则测试、91 个测试文件中的 360 项行为测试通过，1 项 Docker 实机测试按显式开关跳过；18 项 Python 审计通过，24 个子包的独立类型检查、旧实验执行器 7 项回归与其类型检查、格式检查通过。容器清理路径另有模拟 Docker 进程测试覆盖；不将它标为真实 Docker 验证。
 
 本轮未调用付费模型、未产生新的 PAST/RSI 分数，也未修改历史评测结果。依赖变更仅为 workspace 本地连接，第三方依赖版本未变化。
+
+## 2026-11-17 Ticket 生命周期与控制面收口
+
+`@gethen/master` 新增 `lifecycle.ts` 与 `overview.ts`：终态（open/closed/archived）、
+按当前事实指纹的 ack、按结局与时长计算的自动归档，以及唯一的需求行动投影。
+`ticketStage` 仍是唯一阶段表；`ack` 只清除同一指纹的提示，新 Report、问题或投递失败会
+再次进入 needs-action。关闭写入显式 outcome、撤回 Mandate 并结束所有 live Assignment；
+归档只接受终态票据。launch outbox 在真正调用 Worker 前检查 Ticket 是否已结束，避免人已
+关闭后仍启动远端任务，并以 aborted receipt 留痕。
+
+控制面统一在 `@gethen/master-runtime` 的 `ControlPlane`（`runtime.control`）：
+status/overview、ticket ack/close/archive、task 的 status/logs/steer/cancel、session
+list/history 各只有一份实现。CLI HTTP 路由与 DSH 工具都只做参数/线路适配，不再各自
+推导票据状态或翻译 transport 错误。`gethen status` 的离线读取复用同一投影；归档扫描
+只在有时钟的 live overview/status 上执行，离线读取保持只读。
+
+验证：新增 lifecycle/engine/store/executor/control/CLI/DSH 回归，覆盖 ack 失效、关闭
+幂等、归档保留期、关闭后不 launch、HTTP 冲突码与 DSH 工具路径。`pnpm check` 结果以本次
+提交的检查输出为准；未调用真实模型，未修改历史评测数据。

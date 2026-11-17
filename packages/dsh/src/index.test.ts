@@ -17,6 +17,8 @@ interface RunResult {
 interface StatusResult {
   tickets: number;
   open: number;
+  needsAction: number;
+  archived: number;
   receipts: number;
   running: number;
   escalations: number;
@@ -101,6 +103,7 @@ describe("Gethen DSH plugin", () => {
       "gethen_overview",
       "gethen_escalations",
       "gethen_task",
+      "gethen_ticket",
     ]);
   });
 
@@ -128,6 +131,8 @@ describe("Gethen DSH plugin", () => {
     await expect(tool(tools, "gethen_status").execute({}, {})).resolves.toEqual({
       tickets: 1,
       open: 1,
+      needsAction: 1,
+      archived: 0,
       receipts: 1,
       running: 0,
       escalations: 0,
@@ -206,5 +211,67 @@ describe("Gethen DSH plugin", () => {
       escalations: unknown[];
     };
     expect(result.escalations).toEqual([]);
+  });
+});
+
+describe("gethen_ticket lifecycle tool", () => {
+  it("acks, closes and archives a ticket through the shared control surface", async () => {
+    const { ctx, tools } = context();
+    apply(ctx, { dir: stateDir() });
+    const run = (await tool(tools, "gethen_run").execute(
+      { text: "fix the failing test" },
+      {},
+    )) as RunResult;
+
+    const before = (await tool(tools, "gethen_overview").execute({}, {})) as {
+      filter: string;
+      counts: { needsAction: number };
+      tickets: Array<{ id: string; needsAction: boolean }>;
+    };
+    expect(before.filter).toBe("needs-action");
+    expect(before.tickets.map((ticket) => ticket.id)).toEqual([run.ticket]);
+
+    const ack = (await tool(tools, "gethen_ticket").execute(
+      { action: "ack", ticketId: run.ticket },
+      {},
+    )) as { action: string; ticket: { needsAction: boolean } };
+    expect(ack).toMatchObject({ action: "ack", ticket: { needsAction: false } });
+    expect(
+      ((await tool(tools, "gethen_overview").execute({}, {})) as { tickets: unknown[] }).tickets,
+    ).toEqual([]);
+
+    const closed = (await tool(tools, "gethen_ticket").execute(
+      { action: "close", ticketId: run.ticket, outcome: "completed", reason: "reviewed" },
+      {},
+    )) as { ticket: { lifecycle: string; outcome: string } };
+    expect(closed.ticket).toMatchObject({ lifecycle: "closed", outcome: "completed" });
+
+    const archived = (await tool(tools, "gethen_ticket").execute(
+      { action: "archive", ticketId: run.ticket },
+      {},
+    )) as { ticket: { lifecycle: string } };
+    expect(archived.ticket).toMatchObject({ lifecycle: "archived" });
+
+    const all = (await tool(tools, "gethen_overview").execute({ filter: "all" }, {})) as {
+      counts: { archived: number };
+    };
+    expect(all.counts.archived).toBe(1);
+  });
+
+  it("rejects an unknown action and a non-close outcome", async () => {
+    const { ctx, tools } = context();
+    apply(ctx, { dir: stateDir() });
+    await expect(
+      tool(tools, "gethen_ticket").execute({ action: "pause", ticketId: "t1" }, {}),
+    ).rejects.toThrow(/action/);
+    await expect(tool(tools, "gethen_ticket").execute({ action: "ack" }, {})).rejects.toThrow(
+      /ticketId/,
+    );
+    await expect(
+      tool(tools, "gethen_ticket").execute(
+        { action: "close", ticketId: "t1", outcome: "stopped" },
+        {},
+      ),
+    ).rejects.toThrow(/outcome/);
   });
 });

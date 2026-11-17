@@ -201,6 +201,32 @@ describe("createLaunchHandler", () => {
     expect(requests[0]?.prompt).toContain("Ship the report parser");
   });
 
+  it("does not launch work for a Ticket a person closed first", async () => {
+    const { repos, engine, ticket, assignment, payload } = harness();
+    const launch = {
+      launch: vi.fn(async () => ({
+        report: { kind: "ready" as const, summary: "should not run", at: READY_AT },
+        receipt: createReceipt(),
+      })),
+    };
+    const receipts = new MemoryReceipts();
+    engine.closeTicket(ticket.id, "dropped");
+
+    await createLaunchHandler({ engine, launch, receipts, clock: { now: () => new Date(NOW) } })(
+      payload,
+    );
+
+    expect(launch.launch).not.toHaveBeenCalled();
+    expect(repos.assignments.get(assignment.id)?.state).toBe("ended");
+    expect(repos.tickets.get(ticket.id)?.latestReport).toBeUndefined();
+    expect(receipts.rows).toHaveLength(1);
+    expect(receipts.rows[0]).toMatchObject({
+      outcome: "aborted",
+      summary: "ticket closed as dropped before the launch effect ran",
+      events: 0,
+    });
+  });
+
   it("rejects a malformed payload before touching the assignment", async () => {
     const { repos, engine, assignment } = harness();
     const { launch, requests } = readyLaunch(
