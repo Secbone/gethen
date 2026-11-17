@@ -24,7 +24,10 @@
  *    queues more input; `interrupt()` rejects pending escalation, steers a stop,
  *    waits a grace period and then terminates the runtime; `cancel(reason)`
  *    performs that interrupt and reports `failed`;
- * 7. `isolation: "process"` gives each assignment its own runtime (terminated on
+ * 7. the runtime's stderr and lifecycle milestones (`start`/`end`/`watchdog`/
+ *    `deadline`/`cancel`) are forwarded as bounded `HarnessEvent{type:"log"}`
+ *    events, so the Master sees the whole worker process;
+ * 8. `isolation: "process"` gives each assignment its own runtime (terminated on
  *    completion/cancel); `"shared"` (default) reuses the per-workspace pool and
  *    only closes that client on a hard stop. DSH has no native per-turn
  *    interrupt, so a stop means closing (shared) or killing (dedicated) the
@@ -73,6 +76,10 @@ export const STOP_STEER_TEXT =
   "Stop the current work immediately and summarize what you have done so far.";
 /** How much assistant text is kept in the live state. */
 const MAX_LAST_MESSAGE_CHARS = 500;
+/** Default cap for one forwarded log text (stderr/lifecycle). */
+export const DEFAULT_MAX_LOG_CHARS = 8_000;
+/** Marker appended when a log text was truncated. */
+export const LOG_TRUNCATION_SUFFIX = "…[truncated]";
 
 /** Process isolation model: reuse the workspace pool, or spawn per assignment. */
 export type HarnessIsolation = "shared" | "process";
@@ -97,6 +104,8 @@ export interface SdkHarnessExecutorOptions {
   interruptGraceMs?: number;
   /** `"shared"` (default) pools one runtime per workspace; `"process"` isolates each. */
   isolation?: HarnessIsolation;
+  /** Cap for one forwarded log text; longer text is truncated. Default 8000; `0` disables. */
+  maxLogChars?: number;
   /** Injectable clock (deadline scheduling, event timestamp fallback, state). */
   now?: () => Date;
 }
@@ -123,6 +132,8 @@ export interface SdkClientLike {
   onUserQuestion(
     handler: (request: UserQuestionRequest) => UserQuestionResult | Promise<UserQuestionResult>,
   ): void;
+  /** Subscribe to raw stderr text; returns an unsubscribe. Optional. */
+  onStderr?(listener: (text: string) => void): () => void;
   /** SIGKILL the child immediately; falls back to `close()` when absent. */
   terminate?(): void;
   close(): void;
@@ -178,6 +189,8 @@ interface ExecutionState {
   lastMessage: string | undefined;
   seq: number;
   // ---- lifecycle
+  /** Unsubscribes this execution's stderr listener (shared clients may have several). */
+  detachStderr: (() => void) | undefined;
   abort: AbortController;
   watchdogTimer: NodeJS.Timeout | undefined;
   deadlineTimer: NodeJS.Timeout | undefined;
@@ -205,6 +218,7 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
   private readonly isolation: HarnessIsolation;
   private readonly idleTimeoutMs: number;
   private readonly interruptGraceMs: number;
+  private readonly maxLogChars: number;
   private readonly clients = new Map<string, WorkspaceClient>();
   private readonly creating = new Map<string, Promise<WorkspaceClient>>();
   private closed = false;
@@ -217,6 +231,7 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
     this.isolation = options.isolation ?? "shared";
     this.idleTimeoutMs = options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
     this.interruptGraceMs = options.interruptGraceMs ?? DEFAULT_INTERRUPT_GRACE_MS;
+    this.maxLogChars = Math.max(0, options.maxLogChars ?? DEFAULT_MAX_LOG_CHARS);
   }
 
   async start(task: HarnessTask, sink: HarnessSink): Promise<HarnessExecution> {
@@ -243,6 +258,7 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
       watchdogTimer: undefined,
       deadlineTimer: undefined,
       interruptPromise: undefined,
+      detachStderr: undefined,
     };
 
     const execution: HarnessExecution = {
@@ -288,6 +304,13 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
       return execution;
     }
 
+    const onStderr = workspaceClient.client.onStderr;
+    if (onStderr !== undefined) {
+      state.detachStderr = onStderr.call(workspaceClient.client, (text) => {
+        this.onClientStderr(state, text);
+      });
+    }
+
     workspaceClient.sessions.set(task.assignmentId, this.bindingFor(state));
     try {
       await workspaceClient.client.prompt(task.assignmentId, task.prompt);
@@ -309,6 +332,7 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
 
     state.phase = "thinking";
     state.lastEventAt = this.now().toISOString();
+    this.emitLog(state, { phase: "start", text: `assignment ${task.assignmentId} started` });
     this.armTimers(state);
     this.startWaitFallback(state, workspaceClient);
     return execution;
@@ -406,6 +430,7 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
     if (!Number.isFinite(remaining) || remaining <= 0) return;
     state.deadlineTimer = setTimeout(() => {
       if (state.settled) return;
+      this.emitLog(state, { phase: "deadline", text: `deadline reached at ${deadlineAt}` });
       this.finish(state, { kind: "failed", summary: "assignment deadline passed" });
       this.hardStop(state);
     }, remaining);
@@ -418,6 +443,10 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
     if (this.idleTimeoutMs <= 0) return;
     state.watchdogTimer = setTimeout(() => {
       if (state.settled) return;
+      this.emitLog(state, {
+        phase: "watchdog",
+        text: `no session events for ${this.idleTimeoutMs}ms`,
+      });
       this.finish(state, {
         kind: "failed",
         summary: `no session events for ${this.idleTimeoutMs}ms`,
@@ -445,7 +474,9 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
     state.lastEventAt = this.now().toISOString();
     this.clearLifecycleTimers(state);
     state.abort.abort();
+    this.detachStderr(state);
     state.workspaceClient?.sessions.delete(state.task.assignmentId);
+    this.emitLog(state, { phase: "end", text: `${report.kind}: ${report.summary}` });
     this.disposeDedicated(state);
     state.sink.report(report);
   }
@@ -460,6 +491,10 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
   private async runInterrupt(state: ExecutionState): Promise<void> {
     if (state.settled) return;
     state.cancelled = true;
+    this.emitLog(state, {
+      phase: "cancel",
+      text: "execution interrupted; steering a stop before terminating",
+    });
     state.pending?.reject(new SdkHarnessError("execution interrupted"));
     state.abort.abort();
     const workspaceClient = state.workspaceClient;
@@ -504,6 +539,39 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
       await workspaceClient.client.prompt(state.task.assignmentId, text);
     } catch {
       // Steering is best effort; the execution continues with its current turn.
+    }
+  }
+
+  // ------------------------------------------------------------- log events
+
+  private onClientStderr(state: ExecutionState, text: string): void {
+    if (state.settled) return;
+    this.emitLog(state, { stream: "stderr", text });
+  }
+
+  /** Emit one bounded `log` event; it does not touch the live state or `seq`. */
+  private emitLog(
+    state: ExecutionState,
+    data: { phase?: string; stream?: "stderr"; text?: string },
+  ): void {
+    const record: JsonObject = { ...data };
+    if (typeof data.text === "string" && this.maxLogChars > 0) {
+      record.text =
+        data.text.length > this.maxLogChars
+          ? `${data.text.slice(0, this.maxLogChars)}${LOG_TRUNCATION_SUFFIX}`
+          : data.text;
+    }
+    state.sink.event({ type: "log", at: this.now().toISOString(), data: record });
+  }
+
+  private detachStderr(state: ExecutionState): void {
+    const detach = state.detachStderr;
+    state.detachStderr = undefined;
+    if (detach === undefined) return;
+    try {
+      detach();
+    } catch {
+      // The runtime may already be gone.
     }
   }
 

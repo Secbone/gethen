@@ -12,10 +12,13 @@
  * envelope id):
  *
  * - out `gethen.task.assign`  → `mailbox:<workerId>`, `replyTo` master mailbox;
- * - in  `gethen.task.progress` → receipt event count + live TaskState;
+ * - in  `gethen.task.progress` → receipt count + live TaskState + one cached
+ *   TaskEvent per `data.event` (bounded ring per assignment, queryable through
+ *   `taskEvents()`/`taskEventCount()` for the Master/CLI timeline);
  * - in  `gethen.task.ask`      → escalation record + resolver → answer;
  * - out `gethen.task.answer`   → the ask's `replyTo` (worker mailbox);
- * - in  `gethen.task.result`   → report + receipt (LaunchResult), final state;
+ * - in  `gethen.task.result`   → report + receipt (LaunchResult), final state,
+ *   plus a synthetic `gethen.result` event in the stream;
  * - out `gethen.task.status`   → request/response liveness probe (status.result);
  * - out `gethen.task.steer` / `gethen.task.cancel` → live control messages.
  *
@@ -67,6 +70,12 @@ const DEFAULT_BATCH_SIZE = 20;
 const DEFAULT_LEASE_MS = 30_000;
 /** Default how long `requestStatus` waits for a `status.result`. */
 export const DEFAULT_STATUS_TIMEOUT_MS = 5_000;
+/** Default per-assignment event ring size. */
+export const DEFAULT_MAX_TASK_EVENTS = 1_000;
+/** Default byte cap for one cached event (larger events are truncated). */
+export const DEFAULT_MAX_EVENT_BYTES = 65_536;
+/** Default page size of `taskEvents()`. */
+export const DEFAULT_TASK_EVENT_LIMIT = 200;
 
 /** Phases a Worker may report in a progress state. */
 export type TaskPhase = "starting" | "thinking" | "tool" | "waiting" | "done" | "failed";
@@ -101,6 +110,37 @@ export interface TaskState {
   lastMessage?: string;
   seq: number;
   updatedAt?: string;
+}
+
+/** Minimal JSON vocabulary for opaque event payloads (no harness/DSH import). */
+export type JsonPrimitive = string | number | boolean | null;
+export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
+export type JsonObject = { [key: string]: JsonValue };
+
+/**
+ * One cached event from an assignment's progress stream (plus the synthetic
+ * `gethen.result` event appended when the assignment reports).
+ */
+export interface TaskEvent {
+  /** Worker-reported sequence number, or a bridge-assigned counter. */
+  seq: number;
+  /** Event type, e.g. `message`, `tool.start`, `tool.result`, `usage`, `gethen.result`. */
+  type: string;
+  /** RFC 3339 event timestamp. */
+  at: string;
+  /** Opaque event payload; replaced with `{preview}` when the event is too large. */
+  data?: JsonObject;
+  /** True when the event exceeded `maxEventBytes` and `data` is a preview. */
+  truncated?: boolean;
+}
+
+export interface TaskEventQuery {
+  /** Page size; defaults to {@link DEFAULT_TASK_EVENT_LIMIT}. */
+  limit?: number;
+  /** Only events with `seq > afterSeq` (forward pagination; no tail semantics). */
+  afterSeq?: number;
+  /** Only events of this type. */
+  type?: string;
 }
 
 const REPORT_KINDS: readonly ReportKind[] = [
@@ -195,6 +235,10 @@ export interface MailboxLaunchOptions {
   batchSize?: number;
   /** Start the Master-mailbox poll loop immediately (default true). */
   autoStart?: boolean;
+  /** Per-assignment event ring size; defaults to {@link DEFAULT_MAX_TASK_EVENTS}. */
+  maxTaskEvents?: number;
+  /** Byte cap for one cached event; defaults to {@link DEFAULT_MAX_EVENT_BYTES}. */
+  maxEventBytes?: number;
 }
 
 export interface MailboxLaunchBridge {
@@ -221,6 +265,16 @@ export interface MailboxLaunchBridge {
   steer(assignmentId: string, text: string): Promise<void>;
   /** Send `gethen.task.cancel`; the launch keeps waiting for its `result`. */
   cancel(assignmentId: string, reason?: string): Promise<void>;
+  /**
+   * Cached events for one assignment, oldest first. Without `afterSeq` the
+   * newest `limit` events are returned (tail); with `afterSeq` a forward page
+   * of the events after that sequence is returned.
+   */
+  taskEvents(assignmentId: string, query?: TaskEventQuery): TaskEvent[];
+  /** Number of events currently buffered for one assignment. */
+  taskEventCount(assignmentId: string): number;
+  /** Events evicted by the ring buffer for one assignment. */
+  taskEventDropped(assignmentId: string): number;
   /** Stop polling and reject in-flight launches with `MAILBOX_CLOSED`. */
   close(): void;
 }
@@ -244,6 +298,14 @@ interface PendingStatusRequest {
   readonly timer: ReturnType<typeof setTimeout>;
 }
 
+interface TaskEventBuffer {
+  events: TaskEvent[];
+  /** Events evicted by the ring (maxTaskEvents). */
+  dropped: number;
+  /** Next sequence number used when a worker omits `data.seq`. */
+  nextSeq: number;
+}
+
 /**
  * Build the mailbox `LaunchPort`. The poll loop watches only the Master's
  * mailbox; each pending launch is keyed by its assignment id.
@@ -260,6 +322,14 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
     options.pollIntervalMs ?? client.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
   const leaseMs = options.leaseMs ?? DEFAULT_LEASE_MS;
   const batchSize = options.batchSize ?? DEFAULT_BATCH_SIZE;
+  const maxTaskEvents = positiveInteger(
+    options.maxTaskEvents ?? DEFAULT_MAX_TASK_EVENTS,
+    "maxTaskEvents",
+  );
+  const maxEventBytes = positiveInteger(
+    options.maxEventBytes ?? DEFAULT_MAX_EVENT_BYTES,
+    "maxEventBytes",
+  );
   const pendingByAssignment = new Map<string, PendingLaunch>();
 
   /**
@@ -285,6 +355,8 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
   const states = new Map<string, TaskState>();
   /** In-flight `gethen.task.status` requests, keyed by request envelope id. */
   const statusRequests = new Map<string, PendingStatusRequest>();
+  /** Per-assignment event ring buffers (retained after the result). */
+  const eventStreams = new Map<string, TaskEventBuffer>();
   let timer: ReturnType<typeof setInterval> | undefined;
   let closed = false;
 
@@ -327,6 +399,44 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
             updatedAt: at,
           };
     publishTaskState(assignmentId, state);
+  }
+
+  function eventBufferFor(assignmentId: string): TaskEventBuffer {
+    const existing = eventStreams.get(assignmentId);
+    if (existing !== undefined) return existing;
+    const buffer: TaskEventBuffer = { events: [], dropped: 0, nextSeq: 1 };
+    eventStreams.set(assignmentId, buffer);
+    return buffer;
+  }
+
+  /**
+   * Append one event to the assignment ring. Explicit worker `seq` values are
+   * de-duplicated; missing seqs use a monotonic bridge counter. The ring drops
+   * the oldest events past `maxTaskEvents` and counts them as dropped.
+   */
+  function appendTaskEvent(
+    assignmentId: string,
+    input: { type: string; at: string; data?: JsonObject },
+    explicitSeq?: number,
+  ): TaskEvent {
+    const buffer = eventBufferFor(assignmentId);
+    let seq: number;
+    if (explicitSeq === undefined) {
+      seq = buffer.nextSeq;
+      buffer.nextSeq = seq + 1;
+    } else {
+      const existing = buffer.events.find((event) => event.seq === explicitSeq);
+      if (existing !== undefined) return existing;
+      seq = explicitSeq;
+      if (seq >= buffer.nextSeq) buffer.nextSeq = seq + 1;
+    }
+    const event = buildTaskEvent(seq, input, maxEventBytes);
+    buffer.events.push(event);
+    while (buffer.events.length > maxTaskEvents) {
+      buffer.events.shift();
+      buffer.dropped += 1;
+    }
+    return event;
   }
 
   function finish(pending: PendingLaunch): void {
@@ -413,6 +523,11 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
           summary: `invalid task result: ${parsed.reasons.join("; ")}`,
           at: nowIso(),
         };
+    appendTaskEvent(pending.request.assignment.id, {
+      type: "gethen.result",
+      at: report.at,
+      data: { kind: report.kind, summary: report.summary },
+    });
     finalizeTaskState(pending, report);
     resolveWith(pending, resultFor(pending, report));
   }
@@ -420,12 +535,23 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
   function handleProgress(pending: PendingLaunch, data: Record<string, unknown> | undefined): void {
     armLaunchTimer(pending);
     pending.events += 1;
+    const assignmentId = pending.request.assignment.id;
+
+    // Older workers send text/event progress without a state; heartbeats send
+    // a state without a fresh event. Both are tolerated independently.
+    const rawEvent = data?.event;
+    if (rawEvent !== undefined && rawEvent !== null) {
+      const parsed = parseTaskEvent(rawEvent);
+      if (parsed !== undefined) {
+        appendTaskEvent(assignmentId, parsed, integerValue(data?.seq));
+      }
+    }
+
     const rawState = data?.state;
-    // Older workers send only text/event progress without a state.
     if (rawState === undefined || rawState === null || !isRecord(rawState)) return;
     const state = parseTaskState(rawState, nowIso());
     if (state === undefined) return;
-    publishTaskState(pending.request.assignment.id, state);
+    publishTaskState(assignmentId, state);
   }
 
   function handleStatusResult(envelope: Envelope): void {
@@ -699,6 +825,32 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
     return Object.fromEntries(states);
   }
 
+  function taskEvents(assignmentId: string, query: TaskEventQuery = {}): TaskEvent[] {
+    const buffer = eventStreams.get(assignmentId);
+    if (buffer === undefined) return [];
+    const limit = positiveIntegerOr(query.limit, DEFAULT_TASK_EVENT_LIMIT);
+    const afterSeq = query.afterSeq;
+    let filtered = buffer.events;
+    if (afterSeq !== undefined && Number.isFinite(afterSeq)) {
+      filtered = filtered.filter((event) => event.seq > afterSeq);
+    }
+    if (query.type !== undefined) {
+      filtered = filtered.filter((event) => event.type === query.type);
+    }
+    // No cursor means "tail": the newest `limit` events. A cursor means a
+    // forward page after that sequence, which is what pagination needs.
+    const start = afterSeq === undefined ? Math.max(0, filtered.length - limit) : 0;
+    return filtered.slice(start, start + limit).map(cloneTaskEvent);
+  }
+
+  function taskEventCount(assignmentId: string): number {
+    return eventStreams.get(assignmentId)?.events.length ?? 0;
+  }
+
+  function taskEventDropped(assignmentId: string): number {
+    return eventStreams.get(assignmentId)?.dropped ?? 0;
+  }
+
   function requestStatus(
     assignmentId: string,
     requestOptions: { timeoutMs?: number } = {},
@@ -820,6 +972,9 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
     pollOnce,
     taskState,
     taskStates,
+    taskEvents,
+    taskEventCount,
+    taskEventDropped,
     requestStatus,
     steer,
     cancel,
@@ -828,6 +983,105 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
 }
 
 // ---------------------------------------------------------------- validation
+
+/** Validate one `data.event` from a progress envelope. */
+function parseTaskEvent(
+  value: unknown,
+): { type: string; at: string; data?: JsonObject } | undefined {
+  const record = asRecord(value);
+  if (record === undefined) return undefined;
+  const type = stringValue(record.type);
+  const at = stringValue(record.at);
+  if (type === undefined || at === undefined) return undefined;
+  const rawData = record.data;
+  if (rawData === undefined) return { type, at };
+  const data = asRecord(rawData);
+  if (data === undefined) return undefined;
+  return { type, at, data: data as unknown as JsonObject };
+}
+
+/** Build a cached event, truncating oversized payloads into `{preview}`. */
+function buildTaskEvent(
+  seq: number,
+  input: { type: string; at: string; data?: JsonObject },
+  byteLimit: number,
+): TaskEvent {
+  const event: TaskEvent = {
+    seq,
+    type: input.type,
+    at: input.at,
+    ...(input.data === undefined ? {} : { data: input.data }),
+  };
+  if (utf8Length(safeJson(event)) <= byteLimit) return event;
+
+  const serialized = input.data === undefined ? "" : safeJson(input.data);
+  let budget = Math.max(16, Math.floor(byteLimit / 2));
+  let preview = truncateText(serialized, budget);
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const candidate: TaskEvent = {
+      seq,
+      type: input.type,
+      at: input.at,
+      data: { preview },
+      truncated: true,
+    };
+    if (utf8Length(safeJson(candidate)) <= byteLimit || preview.length === 0) {
+      return candidate;
+    }
+    budget = Math.floor(budget / 2);
+    preview = truncateText(serialized, budget);
+  }
+  return { seq, type: input.type, at: input.at, data: { preview: "" }, truncated: true };
+}
+
+function cloneTaskEvent(event: TaskEvent): TaskEvent {
+  return {
+    ...event,
+    ...(event.data === undefined ? {} : { data: { ...event.data } }),
+  };
+}
+
+function safeJson(value: unknown): string {
+  try {
+    const json = JSON.stringify(value);
+    return json === undefined ? "" : json;
+  } catch {
+    return "";
+  }
+}
+
+function utf8Length(text: string): number {
+  return new TextEncoder().encode(text).length;
+}
+
+/** Truncate a string so its UTF-8 encoding fits in `maxBytes`. */
+function truncateText(text: string, maxBytes: number): string {
+  const encoder = new TextEncoder();
+  if (encoder.encode(text).length <= maxBytes) return text;
+  let low = 0;
+  let high = text.length;
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    if (encoder.encode(text.slice(0, mid)).length <= maxBytes) low = mid;
+    else high = mid - 1;
+  }
+  return text.slice(0, low);
+}
+
+function integerValue(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : undefined;
+}
+
+function positiveInteger(value: number, name: string): number {
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(`bridge-mailbox: ${name} must be a positive integer`);
+  }
+  return value;
+}
+
+function positiveIntegerOr(value: number | undefined, fallback: number): number {
+  return value !== undefined && Number.isInteger(value) && value > 0 ? value : fallback;
+}
 
 /** Validate one worker-reported live state; `undefined` means malformed/absent. */
 function parseTaskState(value: unknown, receivedAt: string): TaskState | undefined {

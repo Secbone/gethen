@@ -29,7 +29,8 @@ const agent = createMailboxAgent({ workerId: "worker-1", mailbox, harness });
 `dshCommand?`, `dshArgs?`, `cwdFor?(workspace)`, `clientFactory?` (test/shared
 pool seam), `requestTimeoutMs?`, `idleTimeoutMs?` (silence watchdog, default
 300000), `interruptGraceMs?` (default 1000), `isolation?: "shared" | "process"`
-(default `"shared"`), `now?`.
+(default `"shared"`), `maxLogChars?` (default 8000; `0` disables truncation),
+`now?`.
 
 ## Flow
 
@@ -70,6 +71,29 @@ pool seam), `requestTimeoutMs?`, `idleTimeoutMs?` (silence watchdog, default
 | `approval/request` (`allow <tool>?`) | `permission`, options `allow` / `reject`, `blocking: true` | `option:"allow"` → DSH `allowed-once`; anything else (`reject`, `escalate`, `drop`, cancel) → `rejected` |
 | `user-question/ask` | one `decision` escalation per question, asked **sequentially** (one live escalation at a time) | `answer` → DSH `answers:[{id, selected:[option label], custom?}]`; `escalate` / `drop` → `{cancelled:true}` |
 | tool-result `[GETHEN-ESCALATION]` (compat `gethen_escalate` tool) | the escalation it carries (kind/question/options, `blocking: true`) | the answer is written back into the same session as a `[GETHEN-RESOLUTION]` block, then the executor waits again (at most 5 tool-result escalations per execution) |
+
+## Log events (stderr + lifecycle)
+
+The runtime's stderr and execution lifecycle are forwarded as extra
+`HarnessEvent`s with `type: "log"`, so a Master can see the whole worker process
+even when the model stays silent:
+
+| `data` | When |
+|---|---|
+| `{stream: "stderr", text}` | every stderr chunk from the shared/dedicated `dsh` process |
+| `{phase: "start", text}` | the assignment session was prompted |
+| `{phase: "end", text}` | the execution settled (`text` is `"<report.kind>: <summary>"`) |
+| `{phase: "watchdog", text}` | the silence watchdog fired |
+| `{phase: "deadline", text}` | the assignment deadline passed |
+| `{phase: "cancel", text}` | a cancel/interrupt started |
+
+Each `text` is bounded by `maxLogChars` (default 8000) and ends with
+`…[truncated]` when shortened, so a noisy runtime cannot explode mailbox
+messages. Log events **do not** touch the live `HarnessTaskState` or its `seq`
+(the session-event sequence stays a session-event count). The per-execution
+stderr listener is unsubscribed when the execution settles or the client closes;
+on a shared client every execution has its own listener and unsubscribes
+independently.
 
 ## Live state, steering and isolation
 

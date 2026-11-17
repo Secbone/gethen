@@ -55,6 +55,7 @@ export class FakeSdkClient implements SdkClientLike {
 
   private readonly eventHandlers = new Set<(notification: SessionEventNotification) => void>();
   private readonly statusHandlers = new Set<(notification: SessionStatusNotification) => void>();
+  private readonly stderrHandlers = new Set<(text: string) => void>();
   private readonly waits = new Map<string, Deferred<void>>();
   private approvalHandler:
     | ((params: ApprovalRequestParams) => ApprovalOutcome | Promise<ApprovalOutcome>)
@@ -119,6 +120,21 @@ export class FakeSdkClient implements SdkClientLike {
     };
   }
 
+  onStderr(listener: (text: string) => void): () => void {
+    this.stderrHandlers.add(listener);
+    return () => {
+      this.stderrHandlers.delete(listener);
+    };
+  }
+
+  get stderrListenerCount(): number {
+    return this.stderrHandlers.size;
+  }
+
+  emitStderr(text: string): void {
+    for (const handler of [...this.stderrHandlers]) handler(text);
+  }
+
   onApprovalRequest(
     handler: (params: ApprovalRequestParams) => ApprovalOutcome | Promise<ApprovalOutcome>,
   ): void {
@@ -134,6 +150,7 @@ export class FakeSdkClient implements SdkClientLike {
   close(): void {
     this.closeCount += 1;
     this.actions.push("close");
+    this.stderrHandlers.clear();
     this.rejectWaits("fake client closed");
   }
 
@@ -141,6 +158,7 @@ export class FakeSdkClient implements SdkClientLike {
     this.terminateCount += 1;
     this.running = false;
     this.actions.push("terminate");
+    this.stderrHandlers.clear();
     this.rejectWaits("fake client terminated");
   }
 

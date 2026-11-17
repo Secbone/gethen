@@ -11,7 +11,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createMailboxLaunchPort,
   DEFAULT_MAILBOX_LAUNCH_TIMEOUT_MS,
+  DEFAULT_MAX_EVENT_BYTES,
+  DEFAULT_MAX_TASK_EVENTS,
   DEFAULT_STATUS_TIMEOUT_MS,
+  DEFAULT_TASK_EVENT_LIMIT,
   MAILBOX_LAUNCH_ERROR_CODES,
   type MailboxClientLike,
   type MailboxLaunchBridge,
@@ -203,6 +206,67 @@ function statusResultEnvelope(requestId: string, assignmentId: string, state: un
   });
 }
 
+function toolEvent(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    type: "tool.start",
+    at: AT,
+    data: { name: "read", path: "/tmp/file.txt" },
+    ...overrides,
+  };
+}
+
+function eventProgressEnvelope(
+  assignmentId: string,
+  options: {
+    seq?: number;
+    event?: Record<string, unknown>;
+    state?: Record<string, unknown>;
+  } = {},
+): Envelope {
+  seq += 1;
+  const data: Record<string, unknown> = { assignmentId };
+  if (options.seq !== undefined) data.seq = options.seq;
+  if (options.event !== undefined) data.event = options.event;
+  if (options.state !== undefined) data.state = options.state;
+  return newEnvelope({
+    id: `event-progress-${seq}`,
+    source: "agent:worker-a",
+    type: "gethen.task.progress",
+    subject: assignmentId,
+    time: AT,
+    data,
+    correlationId: assignmentId,
+    to: "mailbox:master",
+  });
+}
+
+/** Progress from an older worker: text only, no `event` and no `state`. */
+function textProgressEnvelope(assignmentId: string): Envelope {
+  seq += 1;
+  return newEnvelope({
+    id: `text-progress-${seq}`,
+    source: "agent:worker-a",
+    type: "gethen.task.progress",
+    subject: assignmentId,
+    time: AT,
+    data: { assignmentId, text: "working" },
+    correlationId: assignmentId,
+    to: "mailbox:master",
+  });
+}
+
+/** Launch promises that a test may leave pending; the rejection is pre-handled. */
+const pendingLaunches: Array<Promise<unknown>> = [];
+
+function launchPending(
+  bridge: MailboxLaunchBridge,
+  assignmentId = "assignment-1",
+): Promise<unknown> {
+  const promise = bridge.launchPort.launch(launchRequest(assignmentId));
+  pendingLaunches.push(promise.catch(() => undefined));
+  return promise;
+}
+
 async function waitFor(predicate: () => boolean, timeoutMs = 1_000): Promise<void> {
   const started = Date.now();
   while (!predicate()) {
@@ -230,6 +294,7 @@ function makeBridge(
 
 afterEach(() => {
   while (bridges.length > 0) bridges.pop()?.close();
+  pendingLaunches.length = 0;
 });
 
 describe("createMailboxLaunchPort", () => {
@@ -818,6 +883,285 @@ describe("task state, status, steer and cancel", () => {
   });
 });
 
+describe("task event stream cache", () => {
+  it("caches progress events in arrival order with worker seq values", () => {
+    const client = new FakeMailbox();
+    const bridge = makeBridge(client);
+    launchPending(bridge);
+
+    bridge.handleEnvelope(
+      eventProgressEnvelope("assignment-1", {
+        seq: 1,
+        event: { type: "message", at: AT, data: { text: "hello" } },
+      }),
+    );
+    bridge.handleEnvelope(eventProgressEnvelope("assignment-1", { seq: 2, event: toolEvent() }));
+    bridge.handleEnvelope(
+      eventProgressEnvelope("assignment-1", {
+        seq: 3,
+        event: { type: "tool.result", at: AT, data: { ok: true } },
+      }),
+    );
+
+    expect(bridge.taskEventCount("assignment-1")).toBe(3);
+    expect(bridge.taskEventDropped("assignment-1")).toBe(0);
+    expect(bridge.taskEvents("assignment-1")).toEqual([
+      { seq: 1, type: "message", at: AT, data: { text: "hello" } },
+      { seq: 2, type: "tool.start", at: AT, data: { name: "read", path: "/tmp/file.txt" } },
+      { seq: 3, type: "tool.result", at: AT, data: { ok: true } },
+    ]);
+  });
+
+  it("assigns a monotonic seq when the worker omits it", () => {
+    const client = new FakeMailbox();
+    const bridge = makeBridge(client);
+    launchPending(bridge);
+
+    bridge.handleEnvelope(eventProgressEnvelope("assignment-1", { event: toolEvent() }));
+    bridge.handleEnvelope(eventProgressEnvelope("assignment-1", { event: toolEvent() }));
+    bridge.handleEnvelope(eventProgressEnvelope("assignment-1", { seq: 10, event: toolEvent() }));
+    bridge.handleEnvelope(eventProgressEnvelope("assignment-1", { event: toolEvent() }));
+
+    expect(bridge.taskEvents("assignment-1").map((event) => event.seq)).toEqual([1, 2, 10, 11]);
+  });
+
+  it("returns the newest events for the default tail query", () => {
+    const client = new FakeMailbox();
+    const bridge = makeBridge(client);
+    launchPending(bridge);
+    for (let index = 1; index <= 5; index += 1) {
+      bridge.handleEnvelope(
+        eventProgressEnvelope("assignment-1", {
+          seq: index,
+          event: { type: "message", at: AT, data: { index } },
+        }),
+      );
+    }
+
+    expect(bridge.taskEvents("assignment-1").map((event) => event.seq)).toEqual([1, 2, 3, 4, 5]);
+    expect(bridge.taskEvents("assignment-1", { limit: 2 }).map((event) => event.seq)).toEqual([
+      4, 5,
+    ]);
+  });
+
+  it("pages forward with afterSeq", () => {
+    const client = new FakeMailbox();
+    const bridge = makeBridge(client);
+    launchPending(bridge);
+    for (let index = 1; index <= 5; index += 1) {
+      bridge.handleEnvelope(
+        eventProgressEnvelope("assignment-1", {
+          seq: index,
+          event: { type: "message", at: AT, data: { index } },
+        }),
+      );
+    }
+
+    expect(
+      bridge.taskEvents("assignment-1", { afterSeq: 2, limit: 2 }).map((event) => event.seq),
+    ).toEqual([3, 4]);
+    expect(bridge.taskEvents("assignment-1", { afterSeq: 4 }).map((event) => event.seq)).toEqual([
+      5,
+    ]);
+    expect(bridge.taskEvents("assignment-1", { afterSeq: 5 })).toEqual([]);
+  });
+
+  it("filters events by type", () => {
+    const client = new FakeMailbox();
+    const bridge = makeBridge(client);
+    launchPending(bridge);
+    bridge.handleEnvelope(
+      eventProgressEnvelope("assignment-1", {
+        seq: 1,
+        event: { type: "message", at: AT, data: { text: "hi" } },
+      }),
+    );
+    bridge.handleEnvelope(eventProgressEnvelope("assignment-1", { seq: 2, event: toolEvent() }));
+    bridge.handleEnvelope(
+      eventProgressEnvelope("assignment-1", {
+        seq: 3,
+        event: { type: "message", at: AT, data: { text: "again" } },
+      }),
+    );
+
+    expect(
+      bridge.taskEvents("assignment-1", { type: "message" }).map((event) => event.seq),
+    ).toEqual([1, 3]);
+    expect(bridge.taskEvents("assignment-1", { type: "nope" })).toEqual([]);
+  });
+
+  it("evicts the oldest events past maxTaskEvents and counts them", () => {
+    const client = new FakeMailbox();
+    const bridge = makeBridge(client, { maxTaskEvents: 3 });
+    launchPending(bridge);
+    for (let index = 1; index <= 5; index += 1) {
+      bridge.handleEnvelope(
+        eventProgressEnvelope("assignment-1", {
+          seq: index,
+          event: { type: "message", at: AT, data: { index } },
+        }),
+      );
+    }
+
+    expect(bridge.taskEventCount("assignment-1")).toBe(3);
+    expect(bridge.taskEventDropped("assignment-1")).toBe(2);
+    expect(bridge.taskEvents("assignment-1").map((event) => event.seq)).toEqual([3, 4, 5]);
+  });
+
+  it("truncates oversized events into a preview", () => {
+    const client = new FakeMailbox();
+    const bridge = makeBridge(client, { maxEventBytes: 256 });
+    launchPending(bridge);
+    bridge.handleEnvelope(
+      eventProgressEnvelope("assignment-1", {
+        seq: 1,
+        event: { type: "message", at: AT, data: { text: "x".repeat(4_000) } },
+      }),
+    );
+    bridge.handleEnvelope(
+      eventProgressEnvelope("assignment-1", {
+        seq: 2,
+        event: { type: "message", at: AT, data: { text: "small" } },
+      }),
+    );
+
+    const [truncated, small] = bridge.taskEvents("assignment-1");
+    expect(truncated?.truncated).toBe(true);
+    expect(typeof (truncated?.data as Record<string, unknown> | undefined)?.preview).toBe("string");
+    const preview = (truncated?.data as Record<string, unknown> | undefined)?.preview as string;
+    expect(preview.length).toBeGreaterThan(0);
+    expect(new TextEncoder().encode(JSON.stringify(truncated)).length).toBeLessThanOrEqual(256);
+    expect(small).toEqual({ seq: 2, type: "message", at: AT, data: { text: "small" } });
+    expect(small?.truncated).toBeUndefined();
+  });
+
+  it("appends a synthetic gethen.result event and keeps progress events", async () => {
+    const client = new FakeMailbox();
+    const bridge = makeBridge(client);
+    const launch = launchPending(bridge);
+    bridge.handleEnvelope(eventProgressEnvelope("assignment-1", { seq: 1, event: toolEvent() }));
+    bridge.handleEnvelope(
+      eventProgressEnvelope("assignment-1", {
+        seq: 2,
+        event: { type: "message", at: AT, data: { text: "done working" } },
+      }),
+    );
+    bridge.handleEnvelope(resultEnvelope("assignment-1", { summary: "all done" }));
+    await launch;
+
+    expect(bridge.taskEventCount("assignment-1")).toBe(3);
+    const events = bridge.taskEvents("assignment-1");
+    expect(events.map((event) => event.seq)).toEqual([1, 2, 3]);
+    expect(events[0]?.type).toBe("tool.start");
+    expect(events[2]).toEqual({
+      seq: 3,
+      type: "gethen.result",
+      at: AT,
+      data: { kind: "ready", summary: "all done" },
+    });
+  });
+
+  it("records a failed result in the synthetic event", async () => {
+    const client = new FakeMailbox();
+    const bridge = makeBridge(client);
+    const launch = launchPending(bridge);
+    // An invalid result still becomes a failed report and a failed event.
+    bridge.handleEnvelope(resultEnvelope("assignment-1", { kind: "bogus", summary: "x" }));
+    await launch;
+
+    const last = bridge.taskEvents("assignment-1").at(-1);
+    expect(last?.type).toBe("gethen.result");
+    expect(last?.data).toMatchObject({ kind: "failed" });
+    expect(String((last?.data as Record<string, unknown> | undefined)?.summary)).toContain(
+      "invalid task result",
+    );
+  });
+
+  it("ignores event-less progress but still updates state", () => {
+    const client = new FakeMailbox();
+    const bridge = makeBridge(client);
+    launchPending(bridge);
+
+    // Heartbeat-style progress: state only, no event.
+    bridge.handleEnvelope(eventProgressEnvelope("assignment-1", { state: rawState() }));
+    expect(bridge.taskEventCount("assignment-1")).toBe(0);
+    expect(bridge.taskState("assignment-1")).toMatchObject({ seq: 7 });
+
+    // Text-only old-worker progress: neither event nor state.
+    bridge.handleEnvelope(textProgressEnvelope("assignment-1"));
+    expect(bridge.taskEventCount("assignment-1")).toBe(0);
+
+    bridge.handleEnvelope(eventProgressEnvelope("assignment-1", { event: toolEvent() }));
+    expect(bridge.taskEventCount("assignment-1")).toBe(1);
+  });
+
+  it("returns empty results for an unknown assignment", () => {
+    const client = new FakeMailbox();
+    const bridge = makeBridge(client);
+    expect(bridge.taskEvents("ghost")).toEqual([]);
+    expect(bridge.taskEventCount("ghost")).toBe(0);
+    expect(bridge.taskEventDropped("ghost")).toBe(0);
+    expect(() =>
+      bridge.handleEnvelope(eventProgressEnvelope("ghost", { event: toolEvent() })),
+    ).not.toThrow();
+    expect(bridge.taskEvents("ghost")).toEqual([]);
+  });
+
+  it("keeps concurrent assignment event streams isolated", () => {
+    const client = new FakeMailbox();
+    const bridge = makeBridge(client);
+    launchPending(bridge, "assignment-1");
+    launchPending(bridge, "assignment-2");
+
+    bridge.handleEnvelope(
+      eventProgressEnvelope("assignment-1", {
+        seq: 1,
+        event: { type: "message", at: AT, data: { which: "one" } },
+      }),
+    );
+    bridge.handleEnvelope(
+      eventProgressEnvelope("assignment-2", {
+        seq: 1,
+        event: { type: "message", at: AT, data: { which: "two" } },
+      }),
+    );
+    bridge.handleEnvelope(eventProgressEnvelope("assignment-1", { seq: 2, event: toolEvent() }));
+
+    expect(bridge.taskEventCount("assignment-1")).toBe(2);
+    expect(bridge.taskEventCount("assignment-2")).toBe(1);
+    expect(
+      bridge.taskEvents("assignment-1", { type: "message" }).map((event) => event.data),
+    ).toEqual([{ which: "one" }]);
+    expect(bridge.taskEvents("assignment-2").map((event) => event.data)).toEqual([
+      { which: "two" },
+    ]);
+  });
+
+  it("retains events after the result and after close", async () => {
+    const client = new FakeMailbox();
+    const bridge = makeBridge(client);
+    const launch = launchPending(bridge);
+    bridge.handleEnvelope(eventProgressEnvelope("assignment-1", { seq: 1, event: toolEvent() }));
+    bridge.handleEnvelope(resultEnvelope("assignment-1"));
+    await launch;
+    expect(bridge.taskEventCount("assignment-1")).toBe(2);
+
+    bridge.close();
+    expect(bridge.taskEventCount("assignment-1")).toBe(2);
+    expect(bridge.taskEvents("assignment-1").map((event) => event.type)).toEqual([
+      "tool.start",
+      "gethen.result",
+    ]);
+  });
+
+  it("validates maxTaskEvents and maxEventBytes", () => {
+    const client = new FakeMailbox();
+    expect(() => makeBridge(client, { maxTaskEvents: 0 })).toThrow(/maxTaskEvents/);
+    expect(() => makeBridge(client, { maxEventBytes: -1 })).toThrow(/maxEventBytes/);
+    expect(() => makeBridge(client, { maxTaskEvents: 1.5 })).toThrow(/maxTaskEvents/);
+  });
+});
+
 describe("with a real MailboxClient", () => {
   it("closes the loop against an in-memory mailbox store", async () => {
     const client = new MailboxClient({
@@ -868,6 +1212,9 @@ describe("mailbox launch constants", () => {
   it("exports the protocol defaults", () => {
     expect(DEFAULT_MAILBOX_LAUNCH_TIMEOUT_MS).toBe(600_000);
     expect(DEFAULT_STATUS_TIMEOUT_MS).toBe(5_000);
+    expect(DEFAULT_MAX_TASK_EVENTS).toBe(1_000);
+    expect(DEFAULT_MAX_EVENT_BYTES).toBe(65_536);
+    expect(DEFAULT_TASK_EVENT_LIMIT).toBe(200);
     expect(MAILBOX_LAUNCH_ERROR_CODES).toEqual([
       "MAILBOX_LAUNCH_TIMEOUT",
       "MAILBOX_DISPATCH_FAILED",

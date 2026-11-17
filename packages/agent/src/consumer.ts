@@ -93,6 +93,8 @@ export interface TaskAssignPayload {
 
 export interface TaskProgressPayload {
   assignmentId: string;
+  /** Monotonic event counter for this execution (heartbeats reuse the last). */
+  seq?: number;
   /** Optional: periodic heartbeats carry state without a fresh event. */
   event?: HarnessEvent;
   /** Live state snapshot when the harness exposes `execution.state()`. */
@@ -989,7 +991,11 @@ class MailboxAgentImpl implements MailboxAgent {
       entry.lastProgressAt = timestamp;
     }
 
-    const payload: TaskProgressPayload = { assignmentId: entry.task.assignmentId, event };
+    const payload: TaskProgressPayload = {
+      assignmentId: entry.task.assignmentId,
+      seq: entry.eventSeq,
+      event,
+    };
     if (state !== undefined) payload.state = state;
     this.queue(entry, MESSAGE_TYPES.progress, payload);
     void this.flush();
@@ -1149,7 +1155,10 @@ class MailboxAgentImpl implements MailboxAgent {
         return;
       }
       const state = entry.execution?.state?.() ?? entry.lastState;
-      const payload: TaskProgressPayload = { assignmentId: entry.task.assignmentId };
+      const payload: TaskProgressPayload = {
+        assignmentId: entry.task.assignmentId,
+        seq: entry.eventSeq,
+      };
       if (state !== undefined) payload.state = state;
       this.queue(entry, MESSAGE_TYPES.progress, payload);
       void this.flush();

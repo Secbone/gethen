@@ -10,7 +10,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createSdkHarnessExecutor,
   DEFAULT_IDLE_TIMEOUT_MS,
+  DEFAULT_MAX_LOG_CHARS,
   harnessReportKind,
+  LOG_TRUNCATION_SUFFIX,
   mapSessionEvent,
   type SdkHarnessExecutor,
   type SdkHarnessExecutorOptions,
@@ -86,6 +88,14 @@ function toolResultEvent(sessionId: string, text: string) {
 
 async function tick(): Promise<void> {
   await new Promise((resolve) => setImmediate(resolve));
+}
+
+function logEvents(sink: RecordingSink): HarnessEvent[] {
+  return sink.events.filter((event) => event.type === "log");
+}
+
+function logPhases(sink: RecordingSink): unknown[] {
+  return logEvents(sink).map((event) => (event.data as { phase?: unknown }).phase);
 }
 
 describe("createSdkHarnessExecutor runtime pool", () => {
@@ -221,7 +231,7 @@ describe("session events and reports", () => {
     });
     client.emitEvent({ sessionId: "a1", event: { type: "message", data: { text: "hi" } } });
 
-    expect(sink.events).toEqual([
+    expect(sink.events.filter((event) => event.type !== "log")).toEqual([
       { type: "tool/start", at: AT, data: { name: "bash" } },
       { type: "message", at: AT, data: { text: "hi" } },
     ]);
@@ -640,5 +650,161 @@ describe("cancellation and process isolation", () => {
     expect(sink.reports).toEqual([
       { kind: "failed", summary: "assignment deadline had already passed" },
     ]);
+  });
+});
+
+describe("stderr and lifecycle log events", () => {
+  it("forwards stderr chunks as log events without changing the live state", async () => {
+    const { client, sink, executor } = setup();
+    const execution = await executor.start(task(), sink);
+    const seqBefore = execution.state?.().seq;
+
+    client.emitStderr("diagnostic: provider warning\n");
+
+    const stderrLogs = logEvents(sink).filter(
+      (event) => (event.data as { stream?: string }).stream === "stderr",
+    );
+    expect(stderrLogs).toEqual([
+      {
+        type: "log",
+        at: AT,
+        data: { stream: "stderr", text: "diagnostic: provider warning\n" },
+      },
+    ]);
+    expect(execution.state?.().seq).toBe(seqBefore);
+  });
+
+  it("truncates long log text to maxLogChars with a marker", async () => {
+    expect(DEFAULT_MAX_LOG_CHARS).toBe(8_000);
+    const { client, sink, executor } = setup({ maxLogChars: 20 });
+    await executor.start(task(), sink);
+
+    client.emitStderr("x".repeat(50));
+
+    const stderr = logEvents(sink).find(
+      (event) => (event.data as { stream?: string }).stream === "stderr",
+    );
+    if (stderr === undefined) throw new Error("expected a stderr log event");
+    expect((stderr.data as { text: string }).text).toBe(
+      `${"x".repeat(20)}${LOG_TRUNCATION_SUFFIX}`,
+    );
+
+    const defaults = setup();
+    await defaults.executor.start(task(), defaults.sink);
+    defaults.client.emitStderr("y".repeat(DEFAULT_MAX_LOG_CHARS + 5));
+    const longLog = logEvents(defaults.sink).find(
+      (event) => (event.data as { stream?: string }).stream === "stderr",
+    );
+    if (longLog === undefined) throw new Error("expected a truncated stderr log event");
+    expect((longLog.data as { text: string }).text.endsWith(LOG_TRUNCATION_SUFFIX)).toBe(true);
+  });
+
+  it("emits start and end lifecycle logs", async () => {
+    const { client, sink, executor } = setup();
+    await executor.start(task(), sink);
+    expect(logPhases(sink)).toEqual(["start"]);
+
+    client.emitAssistantText("a1", reportBlock({ kind: "ready", summary: "done", at: AT }));
+    client.emitSessionEvent("a1", "turn/end", { turn: 1 });
+    await tick();
+
+    expect(logPhases(sink)).toEqual(["start", "end"]);
+    const endLog = logEvents(sink)[1];
+    if (endLog === undefined) throw new Error("expected an end log event");
+    expect((endLog.data as { text?: string }).text).toMatch(/ready/);
+  });
+
+  it("emits watchdog and deadline lifecycle logs", async () => {
+    vi.useFakeTimers();
+    try {
+      const watchdog = setup({ idleTimeoutMs: 500 });
+      await watchdog.executor.start(task(), watchdog.sink);
+      await vi.advanceTimersByTimeAsync(500);
+      expect(logPhases(watchdog.sink)).toEqual(["start", "watchdog", "end"]);
+      expect(watchdog.sink.reports[0]?.kind).toBe("failed");
+
+      const deadline = setup();
+      await deadline.executor.start(
+        task({ deadlineAt: "2026-11-17T00:00:01.000Z" }),
+        deadline.sink,
+      );
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(logPhases(deadline.sink)).toEqual(["start", "deadline", "end"]);
+      expect(deadline.sink.reports[0]?.summary).toMatch(/deadline/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("logs cancellation and unsubscribes stderr after finishing", async () => {
+    const { client, sink, executor } = setup();
+    const execution = await executor.start(task(), sink);
+    expect(client.stderrListenerCount).toBe(1);
+
+    await execution.cancel("stop requested");
+    await tick();
+
+    expect(logPhases(sink)).toEqual(["start", "cancel", "end"]);
+    expect(client.stderrListenerCount).toBe(0);
+    const logsBefore = logEvents(sink).length;
+    client.emitStderr("late noise");
+    expect(logEvents(sink)).toHaveLength(logsBefore);
+  });
+
+  it("subscribes and unsubscribes stderr per execution on a shared client", async () => {
+    const first = setup();
+    const secondSink = new RecordingSink();
+    await first.executor.start(task({ assignmentId: "a1" }), first.sink);
+    await first.executor.start(task({ assignmentId: "a2" }), secondSink);
+    expect(first.client.stderrListenerCount).toBe(2);
+
+    first.client.emitStderr("shared warning");
+    expect(
+      logEvents(first.sink).filter(
+        (event) => (event.data as { stream?: string }).stream === "stderr",
+      ),
+    ).toHaveLength(1);
+    expect(
+      logEvents(secondSink).filter(
+        (event) => (event.data as { stream?: string }).stream === "stderr",
+      ),
+    ).toHaveLength(1);
+
+    first.client.emitSessionEvent("a1", "turn/end", { turn: 1 });
+    await tick();
+    expect(first.client.stderrListenerCount).toBe(1);
+
+    first.client.emitSessionEvent("a2", "turn/end", { turn: 2 });
+    await tick();
+    expect(first.client.stderrListenerCount).toBe(0);
+  });
+
+  it("unsubscribes stderr when a process-isolated runtime terminates", async () => {
+    const clients: FakeSdkClient[] = [];
+    const sink = new RecordingSink();
+    const executor = createSdkHarnessExecutor({
+      provider: "deepseek",
+      model: "deepseek-v4",
+      isolation: "process",
+      clientFactory: () => {
+        const client = new FakeSdkClient();
+        clients.push(client);
+        return client;
+      },
+      now: () => new Date(AT),
+      interruptGraceMs: 0,
+    });
+    executors.push(executor);
+
+    await executor.start(task(), sink);
+    const client = clients[0] as FakeSdkClient;
+    expect(client.stderrListenerCount).toBe(1);
+    client.emitStderr("dedicated runtime warning");
+    expect(logEvents(sink).some((event) => event.type === "log")).toBe(true);
+
+    client.emitSessionEvent("a1", "turn/end", { turn: 1 });
+    await tick();
+    expect(client.stderrListenerCount).toBe(0);
+    expect(client.terminateCount).toBe(1);
   });
 });
