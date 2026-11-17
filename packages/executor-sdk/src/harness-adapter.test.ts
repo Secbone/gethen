@@ -938,10 +938,10 @@ describe("session selection", () => {
     ]);
   });
 
-  it("creates the session behind a key on first use and resumes it afterwards", async () => {
+  it("creates the session behind a new-mode key and resumes it afterwards", async () => {
     const { client, sink, executor } = setup();
     await executor.start(
-      task({ assignmentId: "a1", session: { mode: "reuse", key: "build" } }),
+      task({ assignmentId: "a1", session: { mode: "new", key: "build" } }),
       sink,
     );
     expect(client.resumeCalls).toEqual([]);
@@ -954,7 +954,8 @@ describe("session selection", () => {
       task({ assignmentId: "a2", session: { mode: "reuse", key: "build" } }),
       sink,
     );
-    expect(client.resumeCalls).toEqual(["a1"]);
+    // The shared runtime already has the session open; resume would fail there.
+    expect(client.resumeCalls).toEqual([]);
     expect(client.prompts.at(-1)).toEqual({ sessionId: "a1", text: "do the work" });
     expect(second.state?.().sessionId).toBe("a1");
     expect(executor.sessions()).toHaveLength(1);
@@ -963,6 +964,16 @@ describe("session selection", () => {
       key: "build",
       activeAssignmentId: "a2",
     });
+  });
+
+  it("fails a reuse-by-key request when the key was never created", async () => {
+    const { sink, executor } = setup();
+    await executor.start(
+      task({ assignmentId: "a1", session: { mode: "reuse", key: "missing" } }),
+      sink,
+    );
+    expect(sink.reports[0]).toMatchObject({ kind: "failed" });
+    expect(sink.reports[0]?.summary).toMatch(/unknown/i);
   });
 
   it("registers a key chosen by an explicit new-mode task", async () => {
@@ -979,7 +990,8 @@ describe("session selection", () => {
       task({ assignmentId: "a2", session: { mode: "reuse", key: "review" } }),
       sink,
     );
-    expect(client.resumeCalls).toEqual(["a1"]);
+    expect(client.resumeCalls).toEqual([]);
+    expect(client.prompts.at(-1)?.sessionId).toBe("a1");
   });
 
   it("reports a resume failure as failed without prompting or silently starting anew", async () => {
@@ -1019,7 +1031,7 @@ describe("session selection", () => {
   it("rejects a second concurrent task that reuses the same key or session", async () => {
     const { client, sink, executor } = setup();
     await executor.start(
-      task({ assignmentId: "a1", session: { mode: "reuse", key: "shared" } }),
+      task({ assignmentId: "a1", session: { mode: "new", key: "shared" } }),
       sink,
     );
     expect(client.initializeCalls).toHaveLength(1);
@@ -1060,7 +1072,7 @@ describe("session selection", () => {
     executors.push(executor);
 
     await executor.start(
-      task({ assignmentId: "a1", session: { mode: "reuse", key: "workspace" } }),
+      task({ assignmentId: "a1", session: { mode: "new", key: "workspace" } }),
       sink,
     );
     const first = clients[0] as FakeSdkClient;

@@ -304,6 +304,11 @@ async function runMailboxWorker(config: WorkerConfig): Promise<number> {
       }
       return execution;
     },
+    sessions: () => baseHarness.sessions(),
+    sessionHistory: (
+      sessionId: string,
+      options?: Parameters<typeof baseHarness.sessionHistory>[1],
+    ) => baseHarness.sessionHistory(sessionId, options),
     close: () => baseHarness.close(),
   };
   const agent: MailboxAgent = createMailboxAgent({

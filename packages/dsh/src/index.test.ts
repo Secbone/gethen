@@ -184,9 +184,7 @@ describe("Gethen DSH plugin", () => {
     await expect(run({ mode: "reuse", sessionId: "s", key: "k" })).rejects.toThrow(
       /exactly one of sessionId or key/,
     );
-    await expect(run({ mode: "new", sessionId: "s" })).rejects.toThrow(
-      /must not set sessionId or key/,
-    );
+    await expect(run({ mode: "new", sessionId: "s" })).rejects.toThrow(/must not set sessionId/);
     await expect(run({ mode: "resume" })).rejects.toThrow(/session.mode/);
     await expect(run("{not json")).rejects.toThrow(/valid JSON/);
     expect(serviceOf(services).store.triggers.list()).toHaveLength(0);

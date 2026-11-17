@@ -193,6 +193,8 @@ interface SessionRecord {
   workspace: string;
   lastUsedAt: string;
   activeAssignmentId?: string;
+  /** Runtime client this session is currently loaded in (for resume skipping). */
+  client?: SdkClientLike;
 }
 
 /** Resolved session for one task, before the runtime is acquired. */
@@ -374,6 +376,12 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
     }
 
     workspaceClient.sessions.set(plan.sessionId, this.bindingFor(state));
+    const record = this.sessionRecords.get(plan.sessionId);
+    // A session already loaded in this pooled runtime cannot be resumed again
+    // (DSH rejects resume on an open session); just prompt it with the new turn.
+    const alreadyOpen = plan.resume && record?.client === workspaceClient.client;
+    if (record !== undefined) record.client = workspaceClient.client;
+    if (alreadyOpen) plan = { ...plan, resume: false };
     if (plan.resume) {
       try {
         await workspaceClient.client.resume(plan.sessionId);
@@ -480,9 +488,12 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
     if (spec.key !== undefined) {
       requireSessionKey(spec.key);
       const mapped = this.sessionKeys.get(spec.key);
-      return mapped === undefined
-        ? { sessionId: task.assignmentId, resume: false, key: spec.key }
-        : { sessionId: mapped, resume: true, key: spec.key };
+      if (mapped === undefined) {
+        throw new SdkHarnessError(
+          `reuse session key "${spec.key}" is unknown; create it with session.mode "new" and the same key first`,
+        );
+      }
+      return { sessionId: mapped, resume: true, key: spec.key };
     }
     throw new SdkHarnessError('reuse session needs "sessionId" or "key"');
   }
@@ -1042,7 +1053,7 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
     const signal = state.abort.signal;
     void (async () => {
       try {
-        await workspaceClient.client.wait(state.task.assignmentId, {
+        await workspaceClient.client.wait(state.sessionId, {
           timeoutMs: 0,
           signal,
         });

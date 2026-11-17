@@ -170,6 +170,9 @@ gethen task logs <assignmentId> --master https://<master>
 gethen session list --master https://<master>
 gethen session history <sessionId> --master https://<master>
 gethen run --session-id <sessionId> "在已有会话里继续" --master https://<master>
+# 首次：新建会话并登记 key；之后用同一个 key 复用（未知 key 会失败，不会静默新建）
+gethen run --session-id "" 2>/dev/null || true
+# 新建并登记 key 目前通过 API/DSH 工具传 session={"mode":"new","key":"project-x"}
 gethen run --reuse-key project-x "复用该 key 的会话" --master https://<master>
 
 # 本地不花钱的两级验证

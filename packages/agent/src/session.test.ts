@@ -122,7 +122,6 @@ describe("assign session pass-through", () => {
       ["new", /JSON object/],
       [{ mode: "other" }, /mode/],
       [{ mode: "new", sessionId: "s" }, /must not carry/],
-      [{ mode: "new", key: "k" }, /must not carry/],
       [{ mode: "reuse" }, /exactly one/],
       [{ mode: "reuse", sessionId: "s", key: "k" }, /exactly one/],
       [{ mode: "reuse", sessionId: "" }, /sessionId/],
@@ -148,6 +147,16 @@ describe("assign session pass-through", () => {
     expect(mailbox.nacks.at(-1)).toMatchObject({ action: "dead", ids: ["env-assign-1"] });
     expect(errors[0]?.context.phase).toBe("assign");
     expect(String(errors[0]?.error)).toMatch(/invalid_session|session/);
+  });
+
+  it("passes a new-mode key through so the session can be reused later", async () => {
+    const { agent, mailbox, harness } = setup();
+    mailbox.enqueue(
+      MAILBOX,
+      assignEnvelope("env-assign-1", { session: { mode: "new", key: "k" } }),
+    );
+    await agent.runOnce();
+    expect(harness.tasks[0]?.session).toEqual({ mode: "new", key: "k" });
   });
 
   it("passes a session spec through to the harness task at runtime", async () => {

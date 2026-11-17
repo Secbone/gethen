@@ -127,9 +127,12 @@ describe("parseSessionSpec", () => {
     });
   });
 
-  it('rejects "new" when a session is named', () => {
+  it('rejects "new" with a sessionId but accepts a key for later reuse', () => {
     expect(parseSessionSpec({ mode: "new", sessionId: "session-1" }).ok).toBe(false);
-    expect(parseSessionSpec({ mode: "new", key: "project-main" }).ok).toBe(false);
+    expect(parseSessionSpec({ mode: "new", key: "project-main" })).toMatchObject({
+      ok: true,
+      value: { mode: "new", key: "project-main" },
+    });
   });
 
   it('requires exactly one of sessionId or key for "reuse"', () => {

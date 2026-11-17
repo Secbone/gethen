@@ -254,10 +254,11 @@ export function parseSessionSpec(value: unknown): SessionSpecParse {
   if (!key.ok) return key;
 
   if (mode === "new") {
-    if (sessionId.value !== undefined || key.value !== undefined) {
-      return { ok: false, reason: 'session.mode "new" must not set sessionId or key' };
+    if (sessionId.value !== undefined) {
+      return { ok: false, reason: 'session.mode "new" must not set sessionId' };
     }
-    return { ok: true, value: { mode } };
+    // A new session may carry a key so later assignments can reuse it.
+    return { ok: true, value: key.value === undefined ? { mode } : { mode, key: key.value } };
   }
 
   const named = (sessionId.value !== undefined ? 1 : 0) + (key.value !== undefined ? 1 : 0);

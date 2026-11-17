@@ -1432,10 +1432,11 @@ function parseAssignSession(value: unknown): SessionParse {
     return sessionFailure('assign session "key" must be a non-empty string when present');
   }
   if (mode === "new") {
-    if (sessionId !== undefined || key !== undefined) {
-      return sessionFailure('assign session mode "new" must not carry sessionId or key');
+    if (sessionId !== undefined) {
+      return sessionFailure('assign session mode "new" must not carry sessionId');
     }
-    return { ok: true, value: { mode } };
+    // A new session may carry a key so later tasks can reuse it.
+    return { ok: true, value: key === undefined ? { mode } : { mode, key } };
   }
   if ((sessionId === undefined) === (key === undefined)) {
     return sessionFailure(
