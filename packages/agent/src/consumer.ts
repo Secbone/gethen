@@ -93,7 +93,8 @@ export interface TaskAssignPayload {
 
 export interface TaskProgressPayload {
   assignmentId: string;
-  event: HarnessEvent;
+  /** Optional: periodic heartbeats carry state without a fresh event. */
+  event?: HarnessEvent;
   /** Live state snapshot when the harness exposes `execution.state()`. */
   state?: HarnessTaskState;
 }
@@ -366,6 +367,8 @@ export interface MailboxAgentOptions {
   leaseRenewIntervalMs?: number;
   /** Drop progress events closer than this to the previous one; `0` sends every event. */
   progressThrottleMs?: number;
+  /** Send a progress heartbeat this often while an execution runs (0 disables). */
+  progressHeartbeatMs?: number;
   /** Requeue delay after a failed start / send. Default 1 s. */
   retryDelayMs?: number;
   /** Deliveries before an assign is treated as poisoned. Default 5. */
@@ -418,6 +421,7 @@ const DEFAULTS = {
   maxAttempts: 5,
   dedupeWindowMs: 5 * 60_000,
   stopTimeoutMs: 5_000,
+  progressHeartbeatMs: 15_000,
 } as const;
 
 interface Outgoing {
@@ -447,6 +451,7 @@ interface ExecutionEntry {
   queuedResolutions: HarnessResolution[];
   leaseTimer?: NodeJS.Timeout;
   lastProgressAt?: number;
+  heartbeatTimer?: NodeJS.Timeout;
   done: Promise<void>;
   resolveDone: () => void;
 }
@@ -469,6 +474,7 @@ class MailboxAgentImpl implements MailboxAgent {
   private readonly leaseMs: number;
   private readonly leaseRenewIntervalMs: number;
   private readonly progressThrottleMs: number;
+  private readonly progressHeartbeatMs: number;
   private readonly retryDelayMs: number;
   private readonly maxAttempts: number;
   private readonly dedupeWindowMs: number;
@@ -502,6 +508,7 @@ class MailboxAgentImpl implements MailboxAgent {
     this.leaseMs = options.leaseMs ?? DEFAULTS.leaseMs;
     this.leaseRenewIntervalMs = options.leaseRenewIntervalMs ?? DEFAULTS.leaseRenewIntervalMs;
     this.progressThrottleMs = options.progressThrottleMs ?? 0;
+    this.progressHeartbeatMs = options.progressHeartbeatMs ?? DEFAULTS.progressHeartbeatMs;
     this.retryDelayMs = options.retryDelayMs ?? DEFAULTS.retryDelayMs;
     this.maxAttempts = Math.max(1, options.maxAttempts ?? DEFAULTS.maxAttempts);
     this.dedupeWindowMs = options.dedupeWindowMs ?? DEFAULTS.dedupeWindowMs;
@@ -679,6 +686,7 @@ class MailboxAgentImpl implements MailboxAgent {
     try {
       const execution = await this.harness.start(task, entry.sink);
       entry.execution = execution;
+      this.startProgressHeartbeat(entry);
       if (entry.cancelled) {
         try {
           await this.applyCancel(entry, entry.cancelReason);
@@ -695,6 +703,7 @@ class MailboxAgentImpl implements MailboxAgent {
         await execution.sendResolution(resolution);
       }
     } catch (error) {
+      this.stopProgressHeartbeat(entry);
       this.stopLeaseRenewal(entry);
       this.executions.delete(task.assignmentId);
       this.reportError(error, {
@@ -1019,6 +1028,7 @@ class MailboxAgentImpl implements MailboxAgent {
   private finishExecution(entry: ExecutionEntry, report: HarnessReport): void {
     if (entry.settled) return;
     entry.settled = true;
+    this.stopProgressHeartbeat(entry);
     this.stopLeaseRenewal(entry);
 
     const validation = validateHarnessReport(report);
@@ -1093,6 +1103,7 @@ class MailboxAgentImpl implements MailboxAgent {
   }
 
   private completeEntry(entry: ExecutionEntry): void {
+    this.stopProgressHeartbeat(entry);
     this.stopLeaseRenewal(entry);
     this.executions.delete(entry.task.assignmentId);
     this.completed.set(entry.task.assignmentId, this.now().getTime() + this.dedupeWindowMs);
@@ -1129,6 +1140,29 @@ class MailboxAgentImpl implements MailboxAgent {
   }
 
   // --------------------------------------------------------------- leases
+
+  private startProgressHeartbeat(entry: ExecutionEntry): void {
+    if (this.progressHeartbeatMs <= 0 || entry.heartbeatTimer !== undefined) return;
+    const timer = setInterval(() => {
+      if (entry.settled) {
+        this.stopProgressHeartbeat(entry);
+        return;
+      }
+      const state = entry.execution?.state?.() ?? entry.lastState;
+      const payload: TaskProgressPayload = { assignmentId: entry.task.assignmentId };
+      if (state !== undefined) payload.state = state;
+      this.queue(entry, MESSAGE_TYPES.progress, payload);
+      void this.flush();
+    }, this.progressHeartbeatMs);
+    timer.unref();
+    entry.heartbeatTimer = timer;
+  }
+
+  private stopProgressHeartbeat(entry: ExecutionEntry): void {
+    if (entry.heartbeatTimer === undefined) return;
+    clearInterval(entry.heartbeatTimer);
+    entry.heartbeatTimer = undefined;
+  }
 
   private startLeaseRenewal(entry: ExecutionEntry): void {
     if (this.leaseRenewIntervalMs <= 0) return;

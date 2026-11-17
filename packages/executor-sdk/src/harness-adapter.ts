@@ -1030,15 +1030,27 @@ export function repairReportBlock(text: string): string {
  * fields) never gets glued together; a complete marker pair is required, which
  * keeps prose that merely mentions a marker from matching.
  */
-function scanEvent(state: ExecutionState, event: unknown): void {
+function scanEvent(state: ExecutionState, event: unknown, depth = 0): void {
   for (const text of collectStrings(event)) {
     if (text.includes(REPORT_OPEN) && text.includes(REPORT_CLOSE)) {
       state.reportTexts.push(text);
-      continue;
     }
     if (text.includes(ESCALATION_OPEN) && text.includes(ESCALATION_CLOSE)) {
       const escalation = parseToolEscalation(text);
       if (escalation !== undefined) state.toolEscalation = escalation;
+    }
+    // DSH tool results are often themselves JSON text (e.g. `{"text":"..."}`
+    // returned by the worker tools). Decode one or two layers and scan again,
+    // otherwise a report block inside an encoded tool result is missed.
+    if (depth < 3 && text.length < 1_000_000) {
+      const trimmed = text.trimStart();
+      if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+        try {
+          scanEvent(state, JSON.parse(text), depth + 1);
+        } catch {
+          // not JSON; the surrounding loop already handled plain markers
+        }
+      }
     }
   }
 }

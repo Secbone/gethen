@@ -261,6 +261,26 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
   const leaseMs = options.leaseMs ?? DEFAULT_LEASE_MS;
   const batchSize = options.batchSize ?? DEFAULT_BATCH_SIZE;
   const pendingByAssignment = new Map<string, PendingLaunch>();
+
+  /**
+   * (Re)arm the inactivity timer for one launch. `timeoutMs` is a *silence*
+   * window: progress/ask traffic keeps a long task alive, while a genuinely
+   * stuck worker still fails. A fixed total-duration timeout used to kill
+   * legitimate 10-minute tasks.
+   */
+  function armLaunchTimer(pending: PendingLaunch): void {
+    if (pending.timer !== undefined) clearTimeout(pending.timer);
+    pending.timer = setTimeout(() => {
+      rejectWith(
+        pending,
+        new MailboxLaunchError(
+          "MAILBOX_LAUNCH_TIMEOUT",
+          `assignment ${pending.request.assignment.id} produced no activity within ${timeoutMs}ms`,
+        ),
+      );
+    }, timeoutMs);
+    pending.timer.unref();
+  }
   /** Live/recent assignment states, keyed by assignment id (retained after result). */
   const states = new Map<string, TaskState>();
   /** In-flight `gethen.task.status` requests, keyed by request envelope id. */
@@ -398,6 +418,7 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
   }
 
   function handleProgress(pending: PendingLaunch, data: Record<string, unknown> | undefined): void {
+    armLaunchTimer(pending);
     pending.events += 1;
     const rawState = data?.state;
     // Older workers send only text/event progress without a state.
@@ -422,6 +443,7 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
   }
 
   function handleAsk(pending: PendingLaunch, envelope: Envelope): void {
+    armLaunchTimer(pending);
     const data = asRecord(envelope.data);
     if (data === undefined) return;
     const escalationId = stringValue(data.escalationId);
@@ -505,17 +527,7 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
     const assignmentId = request.assignment.id;
     const pending = createPending(request);
     pendingByAssignment.set(assignmentId, pending);
-    pending.timer = setTimeout(() => {
-      rejectWith(
-        pending,
-        new MailboxLaunchError(
-          "MAILBOX_LAUNCH_TIMEOUT",
-          `assignment ${assignmentId} produced no result within ${timeoutMs}ms`,
-        ),
-      );
-    }, timeoutMs);
-    // A pending launch must not keep the process alive on its own.
-    pending.timer.unref();
+    armLaunchTimer(pending);
 
     try {
       client.send(assignEnvelope(request));

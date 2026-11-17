@@ -263,6 +263,18 @@ describe("session events and reports", () => {
     expect(last.sink.reports).toEqual([{ kind: "waiting", summary: "second" }]);
   });
 
+  it("decodes JSON-encoded tool results that contain a report block", async () => {
+    const encoded = setup();
+    await encoded.executor.start(task(), encoded.sink);
+    const payload = JSON.stringify({
+      text: reportBlock({ kind: "ready", summary: "encoded tool result", at: AT }),
+    });
+    encoded.client.emitEvent(toolResultEvent("a1", payload));
+    encoded.client.emitSessionEvent("a1", "turn/end", { turn: 1 });
+    await tick();
+    expect(encoded.sink.reports).toEqual([{ kind: "ready", summary: "encoded tool result" }]);
+  });
+
   it("reports waiting without a report and fails on an invalid block or wait", async () => {
     const missing = setup();
     await missing.executor.start(task(), missing.sink);

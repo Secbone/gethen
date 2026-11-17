@@ -414,6 +414,19 @@ describe("createMailboxLaunchPort", () => {
     });
   });
 
+  it("treats timeout as an inactivity window and refreshes on progress", async () => {
+    const client = new FakeMailbox();
+    const bridge = makeBridge(client, { timeoutMs: 120 });
+    const pending = bridge.launchPort.launch(launchRequest());
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    bridge.handleEnvelope(progressEnvelope("assignment-1"));
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    // 160ms total > 120ms timeout, but only 80ms since the progress update.
+    bridge.handleEnvelope(resultEnvelope("assignment-1"));
+    const result = await pending;
+    expect(result.report.kind).toBe("ready");
+  });
+
   it("fails with MAILBOX_LAUNCH_TIMEOUT when no result arrives", async () => {
     const client = new FakeMailbox();
     const bridge = makeBridge(client, { timeoutMs: 10 });

@@ -403,3 +403,27 @@ describe("concurrent assignments", () => {
     );
   });
 });
+
+describe("progress heartbeat", () => {
+  it("sends periodic progress while an execution is running and stops after it settles", async () => {
+    const { agent, mailbox, harness } = setup(
+      { withState: true, state: LIVE_STATE },
+      { progressHeartbeatMs: 10 },
+    );
+    mailbox.enqueue(MAILBOX, assignEnvelope("env-assign-1", "a1"));
+    await agent.runOnce();
+    await new Promise((resolve) => setTimeout(resolve, 45));
+    const during = mailbox.sentByType(MESSAGE_TYPES.progress).length;
+    expect(during).toBeGreaterThanOrEqual(1);
+    expect(mailbox.sentByType(MESSAGE_TYPES.progress).at(-1)?.data).toMatchObject({
+      assignmentId: "a1",
+      state: { assignmentId: "a1" },
+    });
+
+    harness.report(0, { kind: "ready", summary: "done" });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const afterReport = mailbox.sentByType(MESSAGE_TYPES.progress).length;
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(mailbox.sentByType(MESSAGE_TYPES.progress).length).toBe(afterReport);
+  });
+});
