@@ -181,6 +181,11 @@ export interface MasterRuntimeOptions {
   /** Mailbox sqlite file; defaults to `<dirname(dbPath)>/mailbox.sqlite`. */
   mailboxDbPath?: string;
   /**
+   * Silence window before a dispatched launch is settled as timed out. A late
+   * Worker result still lands on the Ticket; defaults to the bridge's 10 min.
+   */
+  launchTimeoutMs?: number;
+  /**
    * Full Master mailbox name, which must be `<prefix>master` (the bridge-mailbox
    * derives both mailbox names from one prefix); defaults to `mailbox:master`.
    */
@@ -278,6 +283,7 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
       ...(options.onEscalation === undefined ? {} : { onEscalation: options.onEscalation }),
       ...(options.onResolution === undefined ? {} : { onResolution: options.onResolution }),
       onLateResult: handleLateResult,
+      ...(options.launchTimeoutMs === undefined ? {} : { timeoutMs: options.launchTimeoutMs }),
       ...(options.now === undefined ? {} : { now: options.now }),
     });
     const workerMailbox = mailboxBridge.workerMailbox;

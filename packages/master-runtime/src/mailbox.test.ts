@@ -67,6 +67,7 @@ interface HarnessOptions {
   onResolution?: (record: EscalationRecord) => void;
   workerId?: string;
   masterMailbox?: string;
+  launchTimeoutMs?: number;
   withServer?: boolean;
 }
 
@@ -122,6 +123,7 @@ async function startHarness(options: HarnessOptions = {}): Promise<Harness> {
       : { resolveEscalation: options.resolveEscalation }),
     ...(options.onEscalation === undefined ? {} : { onEscalation: options.onEscalation }),
     ...(options.onResolution === undefined ? {} : { onResolution: options.onResolution }),
+    ...(options.launchTimeoutMs === undefined ? {} : { launchTimeoutMs: options.launchTimeoutMs }),
   };
   const runtime = createMasterRuntime(runtimeOptions);
   const harness: Harness = { runtime };
@@ -471,6 +473,50 @@ describe("createMasterRuntime mailbox stack", () => {
     expect(runtime.service.store.listReceipts().map((receipt) => receipt.summary)).toEqual([
       "waiting for a person: Which branch?",
       "merged",
+    ]);
+    expect(runtime.service.store.tickets.get(ticketId)?.attention).toBeUndefined();
+  });
+
+  it("settles a silent launch and applies the Worker's late result", async () => {
+    const harness = await startHarness({ launchTimeoutMs: 40 });
+    const runtime = harness.runtime;
+    const { link } = await attachWorker(harness);
+
+    const trigger: Trigger = {
+      id: `trigger-${crypto.randomUUID()}`,
+      source: "local",
+      thread: "local",
+      actor: "local-user",
+      bot: false,
+      addressed: "mention",
+      text: "sleep 40 and report",
+      at: AT,
+      meta: { scope: "local", workspace: "/ws" },
+    };
+    const submitted = runtime.service.submit(trigger);
+    const ticketId = runtime.service.store.tickets.list().at(-1)?.id;
+    if (ticketId === undefined) throw new Error("expected an accepted ticket");
+
+    const assign = await receiveOne(link);
+    await link.ack([assign.envelope.id]);
+    await submitted;
+    const assignmentId = assignmentIdOf(assign.envelope);
+
+    // The silence timeout is a settlement, not a retry: failed report, receipt,
+    // ended Assignment, effect done.
+    await waitFor(() => runtime.service.store.tickets.get(ticketId)?.latestReport === "failed");
+    expect(runtime.service.store.assignments.get(assignmentId)?.state).toBe("ended");
+    expect(runtime.service.store.listReceipts()).toMatchObject([
+      { assignment: assignmentId, outcome: "failed" },
+    ]);
+    expect(runtime.service.store.listReceipts()).toHaveLength(1);
+
+    // The task was already dispatched: its late result still lands exactly once.
+    await link.send(resultEnvelope(assign.envelope, { summary: "slept" }));
+    await waitFor(() => runtime.service.store.tickets.get(ticketId)?.latestReport === "ready");
+    expect(runtime.service.store.listReceipts()).toMatchObject([
+      { assignment: assignmentId, outcome: "failed" },
+      { assignment: assignmentId, outcome: "completed", summary: "slept" },
     ]);
     expect(runtime.service.store.tickets.get(ticketId)?.attention).toBeUndefined();
   });
