@@ -16,6 +16,7 @@
 import {
   type Assignment,
   DEFAULT_EVAL_DEADLINE_MS,
+  DEFAULT_SESSION_SPEC,
   type Decision,
   type DecisionOutcome,
   type EscalationInput,
@@ -27,8 +28,10 @@ import {
   type Mandate,
   type MandateBasis,
   type Policy,
+  parseSessionSpec,
   type Reason,
   type Report,
+  type SessionSpec,
   type Strength,
   type Thread,
   type Ticket,
@@ -173,7 +176,25 @@ export class Engine {
         values: { eval: view.eval.policyVersion, current: policy.version },
       });
     }
-    const finalOutcome: DecisionOutcome = stale ? "unavailable" : outcome;
+    let finalOutcome: DecisionOutcome = stale ? "unavailable" : outcome;
+
+    // A malformed session binding must never silently start or hijack a
+    // session: the work is ignored (with an auditable reason) rather than
+    // accepted. Well-formed metadata rides along to the Assignment below.
+    let session: SessionSpec = DEFAULT_SESSION_SPEC;
+    if (finalOutcome === "accept") {
+      const parsed = parseSessionSpec(view.trigger.meta?.session);
+      if (parsed.ok) {
+        session = parsed.value;
+      } else {
+        finalOutcome = "ignore";
+        finalReasons.push({
+          code: "invalid_session_spec",
+          text: parsed.reason,
+          triggerId,
+        });
+      }
+    }
 
     if (finalOutcome === "accept") {
       const prior = this.acceptedDecision(triggerId);
@@ -196,7 +217,7 @@ export class Engine {
       this.requeue(view.thread, view.eval.triggers);
       this.repos.threads.save(view.thread);
     }
-    if (finalOutcome === "accept") this.accept(view, policy, at);
+    if (finalOutcome === "accept") this.accept(view, policy, at, session);
     return decision;
   }
 
@@ -517,7 +538,7 @@ export class Engine {
     return decision;
   }
 
-  private accept(view: Candidate, policy: Policy, now: Date): void {
+  private accept(view: Candidate, policy: Policy, now: Date, session: SessionSpec): void {
     const at = now.toISOString();
     const ticketId = this.ids.next("ticket");
     const mandate: Mandate = {
@@ -530,7 +551,7 @@ export class Engine {
       matchedRules: policy.rules.filter((rule) => rule.enabled).map((rule) => rule.id),
       createdAt: at,
     };
-    const assignment = this.newAssignment(ticketId);
+    const assignment = this.newAssignment(ticketId, session);
     const workspace = view.trigger.meta?.workspace ?? this.scopeOf(view.trigger);
     if (workspace !== "") assignment.workspace = workspace;
     const input: Input = {
@@ -564,7 +585,8 @@ export class Engine {
     this.enqueueLaunch(ticket, assignment, now);
   }
 
-  private newAssignment(ticketId: string): Assignment {
+  /** New Assignment for a Ticket; `session` defaults to a fresh session (retry). */
+  private newAssignment(ticketId: string, session: SessionSpec = DEFAULT_SESSION_SPEC): Assignment {
     const id = this.ids.next("assignment");
     return {
       id,
@@ -574,6 +596,7 @@ export class Engine {
       packDigest: "",
       state: "pending",
       operationId: `launch:${id}`,
+      session,
     };
   }
 

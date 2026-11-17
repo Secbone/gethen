@@ -26,6 +26,9 @@
       "@gethen/core/testing": [
         "packages/core/src/testing/contract.ts"
       ],
+      "@gethen/dsh-sessions": [
+        "packages/dsh-sessions/src/index.ts"
+      ],
       "@gethen/executor-sdk": [
         "packages/executor-sdk/src/index.ts"
       ],

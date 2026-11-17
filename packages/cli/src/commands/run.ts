@@ -1,3 +1,5 @@
+import type { SessionSpec } from "@gethen/master";
+
 /** What `POST /gethen/run` returns from a master (`gethen serve`). */
 export interface RunResult {
   stored?: string;
@@ -14,6 +16,8 @@ export interface RunArgs {
   text: string;
   /** Print the master's raw JSON response instead of the summary. */
   json: boolean;
+  /** Session binding sent with the run (`new` unless --session-id/--reuse-key). */
+  session: SessionSpec;
 }
 
 export interface RunOptions {
@@ -73,7 +77,30 @@ export function parseRunArgs(argv: string[], env: NodeJS.ProcessEnv = process.en
   if (text.trim().length === 0) {
     throw new Error('run text is required: pass "<text>" or --text <text>');
   }
-  return { master: master.trim(), text: text.trim(), json: argv.includes("--json") };
+  return {
+    master: master.trim(),
+    text: text.trim(),
+    json: argv.includes("--json"),
+    session: parseSessionFlags(argv),
+  };
+}
+
+/** `--session-id <id>` or `--reuse-key <key>` select reuse; default is `new`. */
+function parseSessionFlags(argv: string[]): SessionSpec {
+  const sessionId = flagValue(argv, "--session-id")?.trim();
+  const key = flagValue(argv, "--reuse-key")?.trim();
+  if (sessionId !== undefined && sessionId.length === 0) {
+    throw new Error("--session-id must be a non-empty string");
+  }
+  if (key !== undefined && key.length === 0) {
+    throw new Error("--reuse-key must be a non-empty string");
+  }
+  if (sessionId !== undefined && key !== undefined) {
+    throw new Error("--session-id and --reuse-key are mutually exclusive");
+  }
+  if (sessionId !== undefined) return { mode: "reuse", sessionId };
+  if (key !== undefined) return { mode: "reuse", key };
+  return { mode: "new" };
 }
 
 /** `gethen run --master <url> "<text>" [--json]` */
@@ -101,7 +128,7 @@ export async function runCommand(argv: string[], options: RunOptions = {}): Prom
     response = await fetch(endpoint, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ text: args.text }),
+      body: JSON.stringify({ text: args.text, session: args.session }),
     });
   } catch (error) {
     writeError(`gethen run: cannot reach master at ${endpoint}: ${messageOf(error)}`);
@@ -149,11 +176,15 @@ export async function runCommand(argv: string[], options: RunOptions = {}): Prom
 
 const RUN_USAGE = `Usage: gethen run --master <url> "<text>" [--json]
    or: gethen run --master <url> --text <text> [--json]
+                    [--session-id <id> | --reuse-key <key>]
 
-POSTs {"text": ...} to <master>/gethen/run and prints {ticket, report, receipt}.
---json prints the master's raw JSON response. The default master URL fallback is
-$GETHEN_MASTER_URL. Exit code is non-zero when the master is unreachable, the
-request fails, or the worker report is "failed".
+POSTs {"text": ..., "session": ...} to <master>/gethen/run and prints
+{ticket, report, receipt}. --json prints the master's raw JSON response.
+Sessions: the default is a fresh session; --session-id reuses an exact harness
+session and --reuse-key reuses the Worker's registry entry for a key (mutually
+exclusive). The default master URL fallback is $GETHEN_MASTER_URL. Exit code is
+non-zero when the master is unreachable, the request fails, or the worker report
+is "failed".
 `;
 
 function flagValue(argv: string[], name: string): string | undefined {
@@ -167,7 +198,7 @@ function positionalArgs(argv: string[]): string[] {
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === undefined) continue;
-    if (arg === "--master" || arg === "--text") {
+    if (arg === "--master" || arg === "--text" || arg === "--session-id" || arg === "--reuse-key") {
       index += 1;
       continue;
     }

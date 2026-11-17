@@ -1,13 +1,18 @@
 import { mkdirSync, readFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { dirname } from "node:path";
-import type {
-  EscalationRecord,
-  EscalationResolutionInput,
-  MasterService,
-  Trigger,
+import {
+  type EscalationRecord,
+  type EscalationResolutionInput,
+  type MasterService,
+  parseSessionSpec,
+  type Trigger,
 } from "@gethen/master";
-import { createMasterRuntime, type MasterRuntime } from "@gethen/master-runtime";
+import {
+  createMasterRuntime,
+  type MasterRuntime,
+  type TaskEventQuery,
+} from "@gethen/master-runtime";
 import type { TokenRecord } from "@gethen/transport";
 import { defaultMasterDbPath } from "../paths";
 
@@ -187,9 +192,12 @@ export async function startServe(config: ServeConfig = {}): Promise<ServeHandle>
         }
         if (request.method === "POST" && pathname === "/gethen/run") {
           const body = await readJson(request);
+          const session = runSessionMeta(body.session);
           const trigger = text(body.text as string | undefined, config.workspace ?? process.cwd());
           const waitMs = optionalWaitMs(body.waitMs);
-          const result = await service.submit(trigger);
+          const result = await service.submit(
+            session === undefined ? trigger : { ...trigger, meta: { ...trigger.meta, session } },
+          );
           const created = service.store.tickets.list().at(-1);
           // Wait for the launch effect + receipt: an immediate snapshot can race
           // with a failed first attempt that the outbox retries successfully.
@@ -213,6 +221,10 @@ export async function startServe(config: ServeConfig = {}): Promise<ServeHandle>
         }
         if (pathname === "/gethen/tasks" || pathname.startsWith("/gethen/tasks/")) {
           await handleTaskRoutes(runtime, request, response, pathname, url.searchParams);
+          return;
+        }
+        if (pathname === "/gethen/sessions" || pathname.startsWith("/gethen/sessions/")) {
+          await handleSessionRoutes(runtime, request, response, pathname, url.searchParams);
           return;
         }
         send(response, 404, { error: "not found" });
@@ -260,7 +272,10 @@ export async function startServe(config: ServeConfig = {}): Promise<ServeHandle>
   };
 }
 
-const TASK_ROUTE = /^\/gethen\/tasks(?:\/([^/]+))?(?:\/(steer|cancel))?$/;
+const TASK_ROUTE = /^\/gethen\/tasks(?:\/([^/]+))?(?:\/(steer|cancel|events))?$/;
+
+/** Session directory + history routes: `/gethen/sessions[/:id/history]`. */
+const SESSION_ROUTE = /^\/gethen\/sessions(?:\/([^/]+)\/history)?$/;
 
 /**
  * `GET /gethen/tasks`, `GET /gethen/tasks/:id`,
@@ -322,6 +337,26 @@ async function handleTaskRoutes(
       send(response, 200, { assignmentId, state });
       return;
     }
+    if (action === "events") {
+      if (request.method !== "GET") {
+        send(response, 405, { error: "method not allowed" });
+        return;
+      }
+      let query: TaskEventQuery;
+      try {
+        query = eventsQuery(search);
+      } catch (error) {
+        send(response, 400, { error: messageOf(error) });
+        return;
+      }
+      send(response, 200, {
+        assignmentId,
+        events: runtime.tasks.events(assignmentId, query),
+        count: runtime.tasks.eventCount(assignmentId),
+        dropped: runtime.tasks.eventDropped(assignmentId),
+      });
+      return;
+    }
     if (request.method !== "POST") {
       send(response, 405, { error: "method not allowed" });
       return;
@@ -379,6 +414,109 @@ function optionalTimeout(search: URLSearchParams): number | undefined {
     throw new Error("timeoutMs must be a positive integer");
   }
   return parsed;
+}
+
+/** Parse the optional `session` run-body field into `trigger.meta.session` JSON. */
+function runSessionMeta(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  const parsed = parseSessionSpec(value);
+  if (!parsed.ok) throw new Error(`invalid session: ${parsed.reason}`);
+  return JSON.stringify(parsed.value);
+}
+
+function eventsQuery(search: URLSearchParams): TaskEventQuery {
+  const limit = optionalPositiveInt(search, "limit");
+  const afterSeq = optionalNonNegativeInt(search, "afterSeq");
+  const type = optionalNonEmpty(search, "type");
+  return {
+    ...(limit === undefined ? {} : { limit }),
+    ...(afterSeq === undefined ? {} : { afterSeq }),
+    ...(type === undefined ? {} : { type }),
+  };
+}
+
+/**
+ * `GET /gethen/sessions[?timeoutMs=]` and
+ * `GET /gethen/sessions/:id/history[?limit=&afterSeq=&timeoutMs=]`.
+ */
+async function handleSessionRoutes(
+  runtime: MasterRuntime,
+  request: IncomingMessage,
+  response: ServerResponse,
+  pathname: string,
+  search: URLSearchParams,
+): Promise<void> {
+  const match = SESSION_ROUTE.exec(pathname);
+  if (match === null) {
+    send(response, 404, { error: "not found" });
+    return;
+  }
+  if (request.method !== "GET") {
+    send(response, 405, { error: "method not allowed" });
+    return;
+  }
+
+  let timeoutMs: number | undefined;
+  let limit: number | undefined;
+  let afterSeq: number | undefined;
+  try {
+    timeoutMs = optionalTimeout(search);
+    limit = optionalPositiveInt(search, "limit");
+    afterSeq = optionalNonNegativeInt(search, "afterSeq");
+  } catch (error) {
+    send(response, 400, { error: messageOf(error) });
+    return;
+  }
+
+  const encoded = match[1];
+  try {
+    if (encoded === undefined) {
+      const sessions = await runtime.tasks.sessions(timeoutMs === undefined ? {} : { timeoutMs });
+      send(response, 200, { sessions });
+      return;
+    }
+    const sessionId = decodeURIComponent(encoded);
+    const history = await runtime.tasks.sessionHistory(sessionId, {
+      ...(limit === undefined ? {} : { limit }),
+      ...(afterSeq === undefined ? {} : { afterSeq }),
+      ...(timeoutMs === undefined ? {} : { timeoutMs }),
+    });
+    send(response, 200, history);
+  } catch (error) {
+    const code = taskErrorCode(error);
+    send(response, taskErrorStatus(code), {
+      error: messageOf(error),
+      ...(code === undefined ? {} : { code }),
+    });
+  }
+}
+
+function optionalPositiveInt(search: URLSearchParams, name: string): number | undefined {
+  const raw = search.get(name);
+  if (raw === null) return undefined;
+  const parsed = Number(raw);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    throw new Error(`${name} must be a positive integer`);
+  }
+  return parsed;
+}
+
+function optionalNonNegativeInt(search: URLSearchParams, name: string): number | undefined {
+  const raw = search.get(name);
+  if (raw === null) return undefined;
+  const parsed = Number(raw);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    throw new Error(`${name} must be a non-negative integer`);
+  }
+  return parsed;
+}
+
+function optionalNonEmpty(search: URLSearchParams, name: string): string | undefined {
+  const raw = search.get(name);
+  if (raw === null) return undefined;
+  const value = raw.trim();
+  if (value.length === 0) throw new Error(`${name} must be a non-empty string`);
+  return value;
 }
 
 /**

@@ -173,8 +173,101 @@ export interface Assignment {
   state: AssignmentState;
   /** Idempotency key for the launch effect. */
   operationId: string;
+  /**
+   * Session binding the Worker should honour. Assigned by the engine from
+   * `trigger.meta.session` (default `{mode:"new"}`); absent only on rows written
+   * before sessions existed, which behave as a fresh session.
+   */
+  session?: SessionSpec;
   startedAt?: string;
   endedAt?: string;
+}
+
+/**
+ * How a Worker should bind an Assignment to a session.
+ *
+ * `new` starts a fresh session; `reuse` resumes an existing one, addressed
+ * either by the exact `sessionId` or by a stable `key` the Worker resolves
+ * through its own session map.
+ */
+export type SessionMode = "new" | "reuse";
+
+/** Session binding carried from a Trigger's `meta.session` to the launch envelope. */
+export interface SessionSpec {
+  mode: SessionMode;
+  sessionId?: string;
+  /** Stable, Worker-resolved session key (alternative to `sessionId`). */
+  key?: string;
+}
+
+/** The default binding used when a Trigger does not name a session. */
+export const DEFAULT_SESSION_SPEC: SessionSpec = Object.freeze({ mode: "new" });
+
+/** Parse outcome for {@link parseSessionSpec}; invalid input carries a reason. */
+export type SessionSpecParse = { ok: true; value: SessionSpec } | { ok: false; reason: string };
+
+function sessionField(
+  record: Readonly<Record<string, unknown>>,
+  field: "sessionId" | "key",
+): { ok: true; value: string | undefined } | { ok: false; reason: string } {
+  const value = record[field];
+  if (value === undefined) return { ok: true, value: undefined };
+  if (typeof value !== "string" || value.length === 0) {
+    return { ok: false, reason: `session.${field} must be a non-empty string` };
+  }
+  return { ok: true, value };
+}
+
+/**
+ * Parse the session binding a Trigger carries in `meta.session`.
+ *
+ * Accepts either the already-parsed object or the JSON text a Source stores in
+ * the string-valued meta map. Absent/blank means the default `{mode:"new"}`.
+ * Rules: `new` must not name a session, `reuse` must name exactly one of
+ * `sessionId` or `key`; everything else is rejected. Unknown extra fields are
+ * ignored so a newer Source can add metadata without breaking the Master.
+ */
+export function parseSessionSpec(value: unknown): SessionSpecParse {
+  if (value === undefined || value === null || value === "") {
+    return { ok: true, value: { mode: DEFAULT_SESSION_SPEC.mode } };
+  }
+  let parsed: unknown = value;
+  if (typeof value === "string") {
+    try {
+      parsed = JSON.parse(value) as unknown;
+    } catch {
+      return { ok: false, reason: "session must be valid JSON" };
+    }
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    return { ok: false, reason: 'session must be an object like {"mode":"new"}' };
+  }
+  const record = parsed as Record<string, unknown>;
+  const mode = record.mode;
+  if (mode !== "new" && mode !== "reuse") {
+    return { ok: false, reason: 'session.mode must be "new" or "reuse"' };
+  }
+
+  const sessionId = sessionField(record, "sessionId");
+  if (!sessionId.ok) return sessionId;
+  const key = sessionField(record, "key");
+  if (!key.ok) return key;
+
+  if (mode === "new") {
+    if (sessionId.value !== undefined || key.value !== undefined) {
+      return { ok: false, reason: 'session.mode "new" must not set sessionId or key' };
+    }
+    return { ok: true, value: { mode } };
+  }
+
+  const named = (sessionId.value !== undefined ? 1 : 0) + (key.value !== undefined ? 1 : 0);
+  if (named !== 1) {
+    return { ok: false, reason: 'session.mode "reuse" requires exactly one of sessionId or key' };
+  }
+  const spec: SessionSpec = { mode };
+  if (sessionId.value !== undefined) spec.sessionId = sessionId.value;
+  if (key.value !== undefined) spec.key = key.value;
+  return { ok: true, value: spec };
 }
 
 /** What an Assignment reports to its Ticket. */

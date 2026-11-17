@@ -10,6 +10,9 @@ import type {
   HarnessExecutor,
   HarnessReport,
   HarnessResolution,
+  HarnessSessionEvent,
+  HarnessSessionHistoryOptions,
+  HarnessSessionInfo,
   HarnessSink,
   HarnessTask,
   HarnessTaskState,
@@ -170,6 +173,16 @@ export interface FakeHarnessOptions {
   steerError?: Error;
   /** Throw from `interrupt` with this error. */
   interruptError?: Error;
+  /** Install `sessions()` returning `sessionInfos` (default false: no capability). */
+  withSessions?: boolean;
+  /** Session directory snapshot returned by `sessions()`. */
+  sessions?: HarnessSessionInfo[];
+  /** Install `sessionHistory()` (default false: no capability). */
+  withSessionHistory?: boolean;
+  /** Static event history returned by `sessionHistory()`. */
+  historyEvents?: HarnessSessionEvent[];
+  /** Throw from `sessionHistory` with this error. */
+  sessionHistoryError?: Error;
 }
 
 export class FakeHarness implements HarnessExecutor {
@@ -186,6 +199,21 @@ export class FakeHarness implements HarnessExecutor {
   private readonly initialState: HarnessTaskState | undefined;
   private readonly steerError: Error | undefined;
   private readonly interruptError: Error | undefined;
+  private readonly withSessions: boolean;
+  /** Mutable session directory for tests; returned by `sessions()` when enabled. */
+  readonly sessionInfos: HarnessSessionInfo[];
+  sessions?: () => HarnessSessionInfo[];
+  readonly sessionHistoryCalls: Array<{
+    sessionId: string;
+    options?: HarnessSessionHistoryOptions;
+  }> = [];
+  historyEvents: HarnessSessionEvent[];
+  sessionHistoryError: Error | undefined;
+  sessionHistory?: (
+    sessionId: string,
+    options?: HarnessSessionHistoryOptions,
+  ) => Promise<HarnessSessionEvent[]>;
+  private readonly withSessionHistory: boolean;
 
   constructor(options: FakeHarnessOptions = {}) {
     this.startError = options.startError;
@@ -196,6 +224,22 @@ export class FakeHarness implements HarnessExecutor {
     this.initialState = options.state;
     this.steerError = options.steerError;
     this.interruptError = options.interruptError;
+    this.withSessions = options.withSessions ?? false;
+    this.sessionInfos = options.sessions ?? [];
+    if (this.withSessions) this.sessions = () => this.sessionInfos;
+    this.withSessionHistory = options.withSessionHistory ?? false;
+    this.historyEvents = options.historyEvents ?? [];
+    this.sessionHistoryError = options.sessionHistoryError;
+    if (this.withSessionHistory) {
+      this.sessionHistory = async (sessionId, historyOptions) => {
+        this.sessionHistoryCalls.push({
+          sessionId,
+          ...(historyOptions === undefined ? {} : { options: historyOptions }),
+        });
+        if (this.sessionHistoryError !== undefined) throw this.sessionHistoryError;
+        return this.historyEvents.map((event) => ({ ...event }));
+      };
+    }
   }
 
   async start(task: HarnessTask, sink: HarnessSink): Promise<HarnessExecution> {

@@ -11,6 +11,7 @@ interface RunResult {
   ticket: string;
   report: string;
   receipt: number;
+  sessionId?: string;
 }
 
 interface StatusResult {
@@ -82,8 +83,14 @@ function serviceOf(services: Map<string, unknown>): MasterService {
   return service;
 }
 
+/** The session binding the plugin stored on the last Trigger's meta. */
+function triggerSession(services: Map<string, unknown>): unknown {
+  const raw = serviceOf(services).store.triggers.list().at(-1)?.meta?.session;
+  return raw === undefined ? undefined : JSON.parse(raw);
+}
+
 describe("Gethen DSH plugin", () => {
-  it("provides the master service and registers the four tools", () => {
+  it("provides the master service and registers the five tools", () => {
     const { ctx, services, tools } = context();
     apply(ctx, { dir: stateDir() });
     serviceOf(services);
@@ -133,6 +140,56 @@ describe("Gethen DSH plugin", () => {
     expect(ticket?.latestReport).toBe("ready");
     expect(ticket?.assignments).toBe(1);
     expect(ticket?.stage).toBe("person/review");
+  });
+
+  it("defaults gethen_run to a fresh session", async () => {
+    const { ctx, services, tools } = context();
+    apply(ctx, { dir: stateDir() });
+    const result = (await tool(tools, "gethen_run").execute(
+      { text: "fix the failing test" },
+      {},
+    )) as RunResult;
+    expect(result.outcome).toBe("accept");
+    expect(result.sessionId).toBeUndefined();
+    expect(triggerSession(services)).toEqual({ mode: "new" });
+  });
+
+  it("passes a reuse sessionId through and backfills the resolved id", async () => {
+    const { ctx, services, tools } = context();
+    apply(ctx, { dir: stateDir() });
+    const result = (await tool(tools, "gethen_run").execute(
+      { text: "continue the migration", session: { mode: "reuse", sessionId: "session-1" } },
+      {},
+    )) as RunResult;
+    expect(triggerSession(services)).toEqual({ mode: "reuse", sessionId: "session-1" });
+    expect(result.sessionId).toBe("session-1");
+  });
+
+  it("passes a reuse key through without a resolved sessionId", async () => {
+    const { ctx, services, tools } = context();
+    apply(ctx, { dir: stateDir() });
+    const result = (await tool(tools, "gethen_run").execute(
+      { text: "continue via key", session: { mode: "reuse", key: "project-key" } },
+      {},
+    )) as RunResult;
+    expect(triggerSession(services)).toEqual({ mode: "reuse", key: "project-key" });
+    expect(result.sessionId).toBeUndefined();
+  });
+
+  it("rejects invalid session bindings before submitting", async () => {
+    const { ctx, services, tools } = context();
+    apply(ctx, { dir: stateDir() });
+    const run = (session: unknown) => tool(tools, "gethen_run").execute({ text: "x", session }, {});
+    await expect(run({ mode: "reuse" })).rejects.toThrow(/exactly one of sessionId or key/);
+    await expect(run({ mode: "reuse", sessionId: "s", key: "k" })).rejects.toThrow(
+      /exactly one of sessionId or key/,
+    );
+    await expect(run({ mode: "new", sessionId: "s" })).rejects.toThrow(
+      /must not set sessionId or key/,
+    );
+    await expect(run({ mode: "resume" })).rejects.toThrow(/session.mode/);
+    await expect(run("{not json")).rejects.toThrow(/valid JSON/);
+    expect(serviceOf(services).store.triggers.list()).toHaveLength(0);
   });
 
   it("gethen_task fails clearly with the fake launch", async () => {

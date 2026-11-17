@@ -31,7 +31,9 @@ transport or master.
 | `HarnessExecution` | `sendResolution(resolution)`, `cancel(reason?)`, optional `state()`, `steer(text)`, `interrupt()` |
 | `HarnessTaskState` | live snapshot: `assignmentId`, `phase`, `step`, `lastTool?`, `lastEventAt`, `lastMessage?`, `seq` |
 | `HarnessTaskPhase` | `starting` / `thinking` / `tool` / `waiting` / `done` / `failed` (see `isTerminalPhase`) |
-| `HarnessExecutor` | `start(task, sink): Promise<HarnessExecution>` |
+| `HarnessExecutor` | `start(task, sink): Promise<HarnessExecution>`, optional `sessions(): HarnessSessionInfo[]`, optional `sessionHistory(sessionId, options?): Promise<HarnessSessionEvent[]>` |
+| `SessionSpec` | `{mode: "new" \| "reuse", sessionId?, key?}`; `HarnessTask.session` selects the session |
+| `HarnessSessionInfo` | `{sessionId, key?, workspace, lastUsedAt, activeAssignmentId?}` for session listings |
 | `HarnessCapabilities` | optional `models`, `tools`, `workspaceRoots` for placement |
 
 Lifecycle rules:
@@ -43,10 +45,16 @@ Lifecycle rules:
 4. exactly one report ends the run: `ready`/`failed` are terminal
    (`hasTerminalReport`), `waiting` leaves the execution open for a person;
 5. `cancel` must cause exactly one `failed` report (never a normal report too);
-6. `state()`, `steer()` and `interrupt()` are optional: implementations that can
-   expose live progress or accept more input advertise them, and consumers must
-   feature-detect. `interrupt()` performs a hard stop without writing the report;
-   `cancel()` is the reporting wrapper around it.
+6. `state()`, `steer()`, `interrupt()` and `sessions()` are optional:
+   implementations that can expose live progress, accept more input or list
+   their session directory advertise them, and consumers must feature-detect.
+   `interrupt()` performs a hard stop without writing the report; `cancel()` is
+   the reporting wrapper around it.
+7. Session selection is explicit: `task.session` omitted or `mode: "new"` starts
+   a fresh session (named after the assignment); `mode: "reuse"` resumes
+   `sessionId`, or the session behind a registry `key` (created on first use). A
+   reuse that cannot resolve/ resume its session must report `failed`, never
+   silently start a new session. `state().sessionId` names the attached session.
 
 Pure helpers: `validateHarnessReport`, `validateHarnessEscalation`,
 `validateHarnessResolution`, `hasTerminalReport`, `isTerminalPhase`,

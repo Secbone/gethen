@@ -2,6 +2,7 @@ import { doctorCommand } from "./commands/doctor";
 import { initCommand } from "./commands/init";
 import { runCommand } from "./commands/run";
 import { serveCommand } from "./commands/serve";
+import { sessionCommand } from "./commands/session";
 import { statusCommand } from "./commands/status";
 import { taskCommand } from "./commands/task";
 import { workerCommand } from "./commands/worker";
@@ -28,6 +29,8 @@ async function dispatch(argv: string[]): Promise<number> {
       return runCommand(argv.slice(1));
     case "serve":
       return serveCommand(argv.slice(1));
+    case "session":
+      return sessionCommand(argv.slice(1));
     case "status":
       return statusCommand(argv.slice(1));
     case "task":

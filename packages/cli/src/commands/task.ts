@@ -1,7 +1,7 @@
-import type { TaskState } from "@gethen/master-runtime";
+import type { TaskEvent, TaskState } from "@gethen/master-runtime";
 import { masterEndpoint } from "./run";
 
-export type TaskAction = "status" | "steer" | "cancel";
+export type TaskAction = "status" | "logs" | "steer" | "cancel";
 
 export interface TaskArgs {
   action: TaskAction;
@@ -16,6 +16,10 @@ export interface TaskArgs {
   reason?: string;
   /** `status`: how long to wait for the worker's state. */
   timeoutMs?: number;
+  /** `logs`: page size, cursor and event-type filter. */
+  limit?: number;
+  afterSeq?: number;
+  type?: string;
 }
 
 export interface TaskOptions {
@@ -27,7 +31,15 @@ export interface TaskOptions {
   readonly error?: (line: string) => void;
 }
 
-const FLAGS_WITH_VALUE = new Set(["--master", "--text", "--reason", "--timeout-ms"]);
+const FLAGS_WITH_VALUE = new Set([
+  "--master",
+  "--text",
+  "--reason",
+  "--timeout-ms",
+  "--limit",
+  "--after-seq",
+  "--type",
+]);
 
 /**
  * Parse `gethen task status|steer|cancel <assignmentId> … --master <url>`.
@@ -36,8 +48,8 @@ const FLAGS_WITH_VALUE = new Set(["--master", "--text", "--reason", "--timeout-m
  */
 export function parseTaskArgs(argv: string[], env: NodeJS.ProcessEnv = process.env): TaskArgs {
   const action = argv[0];
-  if (action !== "status" && action !== "steer" && action !== "cancel") {
-    throw new Error('expected a subcommand: "status", "steer" or "cancel"');
+  if (action !== "status" && action !== "logs" && action !== "steer" && action !== "cancel") {
+    throw new Error('expected a subcommand: "status", "logs", "steer" or "cancel"');
   }
   const master = flagValue(argv, "--master") ?? env.GETHEN_MASTER_URL;
   if (master === undefined || master.trim().length === 0) {
@@ -58,6 +70,20 @@ export function parseTaskArgs(argv: string[], env: NodeJS.ProcessEnv = process.e
       master: master.trim(),
       json: argv.includes("--json"),
       ...(timeoutMs === undefined ? {} : { timeoutMs }),
+    };
+  }
+  if (action === "logs") {
+    const limit = positiveInteger(flagValue(argv, "--limit"), "--limit");
+    const afterSeq = nonNegativeInteger(flagValue(argv, "--after-seq"), "--after-seq");
+    const type = flagValue(argv, "--type")?.trim();
+    return {
+      action,
+      assignmentId,
+      master: master.trim(),
+      json: argv.includes("--json"),
+      ...(limit === undefined ? {} : { limit }),
+      ...(afterSeq === undefined ? {} : { afterSeq }),
+      ...(type === undefined || type.length === 0 ? {} : { type }),
     };
   }
   if (action === "steer") {
@@ -82,6 +108,14 @@ export function taskPath(args: TaskArgs): string {
   const prefix = `/gethen/tasks/${encodeURIComponent(args.assignmentId)}`;
   if (args.action === "status") {
     return args.timeoutMs === undefined ? prefix : `${prefix}?timeoutMs=${args.timeoutMs}`;
+  }
+  if (args.action === "logs") {
+    const query = new URLSearchParams();
+    if (args.limit !== undefined) query.set("limit", String(args.limit));
+    if (args.afterSeq !== undefined) query.set("afterSeq", String(args.afterSeq));
+    if (args.type !== undefined) query.set("type", args.type);
+    const suffix = query.size === 0 ? "" : `?${query.toString()}`;
+    return `${prefix}/events${suffix}`;
   }
   return `${prefix}/${args.action}`;
 }
@@ -111,7 +145,7 @@ export async function taskCommand(argv: string[], options: TaskOptions = {}): Pr
   }
 
   const init: RequestInit =
-    args.action === "status"
+    args.action === "status" || args.action === "logs"
       ? { method: "GET" }
       : {
           method: "POST",
@@ -134,7 +168,7 @@ export async function taskCommand(argv: string[], options: TaskOptions = {}): Pr
     return 1;
   }
 
-  if (args.action !== "status") {
+  if (args.action !== "status" && args.action !== "logs") {
     write(`${args.action} sent for ${args.assignmentId}`);
     return 0;
   }
@@ -143,6 +177,19 @@ export async function taskCommand(argv: string[], options: TaskOptions = {}): Pr
     write(raw.trim());
     return 0;
   }
+
+  if (args.action === "logs") {
+    let logs: { assignmentId?: string; events?: TaskEvent[]; count?: number; dropped?: number };
+    try {
+      logs = JSON.parse(raw) as typeof logs;
+    } catch {
+      writeError(`gethen task: master returned invalid JSON: ${truncate(raw)}`);
+      return 1;
+    }
+    renderLogs(logs, write);
+    return 0;
+  }
+
   let body: { assignmentId?: string; state?: TaskState };
   try {
     body = JSON.parse(raw) as { assignmentId?: string; state?: TaskState };
@@ -156,14 +203,18 @@ export async function taskCommand(argv: string[], options: TaskOptions = {}): Pr
 
 const TASK_USAGE = `Usage:
   gethen task status <assignmentId> --master <url> [--json] [--timeout-ms <n>]
+  gethen task logs <assignmentId> --master <url> [--limit <n>] [--after-seq <n>]
+                  [--type <event-type>] [--json]
   gethen task steer <assignmentId> "<text>" --master <url>
   gethen task cancel <assignmentId> [--reason "<text>"] --master <url>
 
 Talks to a running \`gethen serve\`: status asks the Worker for live task state
 (404 for an unknown assignment, 504 when the Worker does not answer in time);
-steer/cancel send control messages to the running assignment. --master may be an
-origin (http://127.0.0.1:8080) or an origin with a base path; GETHEN_MASTER_URL
-is the fallback. Exit code is non-zero for transport/HTTP/validation errors.
+logs reads the Master's cached event stream (tail page, or the events after
+--after-seq); steer/cancel send control messages to the running assignment.
+--master may be an origin (http://127.0.0.1:8080) or an origin with a base path;
+GETHEN_MASTER_URL is the fallback. Exit code is non-zero for
+transport/HTTP/validation errors.
 `;
 
 function renderStatus(
@@ -185,6 +236,20 @@ function renderStatus(
     write(`last tool: ${state.lastTool.name} (${state.lastTool.startedAt})`);
   }
   if (state.updatedAt !== undefined) write(`updated: ${state.updatedAt}`);
+}
+
+function renderLogs(
+  logs: { assignmentId?: string; events?: TaskEvent[]; count?: number; dropped?: number },
+  write: (line: string) => void,
+): void {
+  const events = logs.events ?? [];
+  write(`assignment: ${logs.assignmentId ?? ""}`);
+  write(`events: ${events.length} of ${logs.count ?? events.length} buffered`);
+  if (logs.dropped !== undefined && logs.dropped > 0) write(`dropped: ${logs.dropped}`);
+  for (const event of events) {
+    write(`#${event.seq} ${event.type} ${event.at}`);
+    if (event.data !== undefined) write(`  ${truncate(JSON.stringify(event.data), 300)}`);
+  }
 }
 
 function reasonBody(reason: string | undefined): Record<string, string> {
@@ -228,6 +293,15 @@ function positionalArgs(argv: string[]): string[] {
     words.push(arg);
   }
   return words;
+}
+
+function nonNegativeInteger(value: string | undefined, label: string): number | undefined {
+  if (value === undefined) return undefined;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    throw new Error(`${label} must be a non-negative integer`);
+  }
+  return parsed;
 }
 
 function positiveInteger(value: string | undefined, label: string): number | undefined {

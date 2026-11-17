@@ -60,6 +60,26 @@ export const HARNESS_REPORT_KINDS: readonly HarnessReportKind[] = ["ready", "fai
 /** Reports after which the execution is over (`waiting` is not terminal). */
 export const TERMINAL_REPORT_KINDS: readonly HarnessReportKind[] = ["ready", "failed"];
 
+/** Whether a task starts a fresh session or attaches to an existing one. */
+export type SessionMode = "new" | "reuse";
+
+/**
+ * How the harness should pick the session for one assignment:
+ * - mode `"new"` (default): a fresh session named after the assignment;
+ * - mode `"reuse"` + `sessionId`: resume that persisted session before prompting;
+ * - mode `"reuse"` + `key`: a harness-owned registry maps the key to a session,
+ *   creating it on first use and resuming it afterwards.
+ * A reuse mode that can resolve no session must fail rather than silently
+ * starting a new one.
+ */
+export interface SessionSpec {
+  mode: SessionMode;
+  /** Explicit persisted session to resume. */
+  sessionId?: string;
+  /** Registry key, stable across assignments. */
+  key?: string;
+}
+
 /** One assignment handed to a harness. */
 export interface HarnessTask {
   assignmentId: string;
@@ -75,6 +95,8 @@ export interface HarnessTask {
   deadlineAt?: string;
   /** Caller-owned metadata (pack digest, origin, ...), opaque to the port. */
   metadata?: JsonObject;
+  /** Session selection; omitted means a fresh session per assignment. */
+  session?: SessionSpec;
 }
 
 /** One observation streamed by an execution (message/tool/usage/... are open). */
@@ -157,6 +179,8 @@ export interface HarnessTaskState {
   lastMessage?: string;
   /** Monotonic count of observations received by the consumer. */
   seq: number;
+  /** Session the execution is attached to. */
+  sessionId?: string;
 }
 
 /** Where a running execution delivers its observations. */
@@ -180,9 +204,61 @@ export interface HarnessExecution {
   interrupt?(): Promise<void>;
 }
 
+/** One entry of a harness session directory (for `sessions()`). */
+export interface HarnessSessionInfo {
+  sessionId: string;
+  /** Registry key that selected this session, when one was used. */
+  key?: string;
+  workspace: string;
+  /** RFC 3339 UTC timestamp of the last claim/release. */
+  lastUsedAt: string;
+  /** Assignment currently running in this session, when one is. */
+  activeAssignmentId?: string;
+  /** Persisted configuration, when the harness can read it. */
+  config?: {
+    cwd: string;
+    createdAt: string;
+    title?: string;
+    model?: { provider: string; model: string };
+    sandboxMode?: string;
+    approvalPolicy?: string;
+  };
+  /** Last known persisted state (`unknown` when no store record exists). */
+  state?: "running" | "idle" | "unknown";
+  /** RFC 3339 timestamp of the last stored activity. */
+  lastActivityAt?: string;
+  /** Last persisted event sequence (cheap estimate). */
+  eventCount?: number;
+  tokenUsage?: JsonObject;
+  /** Whether a session log exists on disk. */
+  hasLog?: boolean;
+}
+
+/** One normalized event from a session history. */
+export interface HarnessSessionEvent {
+  seq: number;
+  type: string;
+  at: string;
+  data?: JsonValue;
+}
+
+export interface HarnessSessionHistoryOptions {
+  /** Default 200. Without `afterSeq` returns the newest `limit` events. */
+  limit?: number;
+  /** Return events with `seq > afterSeq`. */
+  afterSeq?: number;
+}
+
 /** Starts (and owns) one execution per task. */
 export interface HarnessExecutor {
   start(task: HarnessTask, sink: HarnessSink): Promise<HarnessExecution>;
+  /** Snapshot of the sessions the harness knows (for session listings). */
+  sessions?(): HarnessSessionInfo[];
+  /** One session's normalized event history (newest tail or forward page). */
+  sessionHistory?(
+    sessionId: string,
+    options?: HarnessSessionHistoryOptions,
+  ): Promise<HarnessSessionEvent[]>;
 }
 
 /** What a harness can run; the mailbox/router may use it for placement. */

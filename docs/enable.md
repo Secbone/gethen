@@ -164,6 +164,13 @@ gethen status --db /var/lib/gethen/master.sqlite
 gethen task status <assignmentId> --master https://<master>
 gethen task steer <assignmentId> "改用最小改动" --master https://<master>
 gethen task cancel <assignmentId> --reason "验证取消" --master https://<master>
+gethen task logs <assignmentId> --master https://<master>
+
+# 会话管理：先看目录/历史，再决定新建或复用
+gethen session list --master https://<master>
+gethen session history <sessionId> --master https://<master>
+gethen run --session-id <sessionId> "在已有会话里继续" --master https://<master>
+gethen run --reuse-key project-x "复用该 key 的会话" --master https://<master>
 
 # 本地不花钱的两级验证
 pnpm verify:mailbox

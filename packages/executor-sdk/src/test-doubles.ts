@@ -46,12 +46,14 @@ export class FakeSdkClient implements SdkClientLike {
   readonly prompts: { sessionId: string; text: string }[] = [];
   readonly waitCalls: string[] = [];
   readonly waitOptions: (WaitOptions | undefined)[] = [];
+  readonly resumeCalls: string[] = [];
   /** Ordered side effects, for cancel/interrupt ordering assertions. */
   readonly actions: string[] = [];
   closeCount = 0;
   terminateCount = 0;
   failInitialize: Error | undefined;
   failPrompt: Error | undefined;
+  failResume: Error | undefined;
 
   private readonly eventHandlers = new Set<(notification: SessionEventNotification) => void>();
   private readonly statusHandlers = new Set<(notification: SessionStatusNotification) => void>();
@@ -74,6 +76,12 @@ export class FakeSdkClient implements SdkClientLike {
     this.initializeCalls.push(options);
     if (this.failInitialize !== undefined) throw this.failInitialize;
     return { serverInfo: { name: "fake-dsh-sdk", version: "test" } };
+  }
+
+  async resume(sessionId: string): Promise<void> {
+    this.resumeCalls.push(sessionId);
+    this.actions.push(`resume:${sessionId}`);
+    if (this.failResume !== undefined) throw this.failResume;
   }
 
   async prompt(sessionId: string, text: string): Promise<SessionPromptResult> {

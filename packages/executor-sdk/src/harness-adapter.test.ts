@@ -1,3 +1,8 @@
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { zstdCompressSync } from "node:zlib";
+import { DshSessionStore } from "@gethen/dsh-sessions";
 import type {
   HarnessEscalation,
   HarnessEvent,
@@ -11,6 +16,7 @@ import {
   createSdkHarnessExecutor,
   DEFAULT_IDLE_TIMEOUT_MS,
   DEFAULT_MAX_LOG_CHARS,
+  DEFAULT_SESSION_LIST_LIMIT,
   harnessReportKind,
   LOG_TRUNCATION_SUFFIX,
   mapSessionEvent,
@@ -55,6 +61,7 @@ function setup(options: Partial<SdkHarnessExecutorOptions> = {}) {
     clientFactory: () => client,
     now: () => new Date(AT),
     interruptGraceMs: 0,
+    sessionStore: emptySessionStore(),
     ...options,
   });
   executors.push(executor);
@@ -69,6 +76,74 @@ function task(overrides: Partial<HarnessTask> = {}): HarnessTask {
     prompt: "do the work",
     ...overrides,
   };
+}
+
+function emptySessionStore(): DshSessionStore {
+  return new DshSessionStore({ home: mkdtempSync(join(tmpdir(), "gethen-exec-empty-")) });
+}
+
+const FIXTURE_CREATED = 1_790_000_000_000;
+
+/**
+ * Minimal DSH home fixture: one projcache record plus (optionally) a zstd
+ * session log, mirroring `packages/dsh-sessions/src/store.test.ts`.
+ */
+function dshFixture(
+  options: {
+    home?: string;
+    sessionId?: string;
+    cwd?: string;
+    openTurn?: boolean;
+    withLog?: boolean;
+    title?: string;
+  } = {},
+): { home: string; sessionId: string; store: DshSessionStore } {
+  const sessionId = options.sessionId ?? "store-session";
+  const cwd = options.cwd ?? "/work/project";
+  const home = options.home ?? mkdtempSync(join(tmpdir(), "gethen-exec-sessions-"));
+  const projcache = join(home, "storages", "session_projcache", "sessions");
+  mkdirSync(projcache, { recursive: true });
+  writeFileSync(
+    join(projcache, `${sessionId}.json`),
+    JSON.stringify({
+      version: 7,
+      record: {
+        identity: { formatVersion: 4, createdAt: FIXTURE_CREATED, cwd },
+        rows: {
+          turnBoundary: {
+            ver: 2,
+            seq: 42,
+            val: { openTurnStartSeq: options.openTurn ? 40 : null },
+          },
+          modelSelection: {
+            ver: 3,
+            seq: 42,
+            val: { lastUsed: { provider: "opencode-go", model: "deepseek-v4.1-flash" } },
+          },
+          sandboxMode: { ver: 1, seq: 42, val: "workspace-write" },
+          approvalState: { ver: 1, seq: 42, val: { policy: "never" } },
+          title: { ver: 1, seq: 42, val: options.title ?? "fixture task" },
+          tokenUsage: { ver: 1, seq: 42, val: { inputTokens: 10, outputTokens: 20 } },
+        },
+      },
+    }),
+  );
+  if (options.withLog !== false) {
+    const dir = join(home, "sessions", "--work-project--", sessionId);
+    mkdirSync(dir, { recursive: true });
+    const lines = [
+      { type: "session", version: 4, id: sessionId, createdAt: FIXTURE_CREATED, cwd },
+      { type: "user/message", seq: 0, time: FIXTURE_CREATED + 1, data: { text: "hello" } },
+      { type: "assistant/message", seq: 1, time: FIXTURE_CREATED + 2, data: { text: "hi" } },
+      { type: "tool/call", seq: 2, time: FIXTURE_CREATED + 3, data: { name: "bash" } },
+      { type: "turn/end", seq: 3, time: FIXTURE_CREATED + 4, data: { turn: 1 } },
+    ];
+    writeFileSync(
+      join(dir, "session.v4.jsonl.zstd"),
+      zstdCompressSync(Buffer.from(lines.map((line) => JSON.stringify(line)).join("\n"))),
+    );
+  }
+  return { home, sessionId, store: new DshSessionStore({ home }) };
 }
 
 function reportBlock(body: Record<string, unknown>): string {
@@ -568,6 +643,7 @@ describe("cancellation and process isolation", () => {
       },
       now: () => new Date(AT),
       interruptGraceMs: 0,
+      sessionStore: emptySessionStore(),
     });
     executors.push(executor);
 
@@ -641,6 +717,7 @@ describe("cancellation and process isolation", () => {
         return client;
       },
       now: () => new Date(AT),
+      sessionStore: emptySessionStore(),
     });
     executors.push(executor);
 
@@ -793,6 +870,7 @@ describe("stderr and lifecycle log events", () => {
       },
       now: () => new Date(AT),
       interruptGraceMs: 0,
+      sessionStore: emptySessionStore(),
     });
     executors.push(executor);
 
@@ -806,5 +884,339 @@ describe("stderr and lifecycle log events", () => {
     await tick();
     expect(client.stderrListenerCount).toBe(0);
     expect(client.terminateCount).toBe(1);
+  });
+});
+
+describe("session selection", () => {
+  it("starts a new assignment-named session by default and exposes it in the directory", async () => {
+    const { client, sink, executor } = setup();
+    const execution = await executor.start(task({ assignmentId: "a1" }), sink);
+
+    expect(client.resumeCalls).toEqual([]);
+    expect(execution.state?.().sessionId).toBe("a1");
+    expect(client.prompts[0]?.sessionId).toBe("a1");
+    expect(executor.sessions()).toEqual([
+      {
+        sessionId: "a1",
+        workspace: "/work/ws",
+        lastUsedAt: AT,
+        activeAssignmentId: "a1",
+        state: "running",
+      },
+    ]);
+
+    client.emitSessionEvent("a1", "turn/end", { turn: 1 });
+    await tick();
+    expect(executor.sessions()[0]?.activeAssignmentId).toBeUndefined();
+
+    const snapshot = executor.sessions();
+    const firstSnapshot = snapshot[0];
+    if (firstSnapshot !== undefined) firstSnapshot.sessionId = "mutated";
+    snapshot.push({ sessionId: "extra", workspace: "/x", lastUsedAt: AT });
+    expect(executor.sessions()).toHaveLength(1);
+    expect(executor.sessions()[0]?.sessionId).toBe("a1");
+  });
+
+  it("reuses an explicit sessionId by resuming then prompting it", async () => {
+    const { client, sink, executor } = setup();
+    const execution = await executor.start(
+      task({ assignmentId: "a2", session: { mode: "reuse", sessionId: "s-1" } }),
+      sink,
+    );
+
+    expect(client.resumeCalls).toEqual(["s-1"]);
+    expect(client.prompts).toEqual([{ sessionId: "s-1", text: "do the work" }]);
+    expect(execution.state?.().sessionId).toBe("s-1");
+    expect(executor.sessions()).toEqual([
+      {
+        sessionId: "s-1",
+        workspace: "/work/ws",
+        lastUsedAt: AT,
+        activeAssignmentId: "a2",
+        state: "running",
+      },
+    ]);
+  });
+
+  it("creates the session behind a key on first use and resumes it afterwards", async () => {
+    const { client, sink, executor } = setup();
+    await executor.start(
+      task({ assignmentId: "a1", session: { mode: "reuse", key: "build" } }),
+      sink,
+    );
+    expect(client.resumeCalls).toEqual([]);
+    expect(client.prompts[0]?.sessionId).toBe("a1");
+    expect(executor.sessions()[0]).toMatchObject({ sessionId: "a1", key: "build" });
+    client.emitSessionEvent("a1", "turn/end", { turn: 1 });
+    await tick();
+
+    const second = await executor.start(
+      task({ assignmentId: "a2", session: { mode: "reuse", key: "build" } }),
+      sink,
+    );
+    expect(client.resumeCalls).toEqual(["a1"]);
+    expect(client.prompts.at(-1)).toEqual({ sessionId: "a1", text: "do the work" });
+    expect(second.state?.().sessionId).toBe("a1");
+    expect(executor.sessions()).toHaveLength(1);
+    expect(executor.sessions()[0]).toMatchObject({
+      sessionId: "a1",
+      key: "build",
+      activeAssignmentId: "a2",
+    });
+  });
+
+  it("registers a key chosen by an explicit new-mode task", async () => {
+    const { client, sink, executor } = setup();
+    await executor.start(
+      task({ assignmentId: "a1", session: { mode: "new", key: "review" } }),
+      sink,
+    );
+    expect(executor.sessions()[0]).toMatchObject({ sessionId: "a1", key: "review" });
+    client.emitSessionEvent("a1", "turn/end", { turn: 1 });
+    await tick();
+
+    await executor.start(
+      task({ assignmentId: "a2", session: { mode: "reuse", key: "review" } }),
+      sink,
+    );
+    expect(client.resumeCalls).toEqual(["a1"]);
+  });
+
+  it("reports a resume failure as failed without prompting or silently starting anew", async () => {
+    const { client, sink, executor } = setup();
+    client.failResume = new Error("session not found");
+    const execution = await executor.start(
+      task({ assignmentId: "a2", session: { mode: "reuse", sessionId: "missing" } }),
+      sink,
+    );
+
+    expect(client.resumeCalls).toEqual(["missing"]);
+    expect(client.prompts).toEqual([]);
+    expect(execution.state?.().sessionId).toBe("missing");
+    expect(sink.reports).toHaveLength(1);
+    expect(sink.reports[0]?.kind).toBe("failed");
+    expect(sink.reports[0]?.summary).toMatch(/failed to resume DSH SDK session: session not found/);
+    expect(executor.sessions()[0]).toMatchObject({ sessionId: "missing" });
+    expect(executor.sessions()[0]?.activeAssignmentId).toBeUndefined();
+  });
+
+  it("fails invalid reuse specs before spawning a runtime", async () => {
+    const noTarget = setup();
+    await noTarget.executor.start(task({ session: { mode: "reuse" } }), noTarget.sink);
+    expect(noTarget.sink.reports[0]?.summary).toMatch(/needs "sessionId" or "key"/);
+    expect(noTarget.client.initializeCalls).toEqual([]);
+    expect(noTarget.executor.sessions()).toEqual([]);
+
+    const newWithId = setup();
+    await newWithId.executor.start(
+      task({ session: { mode: "new", sessionId: "s-1" } }),
+      newWithId.sink,
+    );
+    expect(newWithId.sink.reports[0]?.summary).toMatch(/must not name a sessionId/);
+    expect(newWithId.client.initializeCalls).toEqual([]);
+  });
+
+  it("rejects a second concurrent task that reuses the same key or session", async () => {
+    const { client, sink, executor } = setup();
+    await executor.start(
+      task({ assignmentId: "a1", session: { mode: "reuse", key: "shared" } }),
+      sink,
+    );
+    expect(client.initializeCalls).toHaveLength(1);
+
+    const second = new RecordingSink();
+    await executor.start(
+      task({ assignmentId: "a2", session: { mode: "reuse", key: "shared" } }),
+      second,
+    );
+    expect(second.reports[0]?.summary).toMatch(/already running assignment "a1"/);
+    expect(client.initializeCalls).toHaveLength(1);
+
+    const bySession = new RecordingSink();
+    await executor.start(
+      task({ assignmentId: "a3", session: { mode: "reuse", sessionId: "a1" } }),
+      bySession,
+    );
+    expect(bySession.reports[0]?.summary).toMatch(/already running assignment "a1"/);
+    expect(executor.sessions()[0]?.activeAssignmentId).toBe("a1");
+  });
+
+  it("resumes on a dedicated runtime under process isolation", async () => {
+    const clients: FakeSdkClient[] = [];
+    const sink = new RecordingSink();
+    const executor = createSdkHarnessExecutor({
+      provider: "deepseek",
+      model: "deepseek-v4",
+      isolation: "process",
+      clientFactory: () => {
+        const client = new FakeSdkClient();
+        clients.push(client);
+        return client;
+      },
+      now: () => new Date(AT),
+      interruptGraceMs: 0,
+      sessionStore: emptySessionStore(),
+    });
+    executors.push(executor);
+
+    await executor.start(
+      task({ assignmentId: "a1", session: { mode: "reuse", key: "workspace" } }),
+      sink,
+    );
+    const first = clients[0] as FakeSdkClient;
+    expect(first.resumeCalls).toEqual([]);
+    expect(first.prompts[0]?.sessionId).toBe("a1");
+    first.emitSessionEvent("a1", "turn/end", { turn: 1 });
+    await tick();
+    expect(first.terminateCount).toBe(1);
+
+    await executor.start(
+      task({ assignmentId: "a2", session: { mode: "reuse", key: "workspace" } }),
+      sink,
+    );
+    const second = clients[1] as FakeSdkClient;
+    expect(second.resumeCalls).toEqual(["a1"]);
+    expect(second.prompts[0]?.sessionId).toBe("a1");
+    expect(executor.sessions()[0]).toMatchObject({ sessionId: "a1", key: "workspace" });
+  });
+
+  describe("DSH session store integration", () => {
+    it("merges store summaries with the executor registry", async () => {
+      const fixture = dshFixture({ sessionId: "store-session", title: "stored task" });
+      const { sink, executor } = setup({ sessionStore: fixture.store });
+      await executor.start(task({ assignmentId: "a-local", workspace: "/work/ws" }), sink);
+
+      const sessions = executor.sessions();
+      expect(sessions).toHaveLength(2);
+      const stored = sessions.find((info) => info.sessionId === "store-session");
+      expect(stored).toMatchObject({
+        workspace: "/work/project",
+        state: "idle",
+        eventCount: 42,
+        hasLog: true,
+        config: {
+          cwd: "/work/project",
+          title: "stored task",
+          model: { provider: "opencode-go", model: "deepseek-v4.1-flash" },
+          sandboxMode: "workspace-write",
+          approvalPolicy: "never",
+        },
+        tokenUsage: { inputTokens: 10, outputTokens: 20 },
+      });
+      expect(stored?.lastActivityAt).toBeDefined();
+
+      const local = sessions.find((info) => info.sessionId === "a-local");
+      expect(local).toMatchObject({
+        workspace: "/work/ws",
+        activeAssignmentId: "a-local",
+        state: "running",
+        lastUsedAt: AT,
+      });
+    });
+
+    it("overrides an active store session to running and reverts after completion", async () => {
+      const fixture = dshFixture({ sessionId: "s-active" });
+      const { client, sink, executor } = setup({ sessionStore: fixture.store });
+      await executor.start(
+        task({ assignmentId: "a1", session: { mode: "reuse", sessionId: "s-active" } }),
+        sink,
+      );
+      expect(executor.sessions().find((info) => info.sessionId === "s-active")).toMatchObject({
+        state: "running",
+        activeAssignmentId: "a1",
+      });
+
+      client.emitSessionEvent("s-active", "turn/end", { turn: 1 });
+      await tick();
+      const idle = executor.sessions().find((info) => info.sessionId === "s-active");
+      expect(idle?.activeAssignmentId).toBeUndefined();
+      expect(idle?.state).toBe("idle");
+    });
+
+    it("carries the registry key and workspace onto a stored session", async () => {
+      const fixture = dshFixture({ sessionId: "s-key" });
+      const { sink, executor } = setup({ sessionStore: fixture.store });
+      await executor.start(
+        task({
+          assignmentId: "a1",
+          session: { mode: "reuse", sessionId: "s-key", key: "review" },
+        }),
+        sink,
+      );
+
+      expect(executor.sessions().find((info) => info.sessionId === "s-key")).toMatchObject({
+        key: "review",
+        workspace: "/work/ws",
+        activeAssignmentId: "a1",
+        config: { title: "fixture task" },
+      });
+    });
+
+    it("sorts by last activity and caps the list at sessionListLimit", async () => {
+      const first = dshFixture({ sessionId: "s-1" });
+      const second = dshFixture({ home: first.home, sessionId: "s-2" });
+      const { sink, executor } = setup({
+        sessionStore: second.store,
+        sessionListLimit: 1,
+      });
+      await executor.start(task({ assignmentId: "a-local" }), sink);
+
+      const sessions = executor.sessions();
+      expect(DEFAULT_SESSION_LIST_LIMIT).toBe(100);
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0]?.sessionId).not.toBe("a-local");
+
+      const uncapped = setup({ sessionStore: second.store, sessionListLimit: 10 });
+      await uncapped.executor.start(task({ assignmentId: "a-local2" }), uncapped.sink);
+      const all = uncapped.executor.sessions();
+      expect(all.length).toBeGreaterThan(1);
+      const keys = all.map((info) => info.lastActivityAt ?? info.lastUsedAt);
+      expect(keys).toEqual([...keys].sort((left, right) => right.localeCompare(left)));
+    });
+
+    it("degrades to registry-only when the session store fails", async () => {
+      const failing = {
+        list: async (): Promise<never> => {
+          throw new Error("store unavailable");
+        },
+        history: async (): Promise<never> => {
+          throw new Error("store unavailable");
+        },
+      } as unknown as DshSessionStore;
+      const { sink, executor } = setup({ sessionStore: failing });
+      await executor.start(task({ assignmentId: "a1" }), sink);
+
+      expect(executor.sessions()).toEqual([
+        {
+          sessionId: "a1",
+          workspace: "/work/ws",
+          lastUsedAt: AT,
+          activeAssignmentId: "a1",
+          state: "running",
+        },
+      ]);
+      await expect(executor.sessionHistory("whatever")).resolves.toEqual([]);
+    });
+
+    it("returns registry-only sessions for a missing DSH home", async () => {
+      const { sink, executor } = setup({ sessionStore: emptySessionStore() });
+      await executor.start(task({ assignmentId: "a1" }), sink);
+      const sessions = executor.sessions();
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0]).toMatchObject({ sessionId: "a1", activeAssignmentId: "a1" });
+      expect(sessions[0]?.config).toBeUndefined();
+    });
+
+    it("passes session history through from the store", async () => {
+      const fixture = dshFixture({ sessionId: "s-history" });
+      const { sink, executor } = setup({ sessionStore: fixture.store });
+      await executor.start(task({ assignmentId: "a1" }), sink);
+
+      const tail = await executor.sessionHistory("s-history", { limit: 2 });
+      expect(tail.map((event) => event.type)).toEqual(["tool/call", "turn/end"]);
+      const forward = await executor.sessionHistory("s-history", { afterSeq: 0, limit: 10 });
+      expect(forward.map((event) => event.seq)).toEqual([1, 2, 3]);
+      await expect(executor.sessionHistory("missing")).resolves.toEqual([]);
+    });
   });
 });

@@ -508,4 +508,116 @@ describe("gethen serve", () => {
     });
     await link.ack([cancelMessage.envelope.id]);
   });
+  it("serves task event pages and validates the query", async () => {
+    const fake = await serve();
+    expect((await fetch(`${baseUrl(fake)}/gethen/tasks/a1/events`)).status).toBe(409);
+
+    const token = "events-token";
+    const handle = await serve({
+      tokens: [{ workerId: "worker-1", token }],
+      mailboxPollIntervalMs: 10,
+      mailboxVisibilityTimeoutMs: 2_000,
+    });
+
+    const empty = await fetch(`${baseUrl(handle)}/gethen/tasks/assignment-1/events`);
+    expect(empty.status).toBe(200);
+    expect(await empty.json()).toEqual({
+      assignmentId: "assignment-1",
+      events: [],
+      count: 0,
+      dropped: 0,
+    });
+
+    expect((await fetch(`${baseUrl(handle)}/gethen/tasks/a1/events?limit=0`)).status).toBe(400);
+    expect((await fetch(`${baseUrl(handle)}/gethen/tasks/a1/events?afterSeq=-1`)).status).toBe(400);
+  });
+
+  it("serves the session directory and session history", async () => {
+    const token = "sessions-token";
+    const handle = await serve({
+      tokens: [{ workerId: "worker-1", token }],
+      mailboxPollIntervalMs: 10,
+      mailboxVisibilityTimeoutMs: 2_000,
+    });
+    const link = await attachRawWorker(handle, token);
+
+    const listResponse = fetch(`${baseUrl(handle)}/gethen/sessions?timeoutMs=3000`);
+    const listRequest = await receiveEnvelope(link);
+    expect(listRequest.envelope).toMatchObject({ type: "gethen.session.list" });
+    await link.ack([listRequest.envelope.id]);
+    await link.send(
+      workerEnvelope({
+        type: "gethen.session.list.result",
+        data: { sessions: [{ sessionId: "session-1", state: "idle", key: "k1" }] },
+        correlationId: listRequest.envelope.id,
+        ...(listRequest.envelope.replyTo === undefined ? {} : { to: listRequest.envelope.replyTo }),
+      }),
+    );
+    const list = await listResponse;
+    expect(list.status).toBe(200);
+    expect(await list.json()).toEqual({
+      sessions: [{ sessionId: "session-1", state: "idle", key: "k1" }],
+    });
+
+    const historyResponse = fetch(
+      `${baseUrl(handle)}/gethen/sessions/session-1/history?limit=5&afterSeq=0`,
+    );
+    const historyRequest = await receiveEnvelope(link);
+    expect(historyRequest.envelope).toMatchObject({
+      type: "gethen.session.history",
+      data: { sessionId: "session-1", limit: 5, afterSeq: 0 },
+    });
+    await link.ack([historyRequest.envelope.id]);
+    await link.send(
+      workerEnvelope({
+        type: "gethen.session.history.result",
+        data: {
+          sessionId: "session-1",
+          at: TASK_STATE.lastEventAt,
+          events: [{ seq: 0, type: "message", at: TASK_STATE.lastEventAt }],
+        },
+        correlationId: historyRequest.envelope.id,
+        ...(historyRequest.envelope.replyTo === undefined
+          ? {}
+          : { to: historyRequest.envelope.replyTo }),
+      }),
+    );
+    const history = await historyResponse;
+    expect(history.status).toBe(200);
+    expect(await history.json()).toMatchObject({
+      sessionId: "session-1",
+      events: [{ seq: 0, type: "message" }],
+    });
+  });
+
+  it("validates run session bindings and times out unanswered session lists", async () => {
+    const fake = await serve();
+    const post = (body: unknown) =>
+      fetch(`${baseUrl(fake)}/gethen/run`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+    expect((await post({ text: "fresh", session: { mode: "new" } })).status).toBe(200);
+    expect((await post({ text: "bad", session: { mode: "reuse" } })).status).toBe(400);
+    expect((await post({ text: "bad", session: { mode: "new", sessionId: "s1" } })).status).toBe(
+      400,
+    );
+    expect((await post({ text: "bad", session: { mode: "fork" } })).status).toBe(400);
+    expect((await post({ text: "bad", session: { mode: "reuse", key: "k1" } })).status).toBe(200);
+
+    const token = "slow-session-token";
+    const handle = await serve({
+      tokens: [{ workerId: "worker-1", token }],
+      mailboxPollIntervalMs: 10,
+      mailboxVisibilityTimeoutMs: 2_000,
+    });
+    const link = await attachRawWorker(handle, token);
+    const slow = await fetch(`${baseUrl(handle)}/gethen/sessions?timeoutMs=100`);
+    expect(slow.status).toBe(504);
+    expect(await slow.json()).toMatchObject({ code: "MAILBOX_STATUS_TIMEOUT" });
+    const stale = await receiveEnvelope(link);
+    await link.ack([stale.envelope.id]);
+  });
 });

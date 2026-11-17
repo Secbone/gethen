@@ -20,6 +20,7 @@ export const ALLOWED_WORKSPACE_DEPS = {
   "@gethen/bridge-mailbox": ["@gethen/master", "@gethen/mailbox"],
   "@gethen/mailbox": [],
   "@gethen/harness": [],
+  "@gethen/dsh-sessions": [],
   "@gethen/master-runtime": [
     "@gethen/master",
     "@gethen/transport",
@@ -29,7 +30,12 @@ export const ALLOWED_WORKSPACE_DEPS = {
     "@gethen/fleet",
     "@gethen/router",
   ],
-  "@gethen/executor-sdk": ["@gethen/master", "@gethen/sdk-driver", "@gethen/harness"],
+  "@gethen/executor-sdk": [
+    "@gethen/master",
+    "@gethen/sdk-driver",
+    "@gethen/harness",
+    "@gethen/dsh-sessions",
+  ],
   "@gethen/router": ["@gethen/fleet", "@gethen/worker-bridge"],
   "@gethen/worker-bridge": [],
   "@gethen/worker": ["@gethen/worker-bridge"],

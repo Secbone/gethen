@@ -3,7 +3,7 @@ import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { runCommand, runEndpoint } from "./commands/run";
+import { parseRunArgs, runCommand, runEndpoint } from "./commands/run";
 import { type ServeConfig, type ServeHandle, startServe } from "./commands/serve";
 
 const handles: ServeHandle[] = [];
@@ -138,5 +138,52 @@ describe("gethen run", () => {
       }),
     ).toBe(1);
     expect(JSON.parse(out.lines.join("\n"))).toMatchObject({ report: "failed" });
+  });
+  it("parses session flags and sends the session binding", async () => {
+    expect(parseRunArgs(["hello", "--master", "http://m:1"]).session).toEqual({ mode: "new" });
+    expect(parseRunArgs(["hello", "--master", "http://m:1", "--session-id", "s1"]).session).toEqual(
+      { mode: "reuse", sessionId: "s1" },
+    );
+    expect(parseRunArgs(["hello", "--master", "http://m:1", "--reuse-key", "k1"]).session).toEqual({
+      mode: "reuse",
+      key: "k1",
+    });
+    expect(() =>
+      parseRunArgs(["hello", "--master", "http://m:1", "--session-id", "s1", "--reuse-key", "k1"]),
+    ).toThrow(/mutually exclusive/);
+
+    const bodies: unknown[] = [];
+    const server = createServer((request, response) => {
+      let raw = "";
+      request.on("data", (chunk: Buffer) => {
+        raw += chunk.toString("utf8");
+      });
+      request.on("end", () => {
+        bodies.push(JSON.parse(raw) as unknown);
+        const body = JSON.stringify({
+          stored: "stored",
+          outcome: "accept",
+          ticket: "ticket-1",
+          report: "ready",
+          receipt: true,
+        });
+        response.writeHead(200, {
+          "content-type": "application/json",
+          "content-length": Buffer.byteLength(body),
+        });
+        response.end(body);
+      });
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+    const address = server.address();
+    const port = typeof address === "object" && address !== null ? address.port : 0;
+
+    expect(
+      await runCommand(["hello", "--master", `http://127.0.0.1:${port}`, "--reuse-key", "k1"], {
+        write: () => undefined,
+      }),
+    ).toBe(0);
+    expect(bodies[0]).toEqual({ text: "hello", session: { mode: "reuse", key: "k1" } });
   });
 });

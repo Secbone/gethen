@@ -23,8 +23,12 @@ import type { Duplex } from "node:stream";
 import {
   createMailboxLaunchPort,
   DEFAULT_MAILBOX_PREFIX,
+  type HarnessSessionHistory,
+  type HarnessSessionSummary,
   MASTER_MAILBOX,
   type MailboxLaunchBridge,
+  type TaskEvent,
+  type TaskEventQuery,
   type TaskState,
 } from "@gethen/bridge-mailbox";
 import { MailboxClient, SqliteMailboxStore } from "@gethen/mailbox";
@@ -45,8 +49,15 @@ import {
   type WsTransportServer,
 } from "@gethen/transport";
 
-/** Live task state as reported by a Worker (re-exported from bridge-mailbox). */
-export type { TaskState };
+/** Task state/event and session types (re-exported from bridge-mailbox). */
+export type {
+  HarnessSessionEvent,
+  HarnessSessionHistory,
+  HarnessSessionSummary,
+  TaskEvent,
+  TaskEventQuery,
+  TaskState,
+} from "@gethen/bridge-mailbox";
 
 /** Pack digest recorded when the engine has none (no real pack pinning yet). */
 export const DEFAULT_PACK_DIGEST = "sha256:local-unpinned";
@@ -109,6 +120,19 @@ export interface MasterRuntimeTasks {
   steer(assignmentId: string, text: string): Promise<void>;
   /** Send `gethen.task.cancel` to the running assignment. */
   cancel(assignmentId: string, reason?: string): Promise<void>;
+  /** Cached task events (oldest first; tail page unless `afterSeq` is set). */
+  events(assignmentId: string, query?: TaskEventQuery): TaskEvent[];
+  /** Number of cached events for one assignment. */
+  eventCount(assignmentId: string): number;
+  /** Events evicted by the per-assignment ring buffer. */
+  eventDropped(assignmentId: string): number;
+  /** Ask the Worker for its harness session directory. */
+  sessions(options?: { timeoutMs?: number }): Promise<HarnessSessionSummary[]>;
+  /** Ask the Worker for one session's event history. */
+  sessionHistory(
+    sessionId: string,
+    options?: { limit?: number; afterSeq?: number; timeoutMs?: number },
+  ): Promise<HarnessSessionHistory>;
 }
 
 export interface MasterRuntimeOptions {
@@ -357,6 +381,11 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
     cancel: async (assignmentId, reason) => {
       await taskBridge().cancel(assignmentId, reason);
     },
+    events: (assignmentId, query) => taskBridge().taskEvents(assignmentId, query),
+    eventCount: (assignmentId) => taskBridge().taskEventCount(assignmentId),
+    eventDropped: (assignmentId) => taskBridge().taskEventDropped(assignmentId),
+    sessions: async (options) => taskBridge().listSessions(options),
+    sessionHistory: async (sessionId, options) => taskBridge().sessionHistory(sessionId, options),
   };
 
   async function close(): Promise<void> {

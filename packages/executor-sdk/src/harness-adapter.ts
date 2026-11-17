@@ -24,15 +24,21 @@
  *    queues more input; `interrupt()` rejects pending escalation, steers a stop,
  *    waits a grace period and then terminates the runtime; `cancel(reason)`
  *    performs that interrupt and reports `failed`;
- * 7. the runtime's stderr and lifecycle milestones (`start`/`end`/`watchdog`/
+ * 7. session selection: `session.mode: "new"` (default) names the DSH session
+ *    after the assignment; `"reuse"` resumes `sessionId` or the session behind a
+ *    registry `key` (created on first use), never silently starting a new one on
+ *    a failed resume. `sessions()` exposes the in-memory session directory;
+ * 8. the runtime's stderr and lifecycle milestones (`start`/`end`/`watchdog`/
  *    `deadline`/`cancel`) are forwarded as bounded `HarnessEvent{type:"log"}`
  *    events, so the Master sees the whole worker process;
- * 8. `isolation: "process"` gives each assignment its own runtime (terminated on
+ * 9. `isolation: "process"` gives each assignment its own runtime (terminated on
  *    completion/cancel); `"shared"` (default) reuses the per-workspace pool and
  *    only closes that client on a hard stop. DSH has no native per-turn
  *    interrupt, so a stop means closing (shared) or killing (dedicated) the
  *    runtime.
  */
+
+import { DshSessionStore, type SessionSummary } from "@gethen/dsh-sessions";
 import type {
   HarnessEscalation,
   HarnessEvent,
@@ -40,11 +46,15 @@ import type {
   HarnessExecutor,
   HarnessReport,
   HarnessResolution,
+  HarnessSessionEvent,
+  HarnessSessionHistoryOptions,
+  HarnessSessionInfo,
   HarnessSink,
   HarnessTask,
   HarnessTaskPhase,
   HarnessTaskState,
   JsonObject,
+  SessionSpec,
 } from "@gethen/harness";
 import { buildResolutionText, parseReportText, REPORT_CLOSE, REPORT_OPEN } from "@gethen/master";
 import type {
@@ -80,6 +90,8 @@ const MAX_LAST_MESSAGE_CHARS = 500;
 export const DEFAULT_MAX_LOG_CHARS = 8_000;
 /** Marker appended when a log text was truncated. */
 export const LOG_TRUNCATION_SUFFIX = "…[truncated]";
+/** Default cap for `sessions()` entries. */
+export const DEFAULT_SESSION_LIST_LIMIT = 100;
 
 /** Process isolation model: reuse the workspace pool, or spawn per assignment. */
 export type HarnessIsolation = "shared" | "process";
@@ -106,6 +118,10 @@ export interface SdkHarnessExecutorOptions {
   isolation?: HarnessIsolation;
   /** Cap for one forwarded log text; longer text is truncated. Default 8000; `0` disables. */
   maxLogChars?: number;
+  /** DSH session store used to enrich the directory and read history. */
+  sessionStore?: DshSessionStore;
+  /** Cap for `sessions()` entries (newest activity first). Default 100. */
+  sessionListLimit?: number;
   /** Injectable clock (deadline scheduling, event timestamp fallback, state). */
   now?: () => Date;
 }
@@ -114,6 +130,13 @@ export interface SdkHarnessExecutorOptions {
 export interface SdkHarnessExecutor extends HarnessExecutor {
   /** Close every pooled SDK client and stop accepting work. */
   close(): Promise<void>;
+  /** Session directory (registry merged with the DSH store). */
+  sessions(): HarnessSessionInfo[];
+  /** One session's event history from the DSH store (empty when unknown/unreadable). */
+  sessionHistory(
+    sessionId: string,
+    options?: HarnessSessionHistoryOptions,
+  ): Promise<HarnessSessionEvent[]>;
 }
 
 /** The subset of `@gethen/sdk-driver`'s client the executor drives. */
@@ -123,6 +146,7 @@ export interface SdkClientLike {
   start?(options: StartDshSdkOptions): unknown;
   initialize(options: InitializeOptions): Promise<InitializeResult>;
   prompt(sessionId: string, text: string): Promise<SessionPromptResult>;
+  resume(sessionId: string): Promise<void>;
   wait(sessionId: string, options?: WaitOptions): Promise<void>;
   onEvent(listener: (notification: SessionEventNotification) => void): () => void;
   onStatus(listener: (notification: SessionStatusNotification) => void): () => void;
@@ -162,6 +186,22 @@ interface WorkspaceClient {
   detach: () => void;
 }
 
+/** One entry of the executor's in-memory session registry. */
+interface SessionRecord {
+  sessionId: string;
+  key?: string;
+  workspace: string;
+  lastUsedAt: string;
+  activeAssignmentId?: string;
+}
+
+/** Resolved session for one task, before the runtime is acquired. */
+interface SessionPlan {
+  sessionId: string;
+  resume: boolean;
+  key?: string;
+}
+
 /** How one execution settled: it reports exactly once. */
 interface ExecutionState {
   task: HarnessTask;
@@ -181,6 +221,9 @@ interface ExecutionState {
   pending: PendingEscalation | undefined;
   escalationChain: Promise<void>;
   escalationSeq: number;
+  // ---- session
+  sessionId: string;
+  sessionKey?: string;
   // ---- live state
   phase: HarnessTaskPhase;
   step: number;
@@ -221,6 +264,11 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
   private readonly maxLogChars: number;
   private readonly clients = new Map<string, WorkspaceClient>();
   private readonly creating = new Map<string, Promise<WorkspaceClient>>();
+  private readonly sessionRecords = new Map<string, SessionRecord>();
+  private readonly sessionKeys = new Map<string, string>();
+  private readonly sessionStore: DshSessionStore;
+  private readonly sessionListLimit: number;
+  private sessionCache: SessionSummary[] = [];
   private closed = false;
 
   constructor(options: SdkHarnessExecutorOptions) {
@@ -232,6 +280,8 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
     this.idleTimeoutMs = options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
     this.interruptGraceMs = options.interruptGraceMs ?? DEFAULT_INTERRUPT_GRACE_MS;
     this.maxLogChars = Math.max(0, options.maxLogChars ?? DEFAULT_MAX_LOG_CHARS);
+    this.sessionStore = options.sessionStore ?? new DshSessionStore();
+    this.sessionListLimit = Math.max(1, options.sessionListLimit ?? DEFAULT_SESSION_LIST_LIMIT);
   }
 
   async start(task: HarnessTask, sink: HarnessSink): Promise<HarnessExecution> {
@@ -248,6 +298,7 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
       pending: undefined,
       escalationChain: Promise.resolve(),
       escalationSeq: 0,
+      sessionId: task.assignmentId,
       phase: "starting",
       step: 0,
       lastTool: undefined,
@@ -285,6 +336,17 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
       return execution;
     }
 
+    let plan: SessionPlan;
+    try {
+      plan = this.planSession(task);
+      this.claimSession(task, plan);
+      state.sessionId = plan.sessionId;
+      if (plan.key !== undefined) state.sessionKey = plan.key;
+    } catch (error) {
+      this.finish(state, { kind: "failed", summary: messageOf(error) });
+      return execution;
+    }
+
     let workspaceClient: WorkspaceClient;
     try {
       workspaceClient =
@@ -311,11 +373,26 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
       });
     }
 
-    workspaceClient.sessions.set(task.assignmentId, this.bindingFor(state));
+    workspaceClient.sessions.set(plan.sessionId, this.bindingFor(state));
+    if (plan.resume) {
+      try {
+        await workspaceClient.client.resume(plan.sessionId);
+      } catch (error) {
+        workspaceClient.sessions.delete(plan.sessionId);
+        if (!state.cancelled) {
+          this.finish(state, {
+            kind: "failed",
+            summary: `failed to resume DSH SDK session: ${messageOf(error)}`,
+          });
+        }
+        this.disposeDedicated(state);
+        return execution;
+      }
+    }
     try {
-      await workspaceClient.client.prompt(task.assignmentId, task.prompt);
+      await workspaceClient.client.prompt(plan.sessionId, task.prompt);
     } catch (error) {
-      workspaceClient.sessions.delete(task.assignmentId);
+      workspaceClient.sessions.delete(plan.sessionId);
       if (!state.cancelled) {
         this.finish(state, {
           kind: "failed",
@@ -332,7 +409,11 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
 
     state.phase = "thinking";
     state.lastEventAt = this.now().toISOString();
-    this.emitLog(state, { phase: "start", text: `assignment ${task.assignmentId} started` });
+    this.emitLog(state, {
+      phase: "start",
+      text: `assignment ${task.assignmentId} started in session ${plan.sessionId}`,
+    });
+    await this.refreshSessionCache();
     this.armTimers(state);
     this.startWaitFallback(state, workspaceClient);
     return execution;
@@ -366,7 +447,155 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
     };
     if (state.lastTool !== undefined) snapshot.lastTool = { ...state.lastTool };
     if (state.lastMessage !== undefined) snapshot.lastMessage = state.lastMessage;
+    snapshot.sessionId = state.sessionId;
     return snapshot;
+  }
+
+  // ---------------------------------------------------------------- sessions
+
+  /** Resolve the task's session spec into a session id (and whether to resume). */
+  private planSession(task: HarnessTask): SessionPlan {
+    const spec: SessionSpec | undefined = task.session;
+    if (spec === undefined || spec.mode === "new") {
+      if (spec?.sessionId !== undefined) {
+        throw new SdkHarnessError('session mode "new" must not name a sessionId');
+      }
+      if (spec?.key !== undefined) {
+        requireSessionKey(spec.key);
+        return { sessionId: task.assignmentId, resume: false, key: spec.key };
+      }
+      return { sessionId: task.assignmentId, resume: false };
+    }
+    if (spec.mode !== "reuse") {
+      throw new SdkHarnessError('session mode must be "new" or "reuse"');
+    }
+    if (spec.sessionId !== undefined) {
+      requireSessionKey(spec.sessionId, 'session "sessionId"');
+      return {
+        sessionId: spec.sessionId,
+        resume: true,
+        ...(spec.key === undefined ? {} : { key: spec.key }),
+      };
+    }
+    if (spec.key !== undefined) {
+      requireSessionKey(spec.key);
+      const mapped = this.sessionKeys.get(spec.key);
+      return mapped === undefined
+        ? { sessionId: task.assignmentId, resume: false, key: spec.key }
+        : { sessionId: mapped, resume: true, key: spec.key };
+    }
+    throw new SdkHarnessError('reuse session needs "sessionId" or "key"');
+  }
+
+  /** Reserve the session (and key) for this assignment; rejects a busy session. */
+  private claimSession(task: HarnessTask, plan: SessionPlan): void {
+    const now = this.now().toISOString();
+    const existing = this.sessionRecords.get(plan.sessionId);
+    if (existing?.activeAssignmentId !== undefined) {
+      throw new SdkHarnessError(
+        `session "${plan.sessionId}" is already running assignment "${existing.activeAssignmentId}"`,
+      );
+    }
+    if (plan.key !== undefined) {
+      const mapped = this.sessionKeys.get(plan.key);
+      if (mapped !== undefined && mapped !== plan.sessionId) {
+        const mappedRecord = this.sessionRecords.get(mapped);
+        if (mappedRecord?.activeAssignmentId !== undefined) {
+          throw new SdkHarnessError(
+            `session key "${plan.key}" is already running assignment "${mappedRecord.activeAssignmentId}"`,
+          );
+        }
+        if (mappedRecord !== undefined) delete mappedRecord.key;
+      }
+    }
+
+    const record: SessionRecord = existing ?? {
+      sessionId: plan.sessionId,
+      workspace: task.workspace,
+      lastUsedAt: now,
+    };
+    record.workspace = task.workspace;
+    record.lastUsedAt = now;
+    record.activeAssignmentId = task.assignmentId;
+    if (plan.key !== undefined) {
+      record.key = plan.key;
+      this.sessionKeys.set(plan.key, plan.sessionId);
+    }
+    this.sessionRecords.set(plan.sessionId, record);
+  }
+
+  /** Mark the session idle again; the record stays for later reuse. */
+  private releaseSession(state: ExecutionState): void {
+    const record = this.sessionRecords.get(state.sessionId);
+    if (record === undefined) return;
+    if (record.activeAssignmentId === state.task.assignmentId) {
+      delete record.activeAssignmentId;
+    }
+    record.lastUsedAt = this.now().toISOString();
+  }
+
+  /** Best-effort refresh of the DSH session-store cache (failures degrade). */
+  private async refreshSessionCache(): Promise<void> {
+    try {
+      this.sessionCache = await this.sessionStore.list({ limit: this.sessionListLimit });
+    } catch {
+      this.sessionCache = [];
+    }
+  }
+
+  /**
+   * Session directory: DSH store summaries enriched with this executor's
+   * registry (key, active assignment, last use), newest activity first. Store
+   * failures degrade to registry-only. The store is refreshed in the background;
+   * `start` awaits one refresh, `finish` kicks one off.
+   */
+  sessions(): HarnessSessionInfo[] {
+    void this.refreshSessionCache();
+    const byId = new Map<string, HarnessSessionInfo>();
+    for (const summary of this.sessionCache) {
+      const info: HarnessSessionInfo = {
+        sessionId: summary.sessionId,
+        workspace: summary.config.cwd,
+        lastUsedAt: summary.lastActivityAt ?? summary.config.createdAt,
+        config: summary.config,
+        state: summary.state,
+        hasLog: summary.hasLog,
+      };
+      if (summary.lastActivityAt !== undefined) info.lastActivityAt = summary.lastActivityAt;
+      if (summary.eventCount !== undefined) info.eventCount = summary.eventCount;
+      if (summary.tokenUsage !== undefined) info.tokenUsage = summary.tokenUsage;
+      byId.set(summary.sessionId, info);
+    }
+    for (const record of this.sessionRecords.values()) {
+      const info: HarnessSessionInfo = byId.get(record.sessionId) ?? {
+        sessionId: record.sessionId,
+        workspace: record.workspace,
+        lastUsedAt: record.lastUsedAt,
+      };
+      info.workspace = record.workspace;
+      info.lastUsedAt = record.lastUsedAt;
+      if (record.key !== undefined) info.key = record.key;
+      if (record.activeAssignmentId !== undefined) {
+        info.activeAssignmentId = record.activeAssignmentId;
+        info.state = "running";
+      }
+      byId.set(record.sessionId, info);
+    }
+    return [...byId.values()]
+      .sort((left, right) => activityKey(right).localeCompare(activityKey(left)))
+      .slice(0, this.sessionListLimit);
+  }
+
+  /** Read one session's history; unknown sessions and read errors return `[]`. */
+  async sessionHistory(
+    sessionId: string,
+    options: HarnessSessionHistoryOptions = {},
+  ): Promise<HarnessSessionEvent[]> {
+    try {
+      return await this.sessionStore.history(sessionId, options);
+    } catch {
+      return [];
+    }
   }
 
   private applyEventToState(state: ExecutionState, event: unknown): void {
@@ -475,10 +704,12 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
     this.clearLifecycleTimers(state);
     state.abort.abort();
     this.detachStderr(state);
-    state.workspaceClient?.sessions.delete(state.task.assignmentId);
+    state.workspaceClient?.sessions.delete(state.sessionId);
+    this.releaseSession(state);
     this.emitLog(state, { phase: "end", text: `${report.kind}: ${report.summary}` });
     this.disposeDedicated(state);
     state.sink.report(report);
+    void this.refreshSessionCache();
   }
 
   /** Reject escalations, steer a stop, wait the grace period, then hard-stop. */
@@ -1229,6 +1460,14 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
 
 function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
+}
+
+function activityKey(info: HarnessSessionInfo): string {
+  return info.lastActivityAt ?? info.lastUsedAt;
+}
+
+function requireSessionKey(value: string, label = 'session "key"'): void {
+  if (value.length === 0) throw new SdkHarnessError(`${label} must be a non-empty string`);
 }
 
 function messageOf(error: unknown): string {

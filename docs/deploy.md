@@ -110,6 +110,9 @@ HTTP 表面：
 | `GET` | `/gethen/tasks/:id[?timeoutMs=n]` | 查询单个 assignment（缓存优先，否则向 worker 发 status 请求） |
 | `POST` | `/gethen/tasks/:id/steer` | `{"text":"..."}` 给运行中的 session 追加输入（best-effort） |
 | `POST` | `/gethen/tasks/:id/cancel` | `{"reason":"..."?}` 取消执行（worker 发 failed/cancelled report） |
+| `GET` | `/gethen/tasks/:id/events?limit=&afterSeq=&type=` | 该 assignment 的事件时间线（worker 事件 + 合成 `gethen.result`，内存环形缓存） |
+| `GET` | `/gethen/sessions?timeoutMs=` | Worker 上的 DSH session 目录（config/state/lastActivity/eventCount 等，用于复用决策） |
+| `GET` | `/gethen/sessions/:id/history?limit=&afterSeq=&timeoutMs=` | 某个 session 的历史事件 |
 | `GET`(upgrade) | `/gethen/worker` | `gethen.worker/v1` WS 端点（仅此路径；其它路径 404） |
 
 ### 1.3 TLS / 反向代理
@@ -362,6 +365,10 @@ gethen status --db /var/lib/gethen/master.sqlite          # 计数 + 最近工�
 gethen task status <assignmentId> --master http://127.0.0.1:8080
 gethen task steer <assignmentId> "先跑测试再改" --master http://127.0.0.1:8080
 gethen task cancel <assignmentId> --reason "停止" --master http://127.0.0.1:8080
+gethen task logs <assignmentId> --master http://127.0.0.1:8080
+gethen session list --master http://127.0.0.1:8080
+gethen session history <sessionId> --master http://127.0.0.1:8080
+gethen run --reuse-key project-x "在已有会话里继续" --master http://127.0.0.1:8080
 gethen worker ls --db /var/lib/gethen/master.sqlite
 gethen doctor --json
 ```

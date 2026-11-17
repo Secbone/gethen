@@ -30,7 +30,8 @@ const agent = createMailboxAgent({ workerId: "worker-1", mailbox, harness });
 pool seam), `requestTimeoutMs?`, `idleTimeoutMs?` (silence watchdog, default
 300000), `interruptGraceMs?` (default 1000), `isolation?: "shared" | "process"`
 (default `"shared"`), `maxLogChars?` (default 8000; `0` disables truncation),
-`now?`.
+`sessionStore?` (default `new DshSessionStore()`), `sessionListLimit?`
+(default 100), `now?`.
 
 ## Flow
 
@@ -94,6 +95,45 @@ messages. Log events **do not** touch the live `HarnessTaskState` or its `seq`
 stderr listener is unsubscribed when the execution settles or the client closes;
 on a shared client every execution has its own listener and unsubscribes
 independently.
+
+## Session selection
+
+`HarnessTask.session` chooses the DSH session (the executor keeps an in-memory
+session registry; `executor.sessions()` returns its snapshot):
+
+| `session` | Behavior |
+|---|---|
+| omitted, or `{mode: "new"}` | a fresh session named after the assignment (`sessionId = assignmentId`); an optional `key` is registered for later reuse |
+| `{mode: "reuse", sessionId}` | `resume(sessionId)` on the workspace runtime, then prompt that same session; a failed resume reports `failed` (no silent fallback) |
+| `{mode: "reuse", key}` | registry lookup: the first use creates a session named after that assignment and records `key → sessionId`; later uses resume the recorded session |
+
+`state().sessionId` names the attached session and `sessions()` lists
+`{sessionId, key?, workspace, lastUsedAt, activeAssignmentId?}` entries (copies;
+mutating the snapshot does not change the registry).
+
+**Concurrency policy:** a session (or a registry key) that already has a running
+assignment rejects the second start with a `failed` report
+(`session "<id>" is already running assignment "<assignment>"`); tasks are not
+queued. `interruptGraceMs`/`cancel` still apply per execution.
+
+**Process isolation:** `isolation: "process"` spawns a dedicated runtime per
+assignment; reuse still works because `resume` runs against the newly spawned
+client (the DSH store is shared), and the dedicated runtime is terminated after
+the execution.
+
+**Session directory (`sessions()`):** merges the executor registry (key,
+activeAssignmentId, lastUsedAt) with `@gethen/dsh-sessions`'
+`DshSessionStore.list()` summaries (config, persisted state, lastActivityAt,
+eventCount, tokenUsage, hasLog). Sessions with a running assignment report
+`state: "running"`; entries are sorted by `lastActivityAt ?? lastUsedAt`
+descending and capped at `sessionListLimit`. Store failures degrade to
+registry-only (no throw). The cache is awaited once per `start` and refreshed in
+the background after `finish`.
+
+**History (`sessionHistory(sessionId, {limit?, afterSeq?}))`:** passes through
+to `DshSessionStore.history`; unknown sessions and read failures return `[]`
+(never throw), so the Master/agent can render logs safely. This gives the Master
+the config/state/history needed to decide new-vs-reuse for the next assignment.
 
 ## Live state, steering and isolation
 

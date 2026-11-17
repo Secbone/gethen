@@ -1,6 +1,8 @@
 import {
+  type HarnessSessionSummary,
   MasterRuntimeError,
   type MasterRuntimeTasks,
+  type TaskEvent,
   type TaskState,
 } from "@gethen/master-runtime";
 import { describe, expect, it, vi } from "vitest";
@@ -16,6 +18,15 @@ const STATE: TaskState = {
   seq: 7,
   updatedAt: "2026-11-17T06:00:01.500Z",
 };
+
+const EVENTS: TaskEvent[] = [
+  { seq: 1, type: "message", at: "2026-11-17T06:00:00.000Z", data: { text: "hi" } },
+  { seq: 2, type: "tool.start", at: "2026-11-17T06:00:01.000Z", data: { name: "bash" } },
+];
+
+const SESSIONS: HarnessSessionSummary[] = [
+  { sessionId: "session-1", key: "k1", state: "idle", eventCount: 4, hasLog: true },
+];
 
 function context() {
   const tools: DshToolDefinition[] = [];
@@ -40,6 +51,11 @@ function stubTasks(overrides: Partial<MasterRuntimeTasks> = {}): MasterRuntimeTa
     status: async () => null,
     steer: async () => {},
     cancel: async () => {},
+    events: () => [],
+    eventCount: () => 0,
+    eventDropped: () => 0,
+    sessions: async () => [],
+    sessionHistory: async (sessionId) => ({ sessionId, events: [] }),
     ...overrides,
   };
 }
@@ -60,30 +76,45 @@ async function call(
 }
 
 describe("gethen_task tool", () => {
-  it("registers the status/steer/cancel schema", () => {
+  it("registers the extended schema", () => {
     const tool = registered();
     expect(tool.name).toBe("gethen_task");
     expect(tool.parameters).toMatchObject({
       action: { type: "string", required: true, enum: [...TASK_ACTIONS] },
-      assignmentId: { type: "string", required: true },
+      assignmentId: { type: "string", required: false },
+      sessionId: { type: "string", required: false },
       text: { type: "string", required: false },
       reason: { type: "string", required: false },
       timeoutMs: { type: "number", required: false },
+      limit: { type: "number", required: false },
+      afterSeq: { type: "number", required: false },
+      type: { type: "string", required: false },
     });
+    expect([...TASK_ACTIONS]).toEqual(["status", "steer", "cancel", "logs", "sessions", "history"]);
     const schema = tool.output.schema as {
       properties: Record<string, Record<string, unknown>>;
       required: string[];
     };
     expect(Object.keys(schema.properties)).toEqual(
-      expect.arrayContaining(["assignmentId", "action", "state", "cached", "steered", "cancelled"]),
+      expect.arrayContaining([
+        "action",
+        "assignmentId",
+        "state",
+        "events",
+        "count",
+        "sessions",
+        "sessionId",
+      ]),
     );
-    expect(schema.required).toEqual(["assignmentId", "action"]);
+    expect(schema.required).toEqual(["action"]);
   });
 
-  it("rejects an unknown action or a missing assignmentId", async () => {
+  it("rejects an unknown action and missing per-action identifiers", async () => {
     const tool = registered();
     await expect(call(tool, { action: "pause", assignmentId: "a1" })).rejects.toThrow(/action/);
     await expect(call(tool, { action: "status" })).rejects.toThrow(/assignmentId/);
+    await expect(call(tool, { action: "logs" })).rejects.toThrow(/assignmentId/);
+    await expect(call(tool, { action: "history" })).rejects.toThrow(/sessionId/);
   });
 
   it("status prefers the cached live state", async () => {
@@ -123,7 +154,7 @@ describe("gethen_task tool", () => {
     });
   });
 
-  it("status maps fake-mode, closed and timeout failures to clear errors", async () => {
+  it("maps fake-mode, closed and timeout failures to clear errors", async () => {
     const fake = registered(
       stubTasks({
         state: () => {
@@ -195,6 +226,116 @@ describe("gethen_task tool", () => {
       reason: "user asked",
     });
     expect(cancel).toHaveBeenLastCalledWith("a1", "user asked");
+  });
+
+  it("logs returns the cached event page and total count", async () => {
+    const events = vi.fn((_id: string, _query?: unknown) => EVENTS);
+    const eventCount = vi.fn(() => 9);
+    const tool = registered(stubTasks({ events, eventCount, eventDropped: () => 0 }));
+    await expect(
+      call(tool, {
+        action: "logs",
+        assignmentId: "a1",
+        limit: 2,
+        afterSeq: 0,
+        type: "tool.start",
+      }),
+    ).resolves.toEqual({
+      assignmentId: "a1",
+      action: "logs",
+      events: EVENTS,
+      count: 9,
+    });
+    expect(events).toHaveBeenCalledWith("a1", { limit: 2, afterSeq: 0, type: "tool.start" });
+    await call(tool, { action: "logs", assignmentId: "a1" });
+    expect(events).toHaveBeenLastCalledWith("a1", undefined);
+  });
+
+  it("logs surfaces dropped events and validates filters", async () => {
+    const tool = registered(stubTasks({ events: () => EVENTS, eventDropped: () => 4 }));
+    await expect(call(tool, { action: "logs", assignmentId: "a1" })).resolves.toMatchObject({
+      action: "logs",
+      dropped: 4,
+    });
+    await expect(call(tool, { action: "logs", assignmentId: "a1", limit: 0 })).rejects.toThrow(
+      /positive integer/,
+    );
+    await expect(call(tool, { action: "logs", assignmentId: "a1", afterSeq: -1 })).rejects.toThrow(
+      /non-negative integer/,
+    );
+    await expect(call(tool, { action: "logs", assignmentId: "a1", type: "  " })).rejects.toThrow(
+      /"type"/,
+    );
+  });
+
+  it("sessions returns the Worker session directory", async () => {
+    const sessions = vi.fn(async (_options?: { timeoutMs?: number }) => SESSIONS);
+    const tool = registered(stubTasks({ sessions }));
+    await expect(call(tool, { action: "sessions", timeoutMs: 300 })).resolves.toEqual({
+      action: "sessions",
+      sessions: SESSIONS,
+    });
+    expect(sessions).toHaveBeenCalledWith({ timeoutMs: 300 });
+    await call(tool, { action: "sessions" });
+    expect(sessions).toHaveBeenLastCalledWith(undefined);
+  });
+
+  it("history returns one session's persisted events", async () => {
+    const sessionHistory = vi.fn(async (sessionId: string, _options?: unknown) => ({
+      sessionId,
+      events: [{ seq: 1, type: "message", at: "2026-11-17T06:00:00.000Z" }],
+      at: "2026-11-17T06:00:02.000Z",
+    }));
+    const tool = registered(stubTasks({ sessionHistory }));
+    await expect(
+      call(tool, {
+        action: "history",
+        sessionId: "session-1",
+        limit: 50,
+        afterSeq: 0,
+        timeoutMs: 300,
+      }),
+    ).resolves.toEqual({
+      action: "history",
+      sessionId: "session-1",
+      events: [{ seq: 1, type: "message", at: "2026-11-17T06:00:00.000Z" }],
+      at: "2026-11-17T06:00:02.000Z",
+    });
+    expect(sessionHistory).toHaveBeenCalledWith("session-1", {
+      limit: 50,
+      afterSeq: 0,
+      timeoutMs: 300,
+    });
+  });
+
+  it("maps fake-mode and timeout failures for logs/sessions/history", async () => {
+    const fake = registered(
+      stubTasks({
+        events: () => {
+          throw new MasterRuntimeError("RUNTIME_COMMS_UNAVAILABLE", "no mailbox");
+        },
+      }),
+    );
+    await expect(call(fake, { action: "logs", assignmentId: "a1" })).rejects.toThrow(
+      /requires the mailbox runtime/,
+    );
+
+    const timeout = registered(
+      stubTasks({
+        sessions: async () => {
+          throw Object.assign(new Error("timeout"), { code: "MAILBOX_STATUS_TIMEOUT" });
+        },
+        sessionHistory: async () => {
+          throw Object.assign(new Error("timeout"), { code: "MAILBOX_STATUS_TIMEOUT" });
+        },
+      }),
+    );
+    await expect(call(timeout, { action: "sessions" })).rejects.toThrow(
+      /did not answer the session list request/,
+    );
+    await expect(call(timeout, { action: "history", sessionId: "s1" })).rejects.toThrow(
+      /session s1 did not answer the history request/,
+    );
   });
 });
 

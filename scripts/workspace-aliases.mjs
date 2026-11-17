@@ -12,6 +12,7 @@ export const workspaceAliases = {
   "@gethen/master-runtime": resolve("packages/master-runtime/src/index.ts"),
   "@gethen/worker-bridge": resolve("packages/worker-bridge/src/index.ts"),
   "@gethen/core/testing": resolve("packages/core/src/testing/contract.ts"),
+  "@gethen/dsh-sessions": resolve("packages/dsh-sessions/src/index.ts"),
   "@gethen/executor-sdk": resolve("packages/executor-sdk/src/index.ts"),
   "@gethen/mailbox-link": resolve("packages/mailbox-link/src/index.ts"),
   "@gethen/storage-file": resolve("packages/storage-file/src/index.ts"),

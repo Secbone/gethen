@@ -6,7 +6,8 @@ Usage:
   gethen worker    Run the worker daemon, or manage tokens: worker add|ls|revoke
   gethen run       Dispatch one run to a master and print the result
   gethen status    Read the master database (counts + recent tickets)
-  gethen task      Inspect or steer a running assignment (status|steer|cancel)
+  gethen task      Inspect or steer a running assignment (status|logs|steer|cancel)
+  gethen session   List harness sessions and read session history
   gethen doctor    Check Node, dsh, credentials and the local environment
   gethen help      Show this help
 

@@ -25,6 +25,8 @@ import {
   type EscalationResolutionInput,
   type MasterService,
   type Policy,
+  parseSessionSpec,
+  type SessionSpec,
   type Trigger,
   ticketStage,
 } from "@gethen/master";
@@ -302,6 +304,18 @@ function registerTools(ctx: DshContext, deps: ToolDeps): void {
     description: "Accept and run one local request end-to-end through the master.",
     parameters: {
       text: { type: "string", required: true, description: "Request text" },
+      session: {
+        type: "object",
+        required: false,
+        description:
+          'Session binding: {"mode":"new"} (default) or {"mode":"reuse","sessionId"?|"key"?} ' +
+          "with exactly one of sessionId/key.",
+        properties: {
+          mode: { type: "string", enum: ["new", "reuse"] },
+          sessionId: { type: "string" },
+          key: { type: "string" },
+        },
+      },
     },
     output: {
       schema: objectSchema(
@@ -312,16 +326,22 @@ function registerTools(ctx: DshContext, deps: ToolDeps): void {
           report: { type: "string" },
           receipt: { type: "number" },
           settled: { type: "boolean" },
+          sessionId: { type: "string" },
         },
         ["stored", "outcome", "ticket", "report", "receipt", "settled"],
       ),
       render: (_args, value) => text(value),
     },
     async execute(raw) {
-      const args = raw as { text?: unknown };
+      const args = raw as { text?: unknown; session?: unknown };
       if (typeof args.text !== "string" || args.text.length === 0) {
         throw new Error("gethen_run requires a non-empty text");
       }
+      const parsedSession = parseSessionSpec(args.session);
+      if (!parsedSession.ok) {
+        throw new Error(`gethen_run "session" is invalid: ${parsedSession.reason}`);
+      }
+      const session: SessionSpec = parsedSession.value;
       const before = new Set(service.store.tickets.list().map((ticket) => ticket.id));
       const trigger: Trigger = {
         id: `trigger-${randomUUID()}`,
@@ -332,7 +352,7 @@ function registerTools(ctx: DshContext, deps: ToolDeps): void {
         addressed: "mention",
         text: args.text,
         at: new Date().toISOString(),
-        meta: { scope: "local" },
+        meta: { scope: "local", session: JSON.stringify(session) },
       };
       const result = await service.submit(trigger);
       const created = service.store.tickets.list().find((item) => !before.has(item.id));
@@ -346,6 +366,10 @@ function registerTools(ctx: DshContext, deps: ToolDeps): void {
               ...(deps.runWaitMs === undefined ? {} : { timeoutMs: deps.runWaitMs }),
             });
       const ticket = settlement?.ticket ?? created;
+      const assignmentId = ticket?.assignments.at(-1);
+      const assignment =
+        assignmentId === undefined ? undefined : service.store.assignments.get(assignmentId);
+      const sessionId = assignment?.session?.sessionId;
       return {
         stored: result.stored,
         outcome: result.decision?.outcome ?? "",
@@ -353,6 +377,7 @@ function registerTools(ctx: DshContext, deps: ToolDeps): void {
         report: ticket?.latestReport ?? "",
         receipt: settlement?.receipt === true ? 1 : 0,
         settled: settlement?.settled ?? false,
+        ...(sessionId === undefined ? {} : { sessionId }),
       };
     },
   });

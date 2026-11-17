@@ -255,6 +255,45 @@ function textProgressEnvelope(assignmentId: string): Envelope {
   });
 }
 
+function sessionListResultEnvelope(
+  requestId: string,
+  sessions: unknown,
+  overrides: { at?: string; correlationId?: string } = {},
+): Envelope {
+  seq += 1;
+  return newEnvelope({
+    id: `session-list-result-${seq}`,
+    source: "agent:worker-a",
+    type: "gethen.session.list.result",
+    time: AT,
+    data: { sessions, at: overrides.at ?? AT },
+    correlationId: overrides.correlationId ?? requestId,
+    to: "mailbox:master",
+  });
+}
+
+function sessionHistoryResultEnvelope(
+  requestId: string,
+  sessionId: string | undefined,
+  events: unknown,
+  overrides: { at?: string; correlationId?: string } = {},
+): Envelope {
+  seq += 1;
+  return newEnvelope({
+    id: `session-history-result-${seq}`,
+    source: "agent:worker-a",
+    type: "gethen.session.history.result",
+    time: AT,
+    data: {
+      ...(sessionId === undefined ? {} : { sessionId }),
+      events,
+      at: overrides.at ?? AT,
+    },
+    correlationId: overrides.correlationId ?? requestId,
+    to: "mailbox:master",
+  });
+}
+
 /** Launch promises that a test may leave pending; the rejection is pre-handled. */
 const pendingLaunches: Array<Promise<unknown>> = [];
 
@@ -340,6 +379,33 @@ describe("createMailboxLaunchPort", () => {
       events: 0,
     });
     expect(result.escalations).toBeUndefined();
+  });
+
+  it("carries the assignment session spec in the assign envelope when present", async () => {
+    const client = new FakeMailbox();
+    const bridge = makeBridge(client);
+    const request = launchRequest();
+    request.assignment.session = { mode: "reuse", sessionId: "session-9" };
+
+    const resultPromise = bridge.launchPort.launch(request);
+    expect(client.sent.at(0)?.data).toEqual({
+      assignmentId: "assignment-1",
+      ticketId: "ticket-1",
+      workspace: "/ws",
+      packDigest: "sha256:pack",
+      prompt: "prompt",
+      session: { mode: "reuse", sessionId: "session-9" },
+    });
+    bridge.handleEnvelope(resultEnvelope("assignment-1"));
+    await resultPromise;
+
+    // An Assignment without a session spec adds no `session` key.
+    const plainClient = new FakeMailbox();
+    const plainBridge = makeBridge(plainClient);
+    const plainPromise = plainBridge.launchPort.launch(launchRequest());
+    expect(plainClient.sent.at(0)?.data).not.toHaveProperty("session");
+    plainBridge.handleEnvelope(resultEnvelope("assignment-1"));
+    await plainPromise;
   });
 
   it("counts progress envelopes as receipt events", async () => {
@@ -1159,6 +1225,215 @@ describe("task event stream cache", () => {
     expect(() => makeBridge(client, { maxTaskEvents: 0 })).toThrow(/maxTaskEvents/);
     expect(() => makeBridge(client, { maxEventBytes: -1 })).toThrow(/maxEventBytes/);
     expect(() => makeBridge(client, { maxTaskEvents: 1.5 })).toThrow(/maxTaskEvents/);
+  });
+});
+
+describe("session list and history requests", () => {
+  it("sends a gethen.session.list request and parses the correlated reply", async () => {
+    const client = new FakeMailbox();
+    const bridge = makeBridge(client);
+    const promise = bridge.listSessions({ timeoutMs: 500 });
+
+    const request = client.sent.at(-1);
+    expect(request).toMatchObject({
+      type: "gethen.session.list",
+      to: "mailbox:worker-a",
+      replyTo: "mailbox:master",
+      data: {},
+    });
+    expect(request?.subject).toBeUndefined();
+    if (request?.id === undefined) throw new Error("session list request has no envelope id");
+
+    const sessions = [
+      {
+        sessionId: "sess-1",
+        key: "main",
+        workspace: "/ws",
+        lastUsedAt: AT,
+        activeAssignmentId: "assignment-1",
+        config: { cwd: "/ws", createdAt: AT, title: "demo", model: { provider: "p", model: "m" } },
+        state: "idle",
+        lastActivityAt: AT,
+        eventCount: 3,
+        tokenUsage: { inputTokens: 7 },
+        hasLog: true,
+      },
+    ];
+    bridge.handleEnvelope(sessionListResultEnvelope(request.id, sessions));
+    await expect(promise).resolves.toEqual(sessions);
+  });
+
+  it("filters malformed session entries and accepts an empty directory", async () => {
+    const client = new FakeMailbox();
+    const bridge = makeBridge(client);
+
+    const first = bridge.listSessions({ timeoutMs: 500 });
+    const firstRequest = client.sent.at(-1);
+    if (firstRequest?.id === undefined) throw new Error("missing request id");
+    bridge.handleEnvelope(
+      sessionListResultEnvelope(firstRequest.id, [
+        { sessionId: "sess-ok" },
+        { key: "no-session-id" },
+        42,
+        { sessionId: "sess-ok-2", key: 7, state: "bogus" },
+      ]),
+    );
+    await expect(first).resolves.toEqual([{ sessionId: "sess-ok" }, { sessionId: "sess-ok-2" }]);
+
+    const empty = bridge.listSessions({ timeoutMs: 500 });
+    const emptyRequest = client.sent.at(-1);
+    if (emptyRequest?.id === undefined) throw new Error("missing request id");
+    bridge.handleEnvelope(sessionListResultEnvelope(emptyRequest.id, []));
+    await expect(empty).resolves.toEqual([]);
+
+    const malformed = bridge.listSessions({ timeoutMs: 500 });
+    const malformedRequest = client.sent.at(-1);
+    if (malformedRequest?.id === undefined) throw new Error("missing request id");
+    bridge.handleEnvelope(sessionListResultEnvelope(malformedRequest.id, "not-an-array"));
+    await expect(malformed).resolves.toEqual([]);
+  });
+
+  it("forwards history options and parses the correlated events", async () => {
+    const client = new FakeMailbox();
+    const bridge = makeBridge(client);
+    const promise = bridge.sessionHistory("sess-1", {
+      limit: 50,
+      afterSeq: 10,
+      timeoutMs: 500,
+    });
+
+    const request = client.sent.at(-1);
+    expect(request).toMatchObject({
+      type: "gethen.session.history",
+      to: "mailbox:worker-a",
+      replyTo: "mailbox:master",
+      data: { sessionId: "sess-1", limit: 50, afterSeq: 10 },
+    });
+    if (request?.id === undefined) throw new Error("history request has no envelope id");
+
+    bridge.handleEnvelope(
+      sessionHistoryResultEnvelope(request.id, "sess-1", [
+        { seq: 11, type: "message", at: AT, data: { text: "hi" } },
+        { seq: 12, type: "tool.start", at: AT },
+        { seq: "bad", type: "message", at: AT },
+        { seq: 13, type: "message", at: AT, data: [1, 2] },
+      ]),
+    );
+    await expect(promise).resolves.toEqual({
+      sessionId: "sess-1",
+      at: AT,
+      events: [
+        { seq: 11, type: "message", at: AT, data: { text: "hi" } },
+        { seq: 12, type: "tool.start", at: AT },
+        { seq: 13, type: "message", at: AT, data: [1, 2] },
+      ],
+    });
+  });
+
+  it("falls back to the requested sessionId when the reply omits it", async () => {
+    const client = new FakeMailbox();
+    const bridge = makeBridge(client);
+    const promise = bridge.sessionHistory("sess-9", { timeoutMs: 500 });
+    const request = client.sent.at(-1);
+    if (request?.id === undefined) throw new Error("history request has no envelope id");
+
+    bridge.handleEnvelope(sessionHistoryResultEnvelope(request.id, undefined, []));
+    await expect(promise).resolves.toEqual({ sessionId: "sess-9", at: AT, events: [] });
+  });
+
+  it("times out unanswered session requests", async () => {
+    const client = new FakeMailbox();
+    const bridge = makeBridge(client);
+
+    const listFailure = await bridge.listSessions({ timeoutMs: 10 }).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    expect(listFailure).toBeInstanceOf(MailboxLaunchError);
+    expect((listFailure as MailboxLaunchError).code).toBe("MAILBOX_STATUS_TIMEOUT");
+
+    const historyFailure = await bridge.sessionHistory("sess-1", { timeoutMs: 10 }).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    expect((historyFailure as MailboxLaunchError).code).toBe("MAILBOX_STATUS_TIMEOUT");
+  });
+
+  it("reports send failures for session requests", async () => {
+    const client = new FakeMailbox();
+    client.failSend = new Error("mailbox store unavailable");
+    const bridge = makeBridge(client);
+    await expect(bridge.listSessions()).rejects.toMatchObject({ code: "MAILBOX_SEND_FAILED" });
+    await expect(bridge.sessionHistory("sess-1")).rejects.toMatchObject({
+      code: "MAILBOX_SEND_FAILED",
+    });
+  });
+
+  it("rejects session requests after close, including pending ones", async () => {
+    const client = new FakeMailbox();
+    const bridge = makeBridge(client);
+    const pending = bridge.listSessions({ timeoutMs: 500 });
+    bridge.close();
+    await expect(pending).rejects.toMatchObject({ code: "MAILBOX_CLOSED" });
+    await expect(bridge.listSessions()).rejects.toMatchObject({ code: "MAILBOX_CLOSED" });
+    await expect(bridge.sessionHistory("sess-1")).rejects.toMatchObject({
+      code: "MAILBOX_CLOSED",
+    });
+  });
+
+  it("acks session replies through the poll loop", async () => {
+    const client = new FakeMailbox();
+    const bridge = makeBridge(client);
+    const promise = bridge.listSessions({ timeoutMs: 500 });
+    const request = client.sent.at(-1);
+    if (request?.id === undefined) throw new Error("missing request id");
+    const reply = sessionListResultEnvelope(request.id, [{ sessionId: "sess-1" }]);
+    client.push(reply);
+
+    expect(bridge.pollOnce()).toBe(1);
+    await expect(promise).resolves.toEqual([{ sessionId: "sess-1" }]);
+    expect(client.acked.at(0)).toEqual({ mailbox: "mailbox:master", ids: [reply.id] });
+  });
+
+  it("keeps concurrent session requests isolated by correlationId", async () => {
+    const client = new FakeMailbox();
+    const bridge = makeBridge(client);
+    const listOne = bridge.listSessions({ timeoutMs: 500 });
+    const requestOne = client.sent.at(-1);
+    const history = bridge.sessionHistory("sess-2", { timeoutMs: 500 });
+    const historyRequest = client.sent.at(-1);
+    const listTwo = bridge.listSessions({ timeoutMs: 500 });
+    const requestTwo = client.sent.at(-1);
+    if (
+      requestOne?.id === undefined ||
+      requestTwo?.id === undefined ||
+      historyRequest?.id === undefined
+    ) {
+      throw new Error("session requests have no envelope ids");
+    }
+
+    // Unknown correlation ids are ignored; replies may arrive out of order.
+    bridge.handleEnvelope(sessionListResultEnvelope("unknown-request", [{ sessionId: "ghost" }]));
+    bridge.handleEnvelope(sessionListResultEnvelope(requestTwo.id, [{ sessionId: "sess-two" }]));
+    bridge.handleEnvelope(sessionHistoryResultEnvelope(historyRequest.id, "sess-2", []));
+    bridge.handleEnvelope(sessionListResultEnvelope(requestOne.id, [{ sessionId: "sess-one" }]));
+    // A duplicate reply after settle is ignored.
+    bridge.handleEnvelope(sessionListResultEnvelope(requestOne.id, [{ sessionId: "again" }]));
+
+    await expect(listOne).resolves.toEqual([{ sessionId: "sess-one" }]);
+    await expect(listTwo).resolves.toEqual([{ sessionId: "sess-two" }]);
+    await expect(history).resolves.toEqual({ sessionId: "sess-2", at: AT, events: [] });
+  });
+
+  it("validates sessionId and history paging options", async () => {
+    const client = new FakeMailbox();
+    const bridge = makeBridge(client);
+    await expect(bridge.sessionHistory("   ")).rejects.toThrow(/sessionId/);
+    await expect(bridge.sessionHistory("sess-1", { limit: 0 })).rejects.toThrow(/limit/);
+    await expect(bridge.sessionHistory("sess-1", { afterSeq: -1 })).rejects.toThrow(/afterSeq/);
+    expect(() => makeBridge(client, { maxSessionListTimeoutMs: 0 })).toThrow(
+      /maxSessionListTimeoutMs/,
+    );
   });
 });
 

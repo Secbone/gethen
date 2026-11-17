@@ -96,10 +96,33 @@ mailbox 继续，不需要重放 Assignment。
 | 工具 | 作用 |
 |---|---|
 | `gethen_status` | `{tickets, open, receipts, running, escalations, launch, workers, mailbox?, tasks?}`；`launch` 为 `fake`/`ws`，`workers` 是当前 transport 会话数，`mailbox` 仅 ws 模式返回 `{pending, leased, dead}`，`tasks` 是任务摘要 `{count, recent}`（仅 mailbox 模式） |
-| `gethen_run` | 接收一句话，走 receive → eval → accept → assignment → launch → report → receipt |
+| `gethen_run` | 接收一句话，走 receive → eval → accept → assignment → launch → report → receipt；可选 `session` 绑定复用 Worker 会话 |
 | `gethen_overview` | 每张 Ticket 的 `stage`（`ticketStage`）、outcome、latestReport、assignment 数 |
 | `gethen_escalations` | Worker 升级列表：question、status（waiting/resolved/parked）、resolution |
-| `gethen_task` | 查看/控制一个运行中的 Assignment：`status`（先读缓存，再问 Worker）/ `steer`（追加指令）/ `cancel`（请求停止）；仅 mailbox 模式可用 |
+| `gethen_task` | 查看/控制/观测运行中的 Assignment：`status`（先读缓存，再问 Worker）/ `steer` / `cancel` / `logs`（事件流）/ `sessions`（会话目录）/ `history`（会话历史）；仅 mailbox 模式可用 |
+
+## 会话绑定（gethen_run 的 session 选项）
+
+`gethen_run` 可以把一个 Assignment 绑定到 Worker 的既有会话（同一 Ticket 继续在
+原会话里跑，而不是新开会话）。绑定以 `trigger.meta.session` 传给 Master，Worker
+按它决定 `dsh` 会话：
+
+```jsonc
+// 默认：新会话（不传 session 等价）
+{ "text": "fix the failing test" }
+{ "text": "fix the failing test", "session": { "mode": "new" } }
+
+// 复用：按明确的 sessionId
+{ "text": "continue the migration", "session": { "mode": "reuse", "sessionId": "session-…" } }
+
+// 复用：按稳定 key（Worker 用自己的 session map 解析）
+{ "text": "continue the migration", "session": { "mode": "reuse", "key": "project-gethen" } }
+```
+
+规则与 Master 一致：`new` 不能带 `sessionId`/`key`；`reuse` 必须且只能带一个
+（非空）`sessionId` 或 `key`。非法组合在提交前就报错。返回里若能从 Assignment
+拿到明确的 `sessionId`（`reuse + sessionId` 时有值），会回填 `sessionId` 字段；
+按 key 复用时由 Worker 解析，AI 侧省略该字段。
 
 ## 任务查看与控制（gethen_task）
 
@@ -115,11 +138,24 @@ assignment 的 phase/step/lastEventAt）。需要细节或干预时用 `gethen_t
 
 // cancel：请求 Worker 停止（reason 可选）
 { "action": "cancel", "assignmentId": "assignment-…", "reason": "user asked" }
+
+// logs：缓存的任务事件流（gethen.task.progress 等），支持分页/过滤
+{ "action": "logs", "assignmentId": "assignment-…", "limit": 50, "afterSeq": 0, "type": "tool.start" }
+
+// sessions：Worker 的 harness 会话目录
+{ "action": "sessions", "timeoutMs": 2000 }
+
+// history：某个会话的持久化事件历史
+{ "action": "history", "sessionId": "session-…", "limit": 100, "afterSeq": 0, "timeoutMs": 2000 }
 ```
 
 返回：`status` → `{assignmentId, action, state: {phase, step, lastTool?, lastMessage?,
 lastEventAt, seq} | null, cached, message?}`；`steer` → `{…, text, steered: true}`；
-`cancel` → `{…, cancelled: true, reason?}`。fake 模式没有 Worker，调用会返回明确错误
+`cancel` → `{…, cancelled: true, reason?}`；`logs` → `{assignmentId, action, events,
+count, dropped?}`（events 是缓存页，count 是该 assignment 的缓存总数，dropped 是环形
+缓冲区已淘汰数）；`sessions` → `{action, sessions}`（sessionId/key/state/lastActivityAt/
+eventCount/tokenUsage/hasLog 等）；`history` → `{action, sessionId, events, at?}`。
+fake 模式没有 Worker，调用会返回明确错误
 （`task state/control requires the mailbox runtime…`）；未知/已结束/离线的 assignment
 在 status 超时后返回可读的 “did not answer a status request” 错误。
 

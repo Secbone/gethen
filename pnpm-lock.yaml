@@ -107,6 +107,8 @@ importers:
 
   packages/dsh-client: {}
 
+  packages/dsh-sessions: {}
+
   packages/effects:
     dependencies:
       '@gethen/core':
@@ -156,6 +158,9 @@ importers:
 
   packages/executor-sdk:
     dependencies:
+      '@gethen/dsh-sessions':
+        specifier: workspace:*
+        version: link:../dsh-sessions
       '@gethen/harness':
         specifier: workspace:*
         version: link:../harness

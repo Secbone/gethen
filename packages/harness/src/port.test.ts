@@ -13,6 +13,9 @@ import {
   type HarnessReport,
   type HarnessReportKind,
   type HarnessResolution,
+  type HarnessSessionEvent,
+  type HarnessSessionHistoryOptions,
+  type HarnessSessionInfo,
   type HarnessSink,
   type HarnessTask,
   type HarnessTaskPhase,
@@ -25,6 +28,7 @@ import {
   isHarnessTaskPhase,
   isTerminalPhase,
   parseHarnessDeadline,
+  type SessionSpec,
   validateHarnessEscalation,
   validateHarnessReport,
   validateHarnessResolution,
@@ -331,5 +335,47 @@ describe("live task state and control surface", () => {
     };
     expect(state.lastTool?.name).toBe("bash");
     expect(isTerminalPhase(state.phase)).toBe(false);
+  });
+});
+
+describe("session selection", () => {
+  it("types a new/reuse spec, task session, state session and session directory", () => {
+    const news: SessionSpec = { mode: "new" };
+    const byKey: SessionSpec = { mode: "reuse", key: "build" };
+    const byId: SessionSpec = { mode: "reuse", sessionId: "s-1" };
+    expect([news.mode, byKey.key, byId.sessionId]).toEqual(["new", "build", "s-1"]);
+
+    const task: HarnessTask = {
+      assignmentId: "assignment-1",
+      ticketId: "ticket-1",
+      workspace: "/work/ws",
+      prompt: "do the work",
+      session: byKey,
+    };
+    expect(task.session?.mode).toBe("reuse");
+    expectTypeOf<HarnessTask["session"]>().toEqualTypeOf<SessionSpec | undefined>();
+
+    expectTypeOf<HarnessTaskState["sessionId"]>().toEqualTypeOf<string | undefined>();
+    expectTypeOf<HarnessExecutor["sessions"]>().toEqualTypeOf<
+      (() => HarnessSessionInfo[]) | undefined
+    >();
+    expectTypeOf<HarnessExecutor["sessionHistory"]>().toEqualTypeOf<
+      | ((
+          sessionId: string,
+          options?: HarnessSessionHistoryOptions,
+        ) => Promise<HarnessSessionEvent[]>)
+      | undefined
+    >();
+    const historyOptions: HarnessSessionHistoryOptions = { limit: 2, afterSeq: 1 };
+    expect(historyOptions.afterSeq).toBe(1);
+
+    const info: HarnessSessionInfo = {
+      sessionId: "s-1",
+      key: "build",
+      workspace: "/work/ws",
+      lastUsedAt: AT,
+      activeAssignmentId: "assignment-2",
+    };
+    expect(info).toMatchObject({ sessionId: "s-1", key: "build" });
   });
 });

@@ -39,10 +39,14 @@ import type {
   HarnessExecutor,
   HarnessReport,
   HarnessResolution,
+  HarnessSessionEvent,
+  HarnessSessionHistoryOptions,
+  HarnessSessionInfo,
   HarnessSink,
   HarnessTask,
   HarnessTaskState,
   JsonObject,
+  SessionSpec,
 } from "@gethen/harness";
 import {
   parseHarnessDeadline,
@@ -68,6 +72,10 @@ export const MESSAGE_TYPES = {
   statusResult: "gethen.task.status.result",
   steer: "gethen.task.steer",
   cancel: "gethen.task.cancel",
+  sessionList: "gethen.session.list",
+  sessionListResult: "gethen.session.list.result",
+  sessionHistory: "gethen.session.history",
+  sessionHistoryResult: "gethen.session.history.result",
 } as const;
 
 export type MessageType = (typeof MESSAGE_TYPES)[keyof typeof MESSAGE_TYPES];
@@ -89,6 +97,8 @@ export interface TaskAssignPayload {
   model?: string;
   deadlineAt?: string;
   metadata?: JsonObject;
+  /** Untrusted `{mode,sessionId?,key?}` session selection. */
+  session?: unknown;
 }
 
 export interface TaskProgressPayload {
@@ -99,6 +109,8 @@ export interface TaskProgressPayload {
   event?: HarnessEvent;
   /** Live state snapshot when the harness exposes `execution.state()`. */
   state?: HarnessTaskState;
+  /** Session the execution runs in, when known. */
+  sessionId?: string;
 }
 
 export interface TaskAskPayload {
@@ -122,6 +134,8 @@ export interface TaskResultPayload {
   summary: string;
   question?: string;
   usage?: JsonObject;
+  /** Session the assignment ran in, when the harness exposed one. */
+  sessionId?: string;
 }
 
 export interface TaskStatusPayload {
@@ -131,6 +145,19 @@ export interface TaskStatusPayload {
 export interface TaskStatusResultPayload {
   assignmentId: string;
   state: HarnessTaskState | null;
+  at: string;
+  /** Session the execution runs in, when known. */
+  sessionId?: string;
+}
+
+export interface TaskSessionListPayload {
+  sessions: HarnessSessionInfo[];
+  at: string;
+}
+
+export interface TaskSessionHistoryResultPayload {
+  sessionId: string;
+  events: HarnessSessionEvent[];
   at: string;
 }
 
@@ -157,7 +184,8 @@ export type AssignValidationCode =
   | "invalid_envelope_object"
   | "invalid_model"
   | "invalid_metadata"
-  | "invalid_deadline";
+  | "invalid_deadline"
+  | "invalid_session";
 
 export interface AssignValidationFailure {
   ok: false;
@@ -241,6 +269,9 @@ export function assignToHarnessTask(envelope: Envelope): AssignValidation {
     }
     task.deadlineAt = deadlineAt;
   }
+  const session = parseAssignSession(data.session);
+  if (!session.ok) return failure("invalid_session", session.message);
+  if (session.value !== undefined) task.session = session.value;
   return { ok: true, task };
 }
 
@@ -333,6 +364,7 @@ export type MailboxAgentErrorPhase =
   | "status"
   | "steer"
   | "cancel"
+  | "session"
   | "harness"
   | "progress"
   | "escalation"
@@ -446,6 +478,7 @@ interface ExecutionEntry {
   cancelReason?: string;
   lastState?: HarnessTaskState;
   lastPhase?: HarnessTaskState["phase"];
+  lastSessionId?: string;
   lastEventAt?: string;
   eventSeq: number;
   pendingEscalation?: HarnessEscalation;
@@ -650,6 +683,10 @@ class MailboxAgentImpl implements MailboxAgent {
         return this.handleStatus(message);
       case MESSAGE_TYPES.steer:
         return this.handleSteer(message);
+      case MESSAGE_TYPES.sessionList:
+        return this.handleSessionList(message);
+      case MESSAGE_TYPES.sessionHistory:
+        return this.handleSessionHistory(message);
       case MESSAGE_TYPES.cancel:
         return this.handleCancel(message);
       default:
@@ -841,6 +878,9 @@ class MailboxAgentImpl implements MailboxAgent {
       const entry = this.findExecution(requestedId, envelope.correlationId);
       const assignmentId = entry?.task.assignmentId ?? requestedId ?? "";
       const at = this.now().toISOString();
+      const state = entry === undefined ? null : this.snapshotState(entry);
+      const sessionId =
+        entry === undefined ? undefined : this.rememberSessionId(entry, state?.sessionId);
       const reply = newEnvelope({
         source: `agent:${this.workerId}`,
         type: MESSAGE_TYPES.statusResult,
@@ -851,8 +891,9 @@ class MailboxAgentImpl implements MailboxAgent {
         causationId: envelope.id,
         data: {
           assignmentId,
-          state: entry === undefined ? null : this.snapshotState(entry),
+          state,
           at,
+          ...(sessionId === undefined ? {} : { sessionId }),
         } satisfies TaskStatusResultPayload,
       });
       await this.mailbox.send(reply);
@@ -861,6 +902,104 @@ class MailboxAgentImpl implements MailboxAgent {
       this.reportError(error, { phase: "status", envelope });
       await this.nack(envelope.id, "requeue");
     }
+  }
+
+  /**
+   * Answers `gethen.session.list` with the harness session directory. A harness
+   * without `sessions()` reports an empty list rather than an error, so the
+   * master can treat "no capability" and "no sessions" the same way.
+   */
+  private async handleSessionList(message: ReceivedMessage): Promise<void> {
+    const envelope = message.envelope;
+    try {
+      const at = this.now().toISOString();
+      const sessions = this.harness.sessions?.() ?? [];
+      const reply = newEnvelope({
+        source: `agent:${this.workerId}`,
+        type: MESSAGE_TYPES.sessionListResult,
+        to: envelope.replyTo ?? this.masterMailbox,
+        time: at,
+        correlationId: envelope.id,
+        causationId: envelope.id,
+        data: {
+          sessions: sessions.map((session) => ({ ...session })),
+          at,
+        } satisfies TaskSessionListPayload,
+      });
+      await this.mailbox.send(reply);
+      await this.ack(envelope.id);
+    } catch (error) {
+      this.reportError(error, { phase: "session", envelope });
+      await this.nack(envelope.id, "requeue");
+    }
+  }
+
+  /**
+   * Answers `gethen.session.history`. A request without `sessionId` (or with a
+   * bad `limit`/`afterSeq`) is a caller bug: report it and ack, never retry a
+   * poison control message. A harness without `sessionHistory()` reports an
+   * empty event list.
+   */
+  private async handleSessionHistory(message: ReceivedMessage): Promise<void> {
+    const envelope = message.envelope;
+    try {
+      const request = parseSessionHistoryRequest(asRecord(envelope.data) ?? {});
+      if (!request.ok) {
+        this.reportError(new MailboxAgentError("SESSION_HISTORY_INVALID", request.message), {
+          phase: "session",
+          envelope,
+        });
+        await this.ack(envelope.id);
+        return;
+      }
+
+      const at = this.now().toISOString();
+      let events: HarnessSessionEvent[] = [];
+      if (this.harness.sessionHistory !== undefined) {
+        const options: HarnessSessionHistoryOptions = {};
+        if (request.limit !== undefined) options.limit = request.limit;
+        if (request.afterSeq !== undefined) options.afterSeq = request.afterSeq;
+        events = await this.harness.sessionHistory(request.sessionId, options);
+      }
+      const reply = newEnvelope({
+        source: `agent:${this.workerId}`,
+        type: MESSAGE_TYPES.sessionHistoryResult,
+        to: envelope.replyTo ?? this.masterMailbox,
+        time: at,
+        correlationId: envelope.id,
+        causationId: envelope.id,
+        data: {
+          sessionId: request.sessionId,
+          events: events.map((event) => ({ ...event })),
+          at,
+        } satisfies TaskSessionHistoryResultPayload,
+      });
+      await this.mailbox.send(reply);
+      await this.ack(envelope.id);
+    } catch (error) {
+      this.reportError(error, { phase: "session", envelope });
+      await this.nack(envelope.id, "requeue");
+    }
+  }
+
+  /** Session id from the live state, falling back to the last one observed. */
+  private sessionIdOf(entry: ExecutionEntry): string | undefined {
+    const live = entry.execution?.state?.();
+    return this.rememberSessionId(entry, live?.sessionId);
+  }
+
+  /** Keeps the last known session id so it survives states that omit it. */
+  private rememberSessionId(
+    entry: ExecutionEntry,
+    ...candidates: Array<string | undefined>
+  ): string | undefined {
+    for (const candidate of candidates) {
+      if (candidate !== undefined) {
+        entry.lastSessionId = candidate;
+        return candidate;
+      }
+    }
+    return entry.lastSessionId;
   }
 
   private async handleSteer(message: ReceivedMessage): Promise<void> {
@@ -923,6 +1062,7 @@ class MailboxAgentImpl implements MailboxAgent {
     const live = entry.execution?.state?.();
     if (live !== undefined) {
       entry.lastState = live;
+      this.rememberSessionId(entry, live.sessionId);
       return live;
     }
     if (entry.lastState !== undefined) return entry.lastState;
@@ -968,6 +1108,7 @@ class MailboxAgentImpl implements MailboxAgent {
     entry.eventSeq += 1;
     entry.lastEventAt = event.at;
 
+    const previousSessionId = entry.lastState?.sessionId;
     const state = entry.execution?.state?.();
     const phaseChanged =
       state !== undefined && (entry.lastPhase === undefined || entry.lastPhase !== state.phase);
@@ -975,6 +1116,7 @@ class MailboxAgentImpl implements MailboxAgent {
       entry.lastState = state;
       entry.lastPhase = state.phase;
     }
+    const sessionId = this.rememberSessionId(entry, state?.sessionId, previousSessionId);
 
     if (this.progressThrottleMs > 0) {
       const timestamp = this.now().getTime();
@@ -997,6 +1139,7 @@ class MailboxAgentImpl implements MailboxAgent {
       event,
     };
     if (state !== undefined) payload.state = state;
+    if (sessionId !== undefined) payload.sessionId = sessionId;
     this.queue(entry, MESSAGE_TYPES.progress, payload);
     void this.flush();
   }
@@ -1056,6 +1199,8 @@ class MailboxAgentImpl implements MailboxAgent {
     };
     if (normalized.question !== undefined) payload.question = normalized.question;
     if (normalized.usage !== undefined) payload.usage = normalized.usage;
+    const sessionId = this.sessionIdOf(entry);
+    if (sessionId !== undefined) payload.sessionId = sessionId;
     this.queue(entry, MESSAGE_TYPES.result, payload, undefined, async () => {
       await this.ack(entry.assignEnvelope.id);
       this.completeEntry(entry);
@@ -1155,11 +1300,13 @@ class MailboxAgentImpl implements MailboxAgent {
         return;
       }
       const state = entry.execution?.state?.() ?? entry.lastState;
+      const sessionId = this.rememberSessionId(entry, state?.sessionId);
       const payload: TaskProgressPayload = {
         assignmentId: entry.task.assignmentId,
         seq: entry.eventSeq,
       };
       if (state !== undefined) payload.state = state;
+      if (sessionId !== undefined) payload.sessionId = sessionId;
       this.queue(entry, MESSAGE_TYPES.progress, payload);
       void this.flush();
     }, this.progressHeartbeatMs);
@@ -1229,6 +1376,81 @@ class MailboxAgentImpl implements MailboxAgent {
 }
 
 // -------------------------------------------------------------------- helpers
+
+type SessionHistoryRequest =
+  | { ok: true; sessionId: string; limit?: number; afterSeq?: number }
+  | { ok: false; message: string };
+
+/** Validates the untrusted `gethen.session.history` payload before it reaches a harness. */
+function parseSessionHistoryRequest(data: Record<string, unknown>): SessionHistoryRequest {
+  const rawSessionId = data.sessionId;
+  const sessionId = typeof rawSessionId === "string" ? rawSessionId.trim() : "";
+  if (sessionId.length === 0) {
+    return sessionFailure('session history "sessionId" must be a non-empty string');
+  }
+  const request: SessionHistoryRequest = { ok: true, sessionId };
+  const limit = data.limit;
+  if (limit !== undefined) {
+    if (typeof limit !== "number" || !Number.isInteger(limit) || limit <= 0) {
+      return sessionFailure('session history "limit" must be a positive integer when present');
+    }
+    request.limit = limit;
+  }
+  const afterSeq = data.afterSeq;
+  if (afterSeq !== undefined) {
+    if (typeof afterSeq !== "number" || !Number.isInteger(afterSeq) || afterSeq < 0) {
+      return sessionFailure(
+        'session history "afterSeq" must be a non-negative integer when present',
+      );
+    }
+    request.afterSeq = afterSeq;
+  }
+  return request;
+}
+
+type SessionParse = { ok: true; value: SessionSpec | undefined } | { ok: false; message: string };
+
+/**
+ * Validates the untrusted `assign.session` selector with the same rules the
+ * master applies: `new` carries no ids, `reuse` carries exactly one of
+ * `sessionId` / `key`. Anything else invalidates the whole assign.
+ */
+function parseAssignSession(value: unknown): SessionParse {
+  if (value === undefined) return { ok: true, value: undefined };
+  const record = asRecord(value);
+  if (record === undefined) return sessionFailure('assign "session" must be a JSON object');
+  const mode = record.mode;
+  if (mode !== "new" && mode !== "reuse") {
+    return sessionFailure('assign session "mode" must be "new" or "reuse"');
+  }
+  const sessionId = record.sessionId;
+  if (sessionId !== undefined && (typeof sessionId !== "string" || sessionId.length === 0)) {
+    return sessionFailure('assign session "sessionId" must be a non-empty string when present');
+  }
+  const key = record.key;
+  if (key !== undefined && (typeof key !== "string" || key.length === 0)) {
+    return sessionFailure('assign session "key" must be a non-empty string when present');
+  }
+  if (mode === "new") {
+    if (sessionId !== undefined || key !== undefined) {
+      return sessionFailure('assign session mode "new" must not carry sessionId or key');
+    }
+    return { ok: true, value: { mode } };
+  }
+  if ((sessionId === undefined) === (key === undefined)) {
+    return sessionFailure(
+      'assign session mode "reuse" requires exactly one of "sessionId" or "key"',
+    );
+  }
+  const spec: SessionSpec = { mode };
+  if (sessionId !== undefined) spec.sessionId = sessionId;
+  if (key !== undefined) spec.key = key;
+  return { ok: true, value: spec };
+}
+
+function sessionFailure(message: string): { ok: false; message: string } {
+  return { ok: false, message };
+}
 
 function failure(code: AssignValidationCode, message: string): AssignValidationFailure {
   return { ok: false, code, message };

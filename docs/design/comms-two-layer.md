@@ -323,6 +323,14 @@ interface TaskState { assignmentId; phase; step; lastTool?: {name,startedAt};
 
 `isolation: "shared" | "process"`（默认 shared）：process 模式每个 assignment 独立 `dsh --profile sdk`，cancel 可精确杀进程；shared 模式取消会影响同 workspace 的其它 session。
 
+### Session 管理（复用/新建）
+
+- Assignment 携带 `SessionSpec {mode:"new"|"reuse", sessionId?, key?}`，由 Master 入口（gethen_run / POST /gethen/run）传入；
+- Worker executor 通过 `DshSessionStore` 读取 DSH 本地 session 目录：配置（cwd/model/sandbox/title）、状态（running/idle）、最近活动、事件数、token usage、是否有日志；
+- `session.list` / `session.history`（mailbox request/reply）把目录与历史暴露给 Master；
+- 复用语义：`reuse + sessionId` 直接 `resume`；`reuse + key` 由 worker 维护 key→sessionId 映射；`resume` 失败即 failed，不静默新建；并发同 session/key 时第二条被拒绝；
+- session 目录是决策依据：Master 先 list/history，再选择 new 或 reuse，而不是每个任务都新建 session。
+
 ### 结果读取一致性
 
 `gethen_run` / `POST /gethen/run` 在返回前调用 `MasterService.waitForTicket()`：

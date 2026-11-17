@@ -20,7 +20,9 @@
  * - in  `gethen.task.result`   → report + receipt (LaunchResult), final state,
  *   plus a synthetic `gethen.result` event in the stream;
  * - out `gethen.task.status`   → request/response liveness probe (status.result);
- * - out `gethen.task.steer` / `gethen.task.cancel` → live control messages.
+ * - out `gethen.task.steer` / `gethen.task.cancel` → live control messages;
+ * - out `gethen.session.list` / `gethen.session.history` → worker mailbox
+ *   request/reply probes for the UI (results matched by correlationId).
  *
  * The adapter owns no transport and no harness: it only needs a
  * `MailboxClient`-shaped object, so Master and Worker can share a mailbox store
@@ -57,6 +59,10 @@ export const MESSAGE_TYPES = {
   statusResult: "gethen.task.status.result",
   steer: "gethen.task.steer",
   cancel: "gethen.task.cancel",
+  sessionList: "gethen.session.list",
+  sessionListResult: "gethen.session.list.result",
+  sessionHistory: "gethen.session.history",
+  sessionHistoryResult: "gethen.session.history.result",
 } as const;
 
 /** Default time a dispatched assignment may take before the launch fails. */
@@ -141,6 +147,62 @@ export interface TaskEventQuery {
   afterSeq?: number;
   /** Only events of this type. */
   type?: string;
+}
+
+/**
+ * One harness session directory entry (`gethen.session.list` reply). Local JSON
+ * wire type: the bridge never imports the harness package.
+ */
+export interface HarnessSessionSummary {
+  sessionId: string;
+  /** Registry key that selected this session, when one was used. */
+  key?: string;
+  workspace?: string;
+  /** RFC 3339 UTC timestamp of the last claim/release. */
+  lastUsedAt?: string;
+  /** Assignment currently running in this session, when one is. */
+  activeAssignmentId?: string;
+  /** Persisted configuration, when the worker can read it. */
+  config?: JsonObject;
+  /** Last known persisted state. */
+  state?: "running" | "idle" | "unknown";
+  /** RFC 3339 timestamp of the last stored activity. */
+  lastActivityAt?: string;
+  /** Last persisted event sequence (cheap estimate). */
+  eventCount?: number;
+  tokenUsage?: JsonObject;
+  /** Whether a session log exists on disk. */
+  hasLog?: boolean;
+}
+
+/** One normalized event from a session history (`gethen.session.history` reply). */
+export interface HarnessSessionEvent {
+  seq: number;
+  type: string;
+  at: string;
+  data?: JsonValue;
+}
+
+/** The snapshot `sessionHistory()` returns. */
+export interface HarnessSessionHistory {
+  sessionId: string;
+  events: HarnessSessionEvent[];
+  /** RFC 3339 timestamp the worker replied at, when provided. */
+  at?: string;
+}
+
+export interface SessionListOptions {
+  /** How long to wait for the reply; defaults to `maxSessionListTimeoutMs`. */
+  timeoutMs?: number;
+}
+
+export interface SessionHistoryOptions {
+  /** Forwarded to the worker (default there is 200). */
+  limit?: number;
+  /** Return events with `seq > afterSeq` (forwarded to the worker). */
+  afterSeq?: number;
+  /** How long to wait for the reply; defaults to `maxSessionListTimeoutMs`. */
+  timeoutMs?: number;
 }
 
 const REPORT_KINDS: readonly ReportKind[] = [
@@ -239,6 +301,8 @@ export interface MailboxLaunchOptions {
   maxTaskEvents?: number;
   /** Byte cap for one cached event; defaults to {@link DEFAULT_MAX_EVENT_BYTES}. */
   maxEventBytes?: number;
+  /** Default timeout for session list/history requests; defaults to 5 s. */
+  maxSessionListTimeoutMs?: number;
 }
 
 export interface MailboxLaunchBridge {
@@ -275,6 +339,19 @@ export interface MailboxLaunchBridge {
   taskEventCount(assignmentId: string): number;
   /** Events evicted by the ring buffer for one assignment. */
   taskEventDropped(assignmentId: string): number;
+  /**
+   * Ask the Worker for its harness session directory
+   * (`gethen.session.list` -> correlated `session.list.result`).
+   */
+  listSessions(options?: SessionListOptions): Promise<HarnessSessionSummary[]>;
+  /**
+   * Ask the Worker for one session's event history
+   * (`gethen.session.history` -> correlated `session.history.result`).
+   */
+  sessionHistory(
+    sessionId: string,
+    options?: SessionHistoryOptions,
+  ): Promise<HarnessSessionHistory>;
   /** Stop polling and reject in-flight launches with `MAILBOX_CLOSED`. */
   close(): void;
 }
@@ -294,6 +371,12 @@ interface PendingLaunch {
 interface PendingStatusRequest {
   readonly assignmentId: string;
   readonly resolve: (state: TaskState | null) => void;
+  readonly reject: (error: Error) => void;
+  readonly timer: ReturnType<typeof setTimeout>;
+}
+
+interface PendingSessionRequest {
+  readonly resolve: (data: Record<string, unknown> | undefined) => void;
   readonly reject: (error: Error) => void;
   readonly timer: ReturnType<typeof setTimeout>;
 }
@@ -357,6 +440,12 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
   const statusRequests = new Map<string, PendingStatusRequest>();
   /** Per-assignment event ring buffers (retained after the result). */
   const eventStreams = new Map<string, TaskEventBuffer>();
+  /** In-flight session list/history requests, keyed by request envelope id. */
+  const sessionRequests = new Map<string, PendingSessionRequest>();
+  const maxSessionListTimeoutMs = positiveTimeout(
+    options.maxSessionListTimeoutMs ?? DEFAULT_STATUS_TIMEOUT_MS,
+    "maxSessionListTimeoutMs",
+  );
   let timer: ReturnType<typeof setInterval> | undefined;
   let closed = false;
 
@@ -554,6 +643,17 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
     publishTaskState(assignmentId, state);
   }
 
+  function handleSessionResult(envelope: Envelope): void {
+    const data = asRecord(envelope.data);
+    const requestId = stringValue(envelope.correlationId) ?? stringValue(data?.requestId);
+    if (requestId === undefined) return;
+    const pending = sessionRequests.get(requestId);
+    if (pending === undefined) return;
+    sessionRequests.delete(requestId);
+    clearTimeout(pending.timer);
+    pending.resolve(data);
+  }
+
   function handleStatusResult(envelope: Envelope): void {
     const data = asRecord(envelope.data);
     const requestId =
@@ -698,6 +798,11 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
         handleStatusResult(envelope);
         return;
       }
+      case MESSAGE_TYPES.sessionListResult:
+      case MESSAGE_TYPES.sessionHistoryResult: {
+        handleSessionResult(envelope);
+        return;
+      }
       default:
         // accept/cancel/agent messages/unknown types carry no launch state here.
         return;
@@ -768,6 +873,16 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
         ),
       );
     }
+    for (const [requestId, pending] of [...sessionRequests]) {
+      clearTimeout(pending.timer);
+      sessionRequests.delete(requestId);
+      pending.reject(
+        new MailboxLaunchError(
+          "MAILBOX_CLOSED",
+          `session request ${requestId} after the mailbox bridge closed`,
+        ),
+      );
+    }
   }
 
   function assignEnvelope(request: LaunchRequest): Envelope {
@@ -783,6 +898,9 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
         workspace: request.assignment.workspace,
         packDigest: request.packDigest,
         prompt: request.prompt,
+        ...(request.assignment.session === undefined
+          ? {}
+          : { session: request.assignment.session }),
       },
       to: workerMailbox,
       correlationId: request.assignment.id,
@@ -849,6 +967,93 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
 
   function taskEventDropped(assignmentId: string): number {
     return eventStreams.get(assignmentId)?.dropped ?? 0;
+  }
+
+  /**
+   * Send one session request and resolve its correlated reply. The request
+   * envelope id is the requestId the Worker must echo as `correlationId`.
+   */
+  function requestSessionReply<T>(
+    type: string,
+    data: Record<string, unknown>,
+    requestedTimeoutMs: number | undefined,
+    select: (payload: Record<string, unknown> | undefined) => T,
+  ): Promise<T> {
+    if (closed) {
+      return Promise.reject(
+        new MailboxLaunchError("MAILBOX_CLOSED", `${type} request after the mailbox bridge closed`),
+      );
+    }
+    const requestTimeoutMs = positiveTimeout(requestedTimeoutMs ?? maxSessionListTimeoutMs);
+    const request = newEnvelope({
+      source: "master:router",
+      type,
+      time: nowIso(),
+      data,
+      to: workerMailbox,
+      replyTo: masterMailbox,
+    });
+    const requestId = request.id;
+    return new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        sessionRequests.delete(requestId);
+        reject(
+          new MailboxLaunchError(
+            "MAILBOX_STATUS_TIMEOUT",
+            `${type} request ${requestId} timed out after ${requestTimeoutMs}ms`,
+          ),
+        );
+      }, requestTimeoutMs);
+      timer.unref();
+      sessionRequests.set(requestId, {
+        resolve: (payload) => resolve(select(payload)),
+        reject,
+        timer,
+      });
+      try {
+        client.send(request);
+      } catch (error) {
+        sessionRequests.delete(requestId);
+        clearTimeout(timer);
+        reject(
+          new MailboxLaunchError(
+            "MAILBOX_SEND_FAILED",
+            `${type} request failed: ${messageOf(error)}`,
+          ),
+        );
+      }
+    });
+  }
+
+  async function listSessions(
+    sessionOptions: SessionListOptions = {},
+  ): Promise<HarnessSessionSummary[]> {
+    return requestSessionReply(MESSAGE_TYPES.sessionList, {}, sessionOptions.timeoutMs, (payload) =>
+      parseSessionList(payload),
+    );
+  }
+
+  async function sessionHistory(
+    sessionId: string,
+    sessionOptions: SessionHistoryOptions = {},
+  ): Promise<HarnessSessionHistory> {
+    const wanted = typeof sessionId === "string" ? sessionId.trim() : "";
+    if (wanted.length === 0) {
+      return Promise.reject(new Error("bridge-mailbox: sessionId must be a non-empty string"));
+    }
+    const data: Record<string, unknown> = { sessionId: wanted };
+    if (sessionOptions.limit !== undefined) {
+      data.limit = positiveInteger(sessionOptions.limit, "limit");
+    }
+    if (sessionOptions.afterSeq !== undefined) {
+      data.afterSeq = nonNegativeInteger(sessionOptions.afterSeq, "afterSeq");
+    }
+    return requestSessionReply(
+      MESSAGE_TYPES.sessionHistory,
+      data,
+      sessionOptions.timeoutMs,
+      (payload) => parseSessionHistory(payload, wanted),
+    );
   }
 
   function requestStatus(
@@ -975,6 +1180,8 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
     taskEvents,
     taskEventCount,
     taskEventDropped,
+    listSessions,
+    sessionHistory,
     requestStatus,
     steer,
     cancel,
@@ -983,6 +1190,83 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
 }
 
 // ---------------------------------------------------------------- validation
+
+/** Validate a `gethen.session.list.result` payload into session summaries. */
+function parseSessionList(data: Record<string, unknown> | undefined): HarnessSessionSummary[] {
+  const sessions = data?.sessions;
+  if (!Array.isArray(sessions)) return [];
+  const result: HarnessSessionSummary[] = [];
+  for (const entry of sessions) {
+    const summary = parseSessionSummary(entry);
+    if (summary !== undefined) result.push(summary);
+  }
+  return result;
+}
+
+function parseSessionSummary(value: unknown): HarnessSessionSummary | undefined {
+  const record = asRecord(value);
+  if (record === undefined) return undefined;
+  const sessionId = stringValue(record.sessionId);
+  if (sessionId === undefined) return undefined;
+
+  const summary: HarnessSessionSummary = { sessionId };
+  const key = stringValue(record.key);
+  if (key !== undefined) summary.key = key;
+  const workspace = stringValue(record.workspace);
+  if (workspace !== undefined) summary.workspace = workspace;
+  const lastUsedAt = stringValue(record.lastUsedAt);
+  if (lastUsedAt !== undefined) summary.lastUsedAt = lastUsedAt;
+  const activeAssignmentId = stringValue(record.activeAssignmentId);
+  if (activeAssignmentId !== undefined) summary.activeAssignmentId = activeAssignmentId;
+  const config = asRecord(record.config);
+  if (config !== undefined) summary.config = config as unknown as JsonObject;
+  const state = record.state;
+  if (state === "running" || state === "idle" || state === "unknown") summary.state = state;
+  const lastActivityAt = stringValue(record.lastActivityAt);
+  if (lastActivityAt !== undefined) summary.lastActivityAt = lastActivityAt;
+  const eventCount = record.eventCount;
+  if (typeof eventCount === "number" && Number.isInteger(eventCount) && eventCount >= 0) {
+    summary.eventCount = eventCount;
+  }
+  const tokenUsage = asRecord(record.tokenUsage);
+  if (tokenUsage !== undefined) summary.tokenUsage = tokenUsage as unknown as JsonObject;
+  if (typeof record.hasLog === "boolean") summary.hasLog = record.hasLog;
+  return summary;
+}
+
+/** Validate a `gethen.session.history.result` payload into a history snapshot. */
+function parseSessionHistory(
+  data: Record<string, unknown> | undefined,
+  requestedSessionId: string,
+): HarnessSessionHistory {
+  const sessionId = stringValue(data?.sessionId) ?? requestedSessionId;
+  const rawEvents = data?.events;
+  const events: HarnessSessionEvent[] = [];
+  if (Array.isArray(rawEvents)) {
+    for (const entry of rawEvents) {
+      const event = parseSessionEvent(entry);
+      if (event !== undefined) events.push(event);
+    }
+  }
+  const history: HarnessSessionHistory = { sessionId, events };
+  const at = stringValue(data?.at);
+  if (at !== undefined) history.at = at;
+  return history;
+}
+
+function parseSessionEvent(value: unknown): HarnessSessionEvent | undefined {
+  const record = asRecord(value);
+  if (record === undefined) return undefined;
+  const seq = record.seq;
+  if (typeof seq !== "number" || !Number.isInteger(seq) || seq < 0) return undefined;
+  const type = stringValue(record.type);
+  if (type === undefined) return undefined;
+  const at = stringValue(record.at);
+  if (at === undefined) return undefined;
+  const event: HarnessSessionEvent = { seq, type, at };
+  if (record.data !== undefined) event.data = record.data as JsonValue;
+  return event;
+}
 
 /** Validate one `data.event` from a progress envelope. */
 function parseTaskEvent(
@@ -1075,6 +1359,13 @@ function integerValue(value: unknown): number | undefined {
 function positiveInteger(value: number, name: string): number {
   if (!Number.isInteger(value) || value <= 0) {
     throw new Error(`bridge-mailbox: ${name} must be a positive integer`);
+  }
+  return value;
+}
+
+function nonNegativeInteger(value: number, name: string): number {
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(`bridge-mailbox: ${name} must be a non-negative integer`);
   }
   return value;
 }
@@ -1204,9 +1495,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return asRecord(value) !== undefined;
 }
 
-function positiveTimeout(value: number): number {
+function positiveTimeout(value: number, name = "timeoutMs"): number {
   if (!Number.isFinite(value) || value <= 0) {
-    throw new Error("bridge-mailbox: timeoutMs must be a positive finite number");
+    throw new Error(`bridge-mailbox: ${name} must be a positive finite number`);
   }
   return value;
 }

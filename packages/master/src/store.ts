@@ -35,6 +35,7 @@ import type {
   Policy,
   Reason,
   ReportKind,
+  SessionSpec,
   Strength,
   Thread,
   Ticket,
@@ -150,7 +151,8 @@ CREATE TABLE IF NOT EXISTS assignments (
   state TEXT NOT NULL,
   operation_id TEXT NOT NULL,
   started_at TEXT,
-  ended_at TEXT
+  ended_at TEXT,
+  session_json TEXT
 );
 CREATE INDEX IF NOT EXISTS assignments_ticket ON assignments (ticket);
 
@@ -283,6 +285,7 @@ export class SqliteStore implements Repositories, ReceiptSink, WorkerRegistry {
     this.db.exec("PRAGMA synchronous = NORMAL");
     this.db.exec("PRAGMA busy_timeout = 5000");
     this.db.exec(SCHEMA);
+    this.migrateSchema();
 
     this.threads = this.mapped(
       "threads",
@@ -374,6 +377,7 @@ export class SqliteStore implements Repositories, ReceiptSink, WorkerRegistry {
           pack_digest: value.packDigest,
           state: value.state,
           operation_id: value.operationId,
+          session_json: value.session === undefined ? null : toJson(value.session),
           started_at: value.startedAt === undefined ? null : rfc3339(value.startedAt),
           ended_at: value.endedAt === undefined ? null : rfc3339(value.endedAt),
         });
@@ -399,6 +403,21 @@ export class SqliteStore implements Repositories, ReceiptSink, WorkerRegistry {
 
     if (this.one("SELECT version FROM policy_meta WHERE id = 1") === undefined) {
       this.setPolicy(options.policy ?? DEFAULT_POLICY);
+    }
+  }
+
+  /**
+   * Additive migrations for databases created by older versions. `SCHEMA` only
+   * runs `CREATE TABLE IF NOT EXISTS`, so columns added later need an explicit
+   * `ALTER TABLE`. SQLite has no `ADD COLUMN IF NOT EXISTS`: a duplicate-column
+   * error means the column is already there and is expected; anything else is a
+   * real failure and must surface.
+   */
+  private migrateSchema(): void {
+    try {
+      this.db.exec("ALTER TABLE assignments ADD COLUMN session_json TEXT");
+    } catch (error) {
+      if (!errorMessage(error).includes("duplicate column name")) throw error;
     }
   }
 
@@ -953,6 +972,8 @@ function mapAssignment(row: Row): Assignment {
   if (startedAt !== undefined) value.startedAt = startedAt;
   const endedAt = optionalText(row, "ended_at");
   if (endedAt !== undefined) value.endedAt = endedAt;
+  const session = optionalJsonField<SessionSpec>(row, "session_json");
+  if (session !== undefined) value.session = session;
   return value;
 }
 
@@ -1123,4 +1144,8 @@ function rfc3339(value: string): string {
 
 function corrupt(column: string, expected: string): Error {
   return new Error(`corrupt column ${column}: expected ${expected}`);
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

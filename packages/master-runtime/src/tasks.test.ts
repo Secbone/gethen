@@ -178,6 +178,13 @@ describe("master-runtime tasks", () => {
     await expect(runtime.tasks.steer("assignment-1", "go")).rejects.toMatchObject({
       code: "RUNTIME_COMMS_UNAVAILABLE",
     });
+    expect(() => runtime.tasks.events("assignment-1")).toThrow(/RUNTIME_COMMS_UNAVAILABLE/);
+    await expect(runtime.tasks.sessions()).rejects.toMatchObject({
+      code: "RUNTIME_COMMS_UNAVAILABLE",
+    });
+    await expect(runtime.tasks.sessionHistory("session-1")).rejects.toMatchObject({
+      code: "RUNTIME_COMMS_UNAVAILABLE",
+    });
   });
 
   it("asks the worker for live state through gethen.task.status", async () => {
@@ -278,6 +285,124 @@ describe("master-runtime tasks", () => {
     expect(harness.runtime.tasks.state("assignment-1")).toMatchObject({ phase: "done" });
   });
 
+  it("caches task events from progress reports and serves pages", async () => {
+    const harness = await startHarness();
+    const link = await attachWorker(harness);
+    const launch = harness.runtime.bridge?.launchPort.launch(launchRequest());
+    if (launch === undefined) throw new Error("expected a mailbox bridge");
+
+    const assign = await receiveOne(link);
+    await link.ack([assign.envelope.id]);
+    for (const text of ["first", "second"]) {
+      await link.send(
+        newEnvelope({
+          source: `agent:${WORKER}`,
+          type: "gethen.task.progress",
+          subject: "assignment-1",
+          time: AT,
+          data: {
+            assignmentId: "assignment-1",
+            event: { type: "message", at: AT, data: { text } },
+          },
+          correlationId: "assignment-1",
+          to: MASTER_MAILBOX,
+        }),
+      );
+    }
+    await link.send(
+      newEnvelope({
+        source: `agent:${WORKER}`,
+        type: "gethen.task.result",
+        subject: "assignment-1",
+        time: AT,
+        data: { assignmentId: "assignment-1", kind: "ready", summary: "done" },
+        correlationId: "assignment-1",
+        to: MASTER_MAILBOX,
+      }),
+    );
+    await expect(launch).resolves.toMatchObject({ report: { kind: "ready" } });
+
+    const deadline = Date.now() + 3_000;
+    while (harness.runtime.tasks.eventCount("assignment-1") < 3) {
+      if (Date.now() > deadline) throw new Error("timed out waiting for cached events");
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(harness.runtime.tasks.eventCount("assignment-1")).toBe(3);
+    expect(harness.runtime.tasks.eventDropped("assignment-1")).toBe(0);
+    expect(harness.runtime.tasks.events("assignment-1").map((event) => event.seq)).toEqual([
+      1, 2, 3,
+    ]);
+    expect(
+      harness.runtime.tasks.events("assignment-1", { type: "message" }).map((event) => event.type),
+    ).toEqual(["message", "message"]);
+    expect(
+      harness.runtime.tasks.events("assignment-1", { limit: 1 }).map((event) => event.seq),
+    ).toEqual([3]);
+    expect(
+      harness.runtime.tasks.events("assignment-1", { afterSeq: 1 }).map((event) => event.seq),
+    ).toEqual([2, 3]);
+    expect(harness.runtime.tasks.events("assignment-unknown")).toEqual([]);
+  });
+
+  it("asks the worker for its session directory and history", async () => {
+    const harness = await startHarness();
+    const link = await attachWorker(harness);
+
+    const sessions = harness.runtime.tasks.sessions({ timeoutMs: 3_000 });
+    const listRequest = await receiveOne(link);
+    expect(listRequest.envelope).toMatchObject({
+      type: "gethen.session.list",
+      to: WORKER_MAILBOX,
+    });
+    await link.ack([listRequest.envelope.id]);
+    await link.send(
+      newEnvelope({
+        source: `agent:${WORKER}`,
+        type: "gethen.session.list.result",
+        time: AT,
+        data: {
+          sessions: [{ sessionId: "session-1", key: "project-a", state: "idle", eventCount: 4 }],
+        },
+        correlationId: listRequest.envelope.id,
+        to: listRequest.envelope.replyTo ?? MASTER_MAILBOX,
+      }),
+    );
+    await expect(sessions).resolves.toEqual([
+      { sessionId: "session-1", key: "project-a", state: "idle", eventCount: 4 },
+    ]);
+
+    const history = harness.runtime.tasks.sessionHistory("session-1", {
+      limit: 5,
+      afterSeq: 0,
+      timeoutMs: 3_000,
+    });
+    const historyRequest = await receiveOne(link);
+    expect(historyRequest.envelope).toMatchObject({
+      type: "gethen.session.history",
+      data: { sessionId: "session-1", limit: 5, afterSeq: 0 },
+    });
+    await link.ack([historyRequest.envelope.id]);
+    await link.send(
+      newEnvelope({
+        source: `agent:${WORKER}`,
+        type: "gethen.session.history.result",
+        time: AT,
+        data: {
+          sessionId: "session-1",
+          at: AT,
+          events: [{ seq: 0, type: "message", at: AT, data: { text: "hi" } }],
+        },
+        correlationId: historyRequest.envelope.id,
+        to: historyRequest.envelope.replyTo ?? MASTER_MAILBOX,
+      }),
+    );
+    await expect(history).resolves.toMatchObject({
+      sessionId: "session-1",
+      at: AT,
+      events: [{ seq: 0, type: "message", at: AT, data: { text: "hi" } }],
+    });
+  });
+
   it("rejects task control after the runtime closed", async () => {
     const harness = await startHarness({ withServer: false });
     await harness.runtime.close();
@@ -287,6 +412,13 @@ describe("master-runtime tasks", () => {
       code: "RUNTIME_CLOSED",
     });
     await expect(harness.runtime.tasks.cancel("assignment-1")).rejects.toMatchObject({
+      code: "RUNTIME_CLOSED",
+    });
+    expect(() => harness.runtime.tasks.events("assignment-1")).toThrow(/RUNTIME_CLOSED/);
+    await expect(harness.runtime.tasks.sessions()).rejects.toMatchObject({
+      code: "RUNTIME_CLOSED",
+    });
+    await expect(harness.runtime.tasks.sessionHistory("session-1")).rejects.toMatchObject({
       code: "RUNTIME_CLOSED",
     });
   });
