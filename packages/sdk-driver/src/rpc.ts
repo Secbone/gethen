@@ -108,7 +108,8 @@ export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 interface PendingRequest {
   readonly resolve: (value: unknown) => void;
   readonly reject: (error: Error) => void;
-  timer: NodeJS.Timeout | undefined;
+  /** Clears the timeout and detaches the abort listener. */
+  cleanup: () => void;
 }
 
 interface StreamBinding {
@@ -120,6 +121,8 @@ interface StreamBinding {
 export interface JsonRpcRequestOptions {
   /** Override the peer's default timeout for this request; `0` disables it. */
   timeoutMs?: number;
+  /** Abandon the request; it rejects and its pending entry is removed. */
+  signal?: AbortSignal;
 }
 
 /**
@@ -187,28 +190,50 @@ export class JsonRpcPeer {
     this.nextId += 1;
     const timeoutMs = options.timeoutMs ?? this.defaultTimeoutMs;
     const key = String(id);
+    const signal = options.signal;
+    if (signal?.aborted) return Promise.reject(abortReason(signal));
 
     return new Promise<T>((resolve, reject) => {
       let timer: NodeJS.Timeout | undefined;
+      let onAbort: (() => void) | undefined;
+      const cleanup = (): void => {
+        if (timer !== undefined) {
+          clearTimeout(timer);
+          timer = undefined;
+        }
+        if (signal !== undefined && onAbort !== undefined) {
+          signal.removeEventListener("abort", onAbort);
+          onAbort = undefined;
+        }
+      };
       if (timeoutMs > 0) {
         timer = setTimeout(() => {
           if (!this.pending.delete(key)) return;
+          cleanup();
           reject(new JsonRpcTimeoutError(method, timeoutMs));
         }, timeoutMs);
         unrefTimer(timer);
+      }
+      if (signal !== undefined) {
+        onAbort = () => {
+          if (!this.pending.delete(key)) return;
+          cleanup();
+          reject(abortReason(signal));
+        };
+        signal.addEventListener("abort", onAbort, { once: true });
       }
       this.pending.set(key, {
         resolve: (value) => {
           resolve(value as T);
         },
         reject,
-        timer,
+        cleanup,
       });
       try {
         this.send(frameForRequest(id, method, params));
       } catch (error) {
         this.pending.delete(key);
-        if (timer !== undefined) clearTimeout(timer);
+        cleanup();
         const failure = toError(error, `failed to write JSON-RPC request "${method}"`);
         this.fail(failure);
         reject(failure);
@@ -247,7 +272,7 @@ export class JsonRpcPeer {
     const pending = [...this.pending.values()];
     this.pending.clear();
     for (const request of pending) {
-      if (request.timer !== undefined) clearTimeout(request.timer);
+      request.cleanup();
       request.reject(error);
     }
   }
@@ -306,7 +331,7 @@ export class JsonRpcPeer {
     const pending = this.pending.get(String(id));
     if (pending === undefined) return; // Late or unknown responses are ignored.
     this.pending.delete(String(id));
-    if (pending.timer !== undefined) clearTimeout(pending.timer);
+    pending.cleanup();
 
     const error = frame.error;
     if (isRecord(error)) {
@@ -375,6 +400,15 @@ export function chunkToText(chunk: unknown): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Rejection used when a request's AbortSignal fires. */
+function abortReason(signal: AbortSignal): Error {
+  const reason = signal.reason;
+  if (reason instanceof Error) return reason;
+  const error = new Error("JSON-RPC request aborted");
+  error.name = "AbortError";
+  return error;
 }
 
 function toError(error: unknown, fallback: string): Error {

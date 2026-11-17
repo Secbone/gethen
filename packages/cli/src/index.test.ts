@@ -25,6 +25,7 @@ it.each([["help"], ["-h"], ["--help"]])("prints usage for %s", async (command: s
   expect(output).toContain("gethen worker");
   expect(output).toContain("gethen run");
   expect(output).toContain("gethen status");
+  expect(output).toContain("gethen task");
   expect(output).toContain("gethen doctor");
   expect(output).toContain("gethen help");
   expect(output).not.toContain("bench");

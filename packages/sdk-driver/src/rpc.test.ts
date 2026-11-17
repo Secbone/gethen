@@ -186,4 +186,37 @@ describe("JsonRpcPeer", () => {
     await expect(second).rejects.toThrow(/EPIPE/);
     expect(peer.isClosed).toBe(true);
   });
+
+  it("aborts a pending request and ignores its late response", async () => {
+    const { input, peer } = pair();
+    const controller = new AbortController();
+    const pending = peer.request(
+      "session/wait",
+      { sessionId: "s1" },
+      {
+        signal: controller.signal,
+      },
+    );
+    expect(peer.pendingCount).toBe(1);
+
+    const rejection = expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    controller.abort();
+    await rejection;
+    expect(peer.pendingCount).toBe(0);
+
+    input.emit("data", `${JSON.stringify({ jsonrpc: "2.0", id: 1, result: {} })}\n`);
+    expect(peer.pendingCount).toBe(0);
+    peer.close();
+  });
+
+  it("rejects immediately when the signal is already aborted", async () => {
+    const { peer } = pair();
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      peer.request("session/wait", { sessionId: "s1" }, { signal: controller.signal }),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(peer.pendingCount).toBe(0);
+    peer.close();
+  });
 });

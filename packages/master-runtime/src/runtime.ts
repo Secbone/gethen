@@ -25,6 +25,7 @@ import {
   DEFAULT_MAILBOX_PREFIX,
   MASTER_MAILBOX,
   type MailboxLaunchBridge,
+  type TaskState,
 } from "@gethen/bridge-mailbox";
 import { MailboxClient, SqliteMailboxStore } from "@gethen/mailbox";
 import { createMailboxServerLink, type MailboxServerLink } from "@gethen/mailbox-link";
@@ -43,6 +44,9 @@ import {
   type TokenRecord,
   type WsTransportServer,
 } from "@gethen/transport";
+
+/** Live task state as reported by a Worker (re-exported from bridge-mailbox). */
+export type { TaskState };
 
 /** Pack digest recorded when the engine has none (no real pack pinning yet). */
 export const DEFAULT_PACK_DIGEST = "sha256:local-unpinned";
@@ -74,6 +78,38 @@ export type UpgradeHandler = (request: IncomingMessage, socket: Duplex, head: Bu
 
 /** A token lookup: what `@gethen/transport`'s token store or a durable host implements. */
 export type TokenVerifier = (token: string) => Promise<{ workerId: string } | undefined>;
+
+/** Stable failure codes for the runtime task-control surface. */
+export type MasterRuntimeErrorCode = "RUNTIME_CLOSED" | "RUNTIME_COMMS_UNAVAILABLE";
+
+/** A task-control failure with a stable code. */
+export class MasterRuntimeError extends Error {
+  readonly code: MasterRuntimeErrorCode;
+
+  constructor(code: MasterRuntimeErrorCode, message: string) {
+    super(`${code}: ${message}`);
+    this.name = "MasterRuntimeError";
+    this.code = code;
+  }
+}
+
+/**
+ * Live task state/control over the mailbox bridge (single-worker C3).
+ * Only available when the runtime assembled the mailbox transport; the
+ * fake-launch mode has no worker to ask.
+ */
+export interface MasterRuntimeTasks {
+  /** Last known state of every assignment the bridge has seen. */
+  states(): Record<string, TaskState>;
+  /** Last known state of one assignment, without asking the Worker. */
+  state(assignmentId: string): TaskState | undefined;
+  /** Ask the Worker for its live state; `null` when it has none. */
+  status(assignmentId: string, options?: { timeoutMs?: number }): Promise<TaskState | null>;
+  /** Send `gethen.task.steer` to the running assignment. */
+  steer(assignmentId: string, text: string): Promise<void>;
+  /** Send `gethen.task.cancel` to the running assignment. */
+  cancel(assignmentId: string, reason?: string): Promise<void>;
+}
 
 export interface MasterRuntimeOptions {
   /** SQLite file for tickets, effects, receipts, escalations and policy. */
@@ -128,6 +164,8 @@ export interface MasterRuntime {
   /** Mailbox launch bridge; `undefined` when no credentials are configured. */
   readonly bridge: MailboxLaunchBridge | undefined;
   readonly launch: LaunchMode;
+  /** Live task state/control; fake mode reports `RUNTIME_COMMS_UNAVAILABLE`. */
+  readonly tasks: MasterRuntimeTasks;
   /** Forward the host server's worker upgrade here; `undefined` in fake mode. */
   readonly handleUpgrade: UpgradeHandler | undefined;
   health(): MasterRuntimeHealth;
@@ -293,6 +331,34 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
     };
   }
 
+  /** The bridge task control needs; throws a coded error when unavailable. */
+  function taskBridge(): MailboxLaunchBridge {
+    if (closed) {
+      throw new MasterRuntimeError("RUNTIME_CLOSED", "master runtime is closed");
+    }
+    if (mailboxBridge === undefined) {
+      throw new MasterRuntimeError(
+        "RUNTIME_COMMS_UNAVAILABLE",
+        "task state/control requires the mailbox transport (configure worker tokens)",
+      );
+    }
+    return mailboxBridge;
+  }
+
+  const tasks: MasterRuntimeTasks = {
+    states: () => taskBridge().taskStates(),
+    state: (assignmentId) => taskBridge().taskState(assignmentId),
+    // Async wrappers: an unavailable/closed runtime must reject the promise
+    // rather than throw synchronously from a `Promise`-returning method.
+    status: async (assignmentId, options) => taskBridge().requestStatus(assignmentId, options),
+    steer: async (assignmentId, text) => {
+      await taskBridge().steer(assignmentId, text);
+    },
+    cancel: async (assignmentId, reason) => {
+      await taskBridge().cancel(assignmentId, reason);
+    },
+  };
+
   async function close(): Promise<void> {
     if (closed) return;
     closed = true;
@@ -314,6 +380,7 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
     service,
     bridge: mailboxBridge,
     launch: mailboxBridge === undefined ? "fake" : "ws",
+    tasks,
     handleUpgrade,
     health,
     close,

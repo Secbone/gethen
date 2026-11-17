@@ -26,11 +26,11 @@ export interface RunOptions {
 }
 
 /**
- * Resolve a master URL to its run endpoint. Accepts an origin
- * (`http://127.0.0.1:8080`), an origin with a base path, or the full
- * `/gethen/run` URL.
+ * Validate a `--master` URL and return its origin + base path without a
+ * trailing slash (`http://127.0.0.1:8080`, `https://host/api`). Query strings
+ * and fragments are dropped: they belong to the route, not the master.
  */
-export function runEndpoint(master: string): string {
+export function masterBaseUrl(master: string): string {
   let url: URL;
   try {
     url = new URL(master);
@@ -40,11 +40,26 @@ export function runEndpoint(master: string): string {
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     throw new Error(`--master must be an http(s) URL, got "${url.protocol}"`);
   }
-  const path = url.pathname.replace(/\/+$/, "");
-  url.pathname = path.endsWith("/gethen/run") ? path : `${path}/gethen/run`;
   url.search = "";
   url.hash = "";
-  return url.toString();
+  url.pathname = url.pathname.replace(/\/+$/, "");
+  const base = url.toString();
+  return base.endsWith("/") ? base.slice(0, -1) : base;
+}
+
+/** Join a checked master URL with a route path (e.g. `/gethen/tasks`). */
+export function masterEndpoint(master: string, path: string): string {
+  return `${masterBaseUrl(master)}${path.startsWith("/") ? path : `/${path}`}`;
+}
+
+/**
+ * Resolve a master URL to its run endpoint. Accepts an origin
+ * (`http://127.0.0.1:8080`), an origin with a base path, or the full
+ * `/gethen/run` URL.
+ */
+export function runEndpoint(master: string): string {
+  const base = masterBaseUrl(master);
+  return base.endsWith("/gethen/run") ? base : `${base}/gethen/run`;
 }
 
 /** Parse `gethen run --master <url> "<text>"|--text <text> [--json]`. */

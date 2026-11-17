@@ -7,7 +7,7 @@ import type {
   MasterService,
   Trigger,
 } from "@gethen/master";
-import { createMasterRuntime } from "@gethen/master-runtime";
+import { createMasterRuntime, type MasterRuntime } from "@gethen/master-runtime";
 import type { TokenRecord } from "@gethen/transport";
 import { defaultMasterDbPath } from "../paths";
 
@@ -57,6 +57,8 @@ export interface ServeHandle {
   port: number;
   /** `"ws"` when the mailbox transport stack is attached, else the fake launch. */
   launch: "ws" | "fake";
+  /** The assembled runtime (task state/control, bridge, service). */
+  runtime: MasterRuntime;
   close(): Promise<void>;
 }
 
@@ -163,7 +165,8 @@ export async function startServe(config: ServeConfig = {}): Promise<ServeHandle>
 
   const server = createServer((request, response) => {
     void (async () => {
-      const { pathname } = new URL(request.url ?? "/", "http://localhost");
+      const url = new URL(request.url ?? "/", "http://localhost");
+      const { pathname } = url;
       try {
         if (request.method === "GET" && pathname === "/health") {
           send(response, 200, {
@@ -187,6 +190,10 @@ export async function startServe(config: ServeConfig = {}): Promise<ServeHandle>
               ? service.store.listReceipts().some((row) => row.ticket === ticket.id)
               : false,
           });
+          return;
+        }
+        if (pathname === "/gethen/tasks" || pathname.startsWith("/gethen/tasks/")) {
+          await handleTaskRoutes(runtime, request, response, pathname, url.searchParams);
           return;
         }
         send(response, 404, { error: "not found" });
@@ -222,6 +229,7 @@ export async function startServe(config: ServeConfig = {}): Promise<ServeHandle>
     service,
     port,
     launch: runtime.launch,
+    runtime,
     async close() {
       if (closed) return;
       closed = true;
@@ -231,6 +239,127 @@ export async function startServe(config: ServeConfig = {}): Promise<ServeHandle>
       await runtime.close();
     },
   };
+}
+
+const TASK_ROUTE = /^\/gethen\/tasks(?:\/([^/]+))?(?:\/(steer|cancel))?$/;
+
+/**
+ * `GET /gethen/tasks`, `GET /gethen/tasks/:id`,
+ * `POST /gethen/tasks/:id/steer`, `POST /gethen/tasks/:id/cancel`.
+ * Errors are JSON with the runtime/bridge error code; status queries map an
+ * unanswered worker to 504 and an unknown assignment to 404.
+ */
+async function handleTaskRoutes(
+  runtime: MasterRuntime,
+  request: IncomingMessage,
+  response: ServerResponse,
+  pathname: string,
+  search: URLSearchParams,
+): Promise<void> {
+  const match = TASK_ROUTE.exec(pathname);
+  if (match === null) {
+    send(response, 404, { error: "not found" });
+    return;
+  }
+
+  let timeoutMs: number | undefined;
+  try {
+    timeoutMs = optionalTimeout(search);
+  } catch (error) {
+    send(response, 400, { error: messageOf(error) });
+    return;
+  }
+
+  const encodedId = match[1];
+  const action = match[2];
+  try {
+    const assignmentId = encodedId === undefined ? undefined : decodeURIComponent(encodedId);
+    if (assignmentId === undefined) {
+      if (request.method !== "GET") {
+        send(response, 405, { error: "method not allowed" });
+        return;
+      }
+      send(response, 200, { tasks: runtime.tasks.states() });
+      return;
+    }
+    if (action === undefined) {
+      if (request.method !== "GET") {
+        send(response, 405, { error: "method not allowed" });
+        return;
+      }
+      const known = runtime.tasks.state(assignmentId);
+      if (known !== undefined) {
+        send(response, 200, { assignmentId, state: known });
+        return;
+      }
+      const state = await runtime.tasks.status(
+        assignmentId,
+        timeoutMs === undefined ? {} : { timeoutMs },
+      );
+      if (state === null) {
+        send(response, 404, { error: `unknown task "${assignmentId}"` });
+        return;
+      }
+      send(response, 200, { assignmentId, state });
+      return;
+    }
+    if (request.method !== "POST") {
+      send(response, 405, { error: "method not allowed" });
+      return;
+    }
+    if (action === "steer") {
+      const body = await readJson(request);
+      const message = typeof body.text === "string" ? body.text.trim() : "";
+      if (message.length === 0) {
+        send(response, 400, { error: "steer needs a non-empty text" });
+        return;
+      }
+      await runtime.tasks.steer(assignmentId, message);
+      send(response, 202, { ok: true, assignmentId, action: "steer" });
+      return;
+    }
+    const body = await readJson(request);
+    const reason =
+      typeof body.reason === "string" && body.reason.length > 0 ? body.reason : undefined;
+    await runtime.tasks.cancel(assignmentId, reason);
+    send(response, 202, { ok: true, assignmentId, action: "cancel" });
+  } catch (error) {
+    const code = taskErrorCode(error);
+    send(response, taskErrorStatus(code), {
+      error: messageOf(error),
+      ...(code === undefined ? {} : { code }),
+    });
+  }
+}
+
+function taskErrorCode(error: unknown): string | undefined {
+  if (typeof error !== "object" || error === null) return undefined;
+  const code = (error as { code?: unknown }).code;
+  return typeof code === "string" ? code : undefined;
+}
+
+function taskErrorStatus(code: string | undefined): number {
+  switch (code) {
+    case "RUNTIME_COMMS_UNAVAILABLE":
+      return 409;
+    case "RUNTIME_CLOSED":
+    case "MAILBOX_CLOSED":
+      return 503;
+    case "MAILBOX_STATUS_TIMEOUT":
+      return 504;
+    default:
+      return 500;
+  }
+}
+
+function optionalTimeout(search: URLSearchParams): number | undefined {
+  const raw = search.get("timeoutMs");
+  if (raw === null) return undefined;
+  const parsed = Number(raw);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    throw new Error("timeoutMs must be a positive integer");
+  }
+  return parsed;
 }
 
 /**

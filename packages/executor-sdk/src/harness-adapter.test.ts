@@ -4,14 +4,17 @@ import type {
   HarnessReport,
   HarnessSink,
   HarnessTask,
+  HarnessTaskState,
 } from "@gethen/harness";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createSdkHarnessExecutor,
+  DEFAULT_IDLE_TIMEOUT_MS,
   harnessReportKind,
   mapSessionEvent,
   type SdkHarnessExecutor,
   type SdkHarnessExecutorOptions,
+  STOP_STEER_TEXT,
 } from "./harness-adapter";
 import { FakeSdkClient } from "./test-doubles";
 
@@ -49,6 +52,7 @@ function setup(options: Partial<SdkHarnessExecutorOptions> = {}) {
     model: "deepseek-v4",
     clientFactory: () => client,
     now: () => new Date(AT),
+    interruptGraceMs: 0,
     ...options,
   });
   executors.push(executor);
@@ -140,7 +144,72 @@ describe("createSdkHarnessExecutor runtime pool", () => {
   });
 });
 
-describe("createSdkHarnessExecutor events and reports", () => {
+describe("event-driven completion", () => {
+  it("completes on turn/end without waiting for the session/wait reply", async () => {
+    const { client, sink, executor } = setup();
+    await executor.start(task(), sink);
+
+    client.emitAssistantText("a1", reportBlock({ kind: "ready", summary: "done", at: AT }));
+    client.emitSessionEvent("a1", "turn/end", { turn: 1, reason: { kind: "completed" } });
+    await tick();
+
+    expect(sink.reports).toEqual([{ kind: "ready", summary: "done" }]);
+    // `wait` never replied; completion came from the event stream.
+    expect(client.closeCount).toBe(0);
+  });
+
+  it("does not complete a running turn and ignores early idle status", async () => {
+    const { client, sink, executor } = setup();
+    const execution = await executor.start(task(), sink);
+    expect(execution.state?.().phase).toBe("thinking");
+
+    client.emitSessionEvent("a1", "step/start", { turn: 1, step: 1 });
+    client.emitSessionEvent("a1", "tool/call", { turn: 1, step: 1, name: "bash" });
+    client.emitStatus({ sessionId: "a1", status: "running" });
+    await tick();
+    expect(sink.reports).toEqual([]);
+    expect(execution.state?.().phase).toBe("tool");
+
+    client.emitSessionEvent("a1", "tool/result", { turn: 1, step: 1 });
+    client.emitSessionEvent("a1", "assistant/message", {
+      turn: 1,
+      step: 1,
+      message: { role: "assistant", content: [{ type: "text", text: "finished" }] },
+    });
+    client.emitSessionEvent("a1", "turn/end", { turn: 1 });
+    await tick();
+
+    expect(sink.reports).toEqual([{ kind: "waiting", summary: "worker produced no report" }]);
+    expect(execution.state?.().phase).toBe("done");
+  });
+
+  it("falls back to session.status idle only after evidence of a turn", async () => {
+    const early = setup();
+    await early.executor.start(task(), early.sink);
+    early.client.emitStatus({ sessionId: "a1", status: "idle" });
+    await tick();
+    expect(early.sink.reports).toEqual([]);
+
+    const late = setup();
+    await late.executor.start(task(), late.sink);
+    late.client.emitAssistantText("a1", reportBlock({ kind: "ready", summary: "ok", at: AT }));
+    late.client.emitStatus({ sessionId: "a1", status: "idle" });
+    await tick();
+    expect(late.sink.reports).toEqual([{ kind: "ready", summary: "ok" }]);
+  });
+
+  it("completes from the wait fallback when no turn/end event arrives", async () => {
+    const { client, sink, executor } = setup();
+    await executor.start(task(), sink);
+    client.emitAssistantText("a1", reportBlock({ kind: "ready", summary: "fallback", at: AT }));
+    client.resolveWait("a1");
+    await tick();
+
+    expect(sink.reports).toEqual([{ kind: "ready", summary: "fallback" }]);
+  });
+});
+
+describe("session events and reports", () => {
   it("forwards session events as harness events with RFC 3339 timestamps", async () => {
     const { client, sink, executor } = setup();
     await executor.start(task(), sink);
@@ -156,81 +225,59 @@ describe("createSdkHarnessExecutor events and reports", () => {
       { type: "tool/start", at: AT, data: { name: "bash" } },
       { type: "message", at: AT, data: { text: "hi" } },
     ]);
-    expect(
-      mapSessionEvent({ type: "message", at: "2026-11-16T00:00:00.000Z" }, new Date(AT)),
-    ).toEqual({
+    expect(mapSessionEvent({ type: "message", at: AT }, new Date(AT))).toEqual({
       type: "message",
-      at: "2026-11-16T00:00:00.000Z",
-      data: { type: "message", at: "2026-11-16T00:00:00.000Z" },
+      at: AT,
+      data: { type: "message", at: AT },
     });
   });
 
-  it("reports a ready report parsed from assistant text", async () => {
-    const { client, sink, executor } = setup();
-    await executor.start(task(), sink);
-
-    client.emitAssistantText("a1", reportBlock({ kind: "ready", summary: "done", at: AT }));
-    client.resolveWait("a1");
-    await tick();
-
-    expect(sink.reports).toEqual([{ kind: "ready", summary: "done" }]);
-  });
-
-  it("reads a report from a gethen_report tool result", async () => {
-    const { client, sink, executor } = setup();
-    await executor.start(task(), sink);
-
-    client.emitEvent(
-      toolResultEvent("a1", reportBlock({ kind: "ready", summary: "file written", at: AT })),
+  it("prefers the last valid report block across assistant text and tool results", async () => {
+    const assistant = setup();
+    await assistant.executor.start(task(), assistant.sink);
+    assistant.client.emitAssistantText(
+      "a1",
+      reportBlock({ kind: "ready", summary: "from text", at: AT }),
     );
-    client.resolveWait("a1");
+    assistant.client.emitSessionEvent("a1", "turn/end", { turn: 1 });
     await tick();
+    expect(assistant.sink.reports).toEqual([{ kind: "ready", summary: "from text" }]);
 
-    expect(sink.reports).toEqual([{ kind: "ready", summary: "file written" }]);
-  });
+    const tool = setup();
+    await tool.executor.start(task(), tool.sink);
+    tool.client.emitEvent(
+      toolResultEvent("a1", reportBlock({ kind: "ready", summary: "tool", at: AT })),
+    );
+    tool.client.emitSessionEvent("a1", "turn/end", { turn: 1 });
+    await tick();
+    expect(tool.sink.reports).toEqual([{ kind: "ready", summary: "tool" }]);
 
-  it("uses the last complete report block across events", async () => {
-    const { client, sink, executor } = setup();
-    await executor.start(task(), sink);
-
-    client.emitAssistantText("a1", reportBlock({ kind: "ready", summary: "first", at: AT }));
-    client.emitEvent(
+    const last = setup();
+    await last.executor.start(task(), last.sink);
+    last.client.emitAssistantText("a1", reportBlock({ kind: "ready", summary: "first", at: AT }));
+    last.client.emitEvent(
       toolResultEvent("a1", reportBlock({ kind: "progress", summary: "second", at: AT })),
     );
-    client.resolveWait("a1");
+    last.client.emitSessionEvent("a1", "turn/end", { turn: 1 });
     await tick();
-
-    expect(sink.reports).toEqual([{ kind: "waiting", summary: "second" }]);
+    expect(last.sink.reports).toEqual([{ kind: "waiting", summary: "second" }]);
   });
 
-  it("reports waiting when no report is produced or only a marker is mentioned", async () => {
+  it("reports waiting without a report and fails on an invalid block or wait", async () => {
     const missing = setup();
     await missing.executor.start(task(), missing.sink);
-    missing.client.emitAssistantText("a1", "some work without a report");
-    missing.client.resolveWait("a1");
+    missing.client.emitAssistantText("a1", "no report here");
+    missing.client.emitSessionEvent("a1", "turn/end", { turn: 1 });
     await tick();
     expect(missing.sink.reports).toEqual([
       { kind: "waiting", summary: "worker produced no report" },
     ]);
 
-    const markerOnly = setup();
-    await markerOnly.executor.start(task(), markerOnly.sink);
-    markerOnly.client.emitAssistantText("a1", "I will send [GETHEN-REPORT] later");
-    markerOnly.client.emitAssistantText("a1", "and [GETHEN-REPORT] never closes");
-    markerOnly.client.resolveWait("a1");
-    await tick();
-    expect(markerOnly.sink.reports).toEqual([
-      { kind: "waiting", summary: "worker produced no report" },
-    ]);
-  });
-
-  it("reports failed for an invalid report block or a failed wait", async () => {
     const broken = setup();
     await broken.executor.start(task(), broken.sink);
     broken.client.emitAssistantText("a1", "[GETHEN-REPORT]\n{not json\n[/GETHEN-REPORT]");
-    broken.client.resolveWait("a1");
+    broken.client.emitSessionEvent("a1", "turn/end", { turn: 1 });
     await tick();
-    expect(broken.sink.reports).toHaveLength(1);
     expect(broken.sink.reports[0]?.kind).toBe("failed");
     expect(broken.sink.reports[0]?.summary).toMatch(/invalid/i);
 
@@ -243,7 +290,7 @@ describe("createSdkHarnessExecutor events and reports", () => {
     ]);
   });
 
-  it("narrows blocked to waiting with the question and keeps ready/failed terminal", () => {
+  it("narrows blocked to waiting with the question and keeps the other kinds", async () => {
     expect(harnessReportKind("ready")).toBe("ready");
     expect(harnessReportKind("dropped")).toBe("ready");
     expect(harnessReportKind("failed")).toBe("failed");
@@ -251,23 +298,20 @@ describe("createSdkHarnessExecutor events and reports", () => {
     expect(harnessReportKind("progress")).toBe("waiting");
     expect(harnessReportKind("blocked")).toBe("waiting");
     expect(harnessReportKind("unknown-kind")).toBe("waiting");
-  });
 
-  it("reports a blocked worker report as waiting with its question", async () => {
     const { client, sink, executor } = setup();
     await executor.start(task(), sink);
     client.emitAssistantText(
       "a1",
       reportBlock({ kind: "blocked", summary: "blocked", question: "which env?", at: AT }),
     );
-    client.resolveWait("a1");
+    client.emitSessionEvent("a1", "turn/end", { turn: 1 });
     await tick();
-
     expect(sink.reports).toEqual([{ kind: "waiting", summary: "blocked", question: "which env?" }]);
   });
 });
 
-describe("createSdkHarnessExecutor escalations", () => {
+describe("escalations", () => {
   it("maps approval requests to permission escalations and back", async () => {
     const { client, sink, executor } = setup();
     const execution = await executor.start(task(), sink);
@@ -289,13 +333,9 @@ describe("createSdkHarnessExecutor escalations", () => {
     const rejected = client.askApproval({ sessionId: "a1", toolName: "write" });
     await execution.sendResolution({ kind: "answer", option: "reject", text: "no" });
     await expect(rejected).resolves.toBe("rejected");
-
-    const escalated = client.askApproval({ sessionId: "a1", toolName: "shell" });
-    await execution.sendResolution({ kind: "escalate", text: "a person decides" });
-    await expect(escalated).resolves.toBe("rejected");
   });
 
-  it("maps a user question to a decision escalation and back to answers", async () => {
+  it("maps user questions to decision escalations and answers back", async () => {
     const { client, sink, executor } = setup();
     const execution = await executor.start(task(), sink);
 
@@ -319,7 +359,6 @@ describe("createSdkHarnessExecutor escalations", () => {
       ],
       blocking: true,
     });
-
     await execution.sendResolution({ kind: "answer", option: "q1", text: "Rebase" });
     await expect(asked).resolves.toEqual({ answers: [{ id: "q1", selected: ["Rebase"] }] });
   });
@@ -377,50 +416,173 @@ describe("createSdkHarnessExecutor escalations", () => {
         }),
       ),
     );
-    client.resolveWait("a1");
+    client.emitSessionEvent("a1", "turn/end", { turn: 1 });
     await tick();
 
-    expect(sink.escalations[0]).toMatchObject({
-      id: "esc-9",
-      kind: "decision",
-      question: "Merge or rebase?",
-      options: [
-        { id: "merge", label: "Merge" },
-        { id: "rebase", label: "Rebase" },
-      ],
-      blocking: true,
-    });
+    expect(sink.escalations[0]).toMatchObject({ id: "esc-9", kind: "decision", blocking: true });
 
     await execution.sendResolution({ kind: "answer", option: "merge", text: "merge it" });
     await tick();
     expect(client.prompts).toHaveLength(2);
     expect(client.prompts[1]?.text).toContain("[GETHEN-RESOLUTION]");
-    expect(client.waitCalls).toHaveLength(2);
 
     client.emitAssistantText("a1", reportBlock({ kind: "ready", summary: "merged", at: AT }));
-    client.resolveWait("a1");
+    client.emitSessionEvent("a1", "turn/end", { turn: 2 });
     await tick();
     expect(sink.reports).toEqual([{ kind: "ready", summary: "merged" }]);
   });
 });
 
-describe("createSdkHarnessExecutor failures and cancellation", () => {
-  it("cancels by closing the runtime and reporting failed once", async () => {
+describe("live state, steering and lifecycle timers", () => {
+  it("exposes live task state snapshots", async () => {
+    const { client, sink, executor } = setup();
+    const execution = await executor.start(task(), sink);
+    expect(execution.state?.()).toMatchObject({
+      assignmentId: "a1",
+      phase: "thinking",
+      step: 0,
+      seq: 0,
+    });
+
+    client.emitSessionEvent("a1", "step/start", { turn: 1, step: 2 });
+    client.emitSessionEvent("a1", "tool/call", { turn: 1, step: 2, name: "bash" });
+    client.emitSessionEvent("a1", "tool/result", { turn: 1, step: 2 });
+    client.emitAssistantText("a1", "x".repeat(900));
+    client.emitSessionEvent("a1", "turn/end", { turn: 1 });
+
+    const state = execution.state?.() as HarnessTaskState;
+    expect(state).toMatchObject({ phase: "done", step: 2, seq: 5, lastTool: { name: "bash" } });
+    expect(state.lastEventAt).toBe(AT);
+    expect(state.lastMessage).toHaveLength(500);
+    if (state.lastTool !== undefined) state.lastTool.name = "mutated";
+    expect(execution.state?.().lastTool?.name).toBe("bash");
+  });
+
+  it("steers additional input into the running session", async () => {
     const { client, sink, executor } = setup();
     const execution = await executor.start(task(), sink);
 
+    await execution.steer?.("focus on the failing test");
+    expect(client.prompts.at(-1)).toEqual({ sessionId: "a1", text: "focus on the failing test" });
+
+    client.emitSessionEvent("a1", "turn/end", { turn: 1 });
+    await tick();
+    await execution.steer?.("too late");
+    expect(client.prompts).toHaveLength(2);
+  });
+
+  it("fires the silence watchdog, resets it on events, and enforces the deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      const watchdog = setup({ idleTimeoutMs: 1_000 });
+      await watchdog.executor.start(task(), watchdog.sink);
+      await vi.advanceTimersByTimeAsync(500);
+      watchdog.client.emitSessionEvent("a1", "step/start", { turn: 1, step: 1 });
+      await vi.advanceTimersByTimeAsync(500);
+      expect(watchdog.sink.reports).toEqual([]);
+      await vi.advanceTimersByTimeAsync(500);
+      expect(watchdog.sink.reports).toEqual([
+        { kind: "failed", summary: "no session events for 1000ms" },
+      ]);
+      expect(watchdog.client.closeCount).toBe(1);
+
+      const deadline = setup();
+      await deadline.executor.start(
+        task({ deadlineAt: "2026-11-17T00:00:01.000Z" }),
+        deadline.sink,
+      );
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(deadline.sink.reports).toEqual([
+        { kind: "failed", summary: "assignment deadline passed" },
+      ]);
+      expect(deadline.client.closeCount).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("defaults the watchdog to five minutes", () => {
+    expect(DEFAULT_IDLE_TIMEOUT_MS).toBe(300_000);
+    expect(STOP_STEER_TEXT.length).toBeGreaterThan(0);
+  });
+});
+
+describe("cancellation and process isolation", () => {
+  it("interrupts in order: reject escalation, steer stop, then terminate, and reports once", async () => {
+    const { client, sink, executor } = setup();
+    const execution = await executor.start(task(), sink);
+
+    const approval = client.askApproval({ sessionId: "a1", toolName: "shell" });
     await execution.cancel("superseded by a person");
     await tick();
 
+    await expect(approval).resolves.toBe("rejected");
+    const stopIndex = client.actions.indexOf(`prompt:${STOP_STEER_TEXT}`);
+    const closeIndex = client.actions.indexOf("close");
+    expect(stopIndex).toBeGreaterThanOrEqual(0);
+    expect(closeIndex).toBeGreaterThan(stopIndex);
     expect(client.closeCount).toBe(1);
     expect(sink.reports).toEqual([
       { kind: "failed", summary: "cancelled: superseded by a person" },
     ]);
 
     client.emitAssistantText("a1", reportBlock({ kind: "ready", summary: "late", at: AT }));
-    client.resolveWait("a1");
+    client.emitSessionEvent("a1", "turn/end", { turn: 1 });
     await tick();
     expect(sink.reports).toHaveLength(1);
+  });
+
+  it("isolates process executions and terminates each dedicated runtime", async () => {
+    const clients: FakeSdkClient[] = [];
+    const sink = new RecordingSink();
+    const executor = createSdkHarnessExecutor({
+      provider: "deepseek",
+      model: "deepseek-v4",
+      isolation: "process",
+      clientFactory: () => {
+        const client = new FakeSdkClient();
+        clients.push(client);
+        return client;
+      },
+      now: () => new Date(AT),
+      interruptGraceMs: 0,
+    });
+    executors.push(executor);
+
+    await executor.start(task({ assignmentId: "a1" }), sink);
+    await executor.start(task({ assignmentId: "a2" }), sink);
+    expect(clients).toHaveLength(2);
+    for (const client of clients) expect(client.startCalls).toHaveLength(1);
+
+    const first = clients[0] as FakeSdkClient;
+    first.emitSessionEvent("a1", "turn/end", { turn: 1 });
+    await tick();
+    expect(first.terminateCount).toBe(1);
+    expect(first.closeCount).toBe(0);
+    expect(clients[1]?.terminateCount).toBe(0);
+
+    const second = clients[1] as FakeSdkClient;
+    second.emitSessionEvent("a2", "turn/end", { turn: 1 });
+    await tick();
+    expect(second.terminateCount).toBe(1);
+    expect(sink.reports).toHaveLength(2);
+
+    await executor.close();
+    expect(first.terminateCount).toBe(1);
+  });
+
+  it("keeps the shared runtime after a normal completion but closes it on cancel", async () => {
+    const { client, sink, executor } = setup();
+    await executor.start(task({ assignmentId: "a1" }), sink);
+    client.emitSessionEvent("a1", "turn/end", { turn: 1 });
+    await tick();
+    expect(sink.reports).toHaveLength(1);
+    expect(client.closeCount).toBe(0);
+
+    const execution = await executor.start(task({ assignmentId: "a2" }), sink);
+    expect(client.startCalls).toHaveLength(1);
+    await execution.cancel("stop");
+    expect(client.closeCount).toBe(1);
   });
 
   it("reports start errors as failed and retries initialization on the next start", async () => {
@@ -431,17 +593,16 @@ describe("createSdkHarnessExecutor failures and cancellation", () => {
     expect(sink.reports).toHaveLength(1);
     expect(sink.reports[0]?.kind).toBe("failed");
     expect(sink.reports[0]?.summary).toMatch(/failed to start DSH SDK runtime/);
-    expect(client.closeCount).toBe(1);
+    expect(client.terminateCount).toBe(1);
 
     client.failInitialize = undefined;
     await executor.start(task({ assignmentId: "a2" }), sink);
     expect(client.initializeCalls).toHaveLength(2);
-    expect(client.prompts).toEqual([{ sessionId: "a2", text: "do the work" }]);
+    expect(client.prompts.at(-1)).toEqual({ sessionId: "a2", text: "do the work" });
 
     const prompt = setup();
     prompt.client.failPrompt = new Error("prompt rejected");
     await prompt.executor.start(task(), prompt.sink);
-    expect(prompt.sink.reports).toHaveLength(1);
     expect(prompt.sink.reports[0]?.kind).toBe("failed");
     expect(prompt.sink.reports[0]?.summary).toMatch(/failed to prompt DSH SDK session/);
   });

@@ -28,7 +28,9 @@ transport or master.
 | `HarnessResolution` | the answer: `kind` (`answer`/`escalate`/`drop`), optional `option`/`text` |
 | `HarnessReport` | the result: `kind` (`ready`/`failed`/`waiting`), `summary`, optional `question`/`usage` |
 | `HarnessSink` | `event()`, `escalation()`, `report()` |
-| `HarnessExecution` | `sendResolution(resolution)`, `cancel(reason?)` |
+| `HarnessExecution` | `sendResolution(resolution)`, `cancel(reason?)`, optional `state()`, `steer(text)`, `interrupt()` |
+| `HarnessTaskState` | live snapshot: `assignmentId`, `phase`, `step`, `lastTool?`, `lastEventAt`, `lastMessage?`, `seq` |
+| `HarnessTaskPhase` | `starting` / `thinking` / `tool` / `waiting` / `done` / `failed` (see `isTerminalPhase`) |
 | `HarnessExecutor` | `start(task, sink): Promise<HarnessExecution>` |
 | `HarnessCapabilities` | optional `models`, `tools`, `workspaceRoots` for placement |
 
@@ -40,12 +42,17 @@ Lifecycle rules:
    `sendResolution`; the consumer dedupes by `escalation.id`);
 4. exactly one report ends the run: `ready`/`failed` are terminal
    (`hasTerminalReport`), `waiting` leaves the execution open for a person;
-5. `cancel` must cause exactly one `failed` report (never a normal report too).
+5. `cancel` must cause exactly one `failed` report (never a normal report too);
+6. `state()`, `steer()` and `interrupt()` are optional: implementations that can
+   expose live progress or accept more input advertise them, and consumers must
+   feature-detect. `interrupt()` performs a hard stop without writing the report;
+   `cancel()` is the reporting wrapper around it.
 
 Pure helpers: `validateHarnessReport`, `validateHarnessEscalation`,
-`validateHarnessResolution`, `hasTerminalReport`, `isHarnessReportKind`,
-`isHarnessEscalationKind`, `isHarnessResolutionKind`, `parseHarnessDeadline`
-(undefined = no deadline; an invalid RFC 3339 string throws).
+`validateHarnessResolution`, `hasTerminalReport`, `isTerminalPhase`,
+`isHarnessTaskPhase`, `isHarnessReportKind`, `isHarnessEscalationKind`,
+`isHarnessResolutionKind`, `parseHarnessDeadline` (undefined = no deadline; an
+invalid RFC 3339 string throws).
 
 ## How `@gethen/executor-sdk` will adapt (C4 migration)
 

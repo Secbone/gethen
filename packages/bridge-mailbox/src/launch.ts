@@ -12,10 +12,12 @@
  * envelope id):
  *
  * - out `gethen.task.assign`  → `mailbox:<workerId>`, `replyTo` master mailbox;
- * - in  `gethen.task.progress` → counts events for the eventual receipt;
+ * - in  `gethen.task.progress` → receipt event count + live TaskState;
  * - in  `gethen.task.ask`      → escalation record + resolver → answer;
  * - out `gethen.task.answer`   → the ask's `replyTo` (worker mailbox);
- * - in  `gethen.task.result`   → report + receipt (LaunchResult).
+ * - in  `gethen.task.result`   → report + receipt (LaunchResult), final state;
+ * - out `gethen.task.status`   → request/response liveness probe (status.result);
+ * - out `gethen.task.steer` / `gethen.task.cancel` → live control messages.
  *
  * The adapter owns no transport and no harness: it only needs a
  * `MailboxClient`-shaped object, so Master and Worker can share a mailbox store
@@ -48,6 +50,10 @@ export const MESSAGE_TYPES = {
   ask: "gethen.task.ask",
   answer: "gethen.task.answer",
   result: "gethen.task.result",
+  status: "gethen.task.status",
+  statusResult: "gethen.task.status.result",
+  steer: "gethen.task.steer",
+  cancel: "gethen.task.cancel",
 } as const;
 
 /** Default time a dispatched assignment may take before the launch fails. */
@@ -59,6 +65,43 @@ export const MASTER_MAILBOX = "master";
 const DEFAULT_POLL_INTERVAL_MS = 50;
 const DEFAULT_BATCH_SIZE = 20;
 const DEFAULT_LEASE_MS = 30_000;
+/** Default how long `requestStatus` waits for a `status.result`. */
+export const DEFAULT_STATUS_TIMEOUT_MS = 5_000;
+
+/** Phases a Worker may report in a progress state. */
+export type TaskPhase = "starting" | "thinking" | "tool" | "waiting" | "done" | "failed";
+
+export const TASK_PHASES: readonly TaskPhase[] = [
+  "starting",
+  "thinking",
+  "tool",
+  "waiting",
+  "done",
+  "failed",
+];
+
+/** The last tool a Worker reported in a live state. */
+export interface TaskToolState {
+  name: string;
+  /** RFC 3339 timestamp the tool started at. */
+  startedAt: string;
+}
+
+/**
+ * Live assignment state reported by a Worker in `gethen.task.progress` (the
+ * Master also retains the last state after a result). `updatedAt` is
+ * Master-side bookkeeping: the bridge fills it when it receives the update.
+ */
+export interface TaskState {
+  phase: TaskPhase;
+  step: number;
+  lastTool?: TaskToolState;
+  /** RFC 3339 timestamp of the last event the Worker observed. */
+  lastEventAt: string;
+  lastMessage?: string;
+  seq: number;
+  updatedAt?: string;
+}
 
 const REPORT_KINDS: readonly ReportKind[] = [
   "progress",
@@ -82,7 +125,9 @@ export type MailboxLaunchErrorCode =
   | "MAILBOX_LAUNCH_TIMEOUT"
   | "MAILBOX_DISPATCH_FAILED"
   | "MAILBOX_RESOLUTION_FAILED"
-  | "MAILBOX_CLOSED";
+  | "MAILBOX_CLOSED"
+  | "MAILBOX_STATUS_TIMEOUT"
+  | "MAILBOX_SEND_FAILED";
 
 /** The same codes as a runtime list, for callers that classify failures. */
 export const MAILBOX_LAUNCH_ERROR_CODES: readonly MailboxLaunchErrorCode[] = [
@@ -90,6 +135,8 @@ export const MAILBOX_LAUNCH_ERROR_CODES: readonly MailboxLaunchErrorCode[] = [
   "MAILBOX_DISPATCH_FAILED",
   "MAILBOX_RESOLUTION_FAILED",
   "MAILBOX_CLOSED",
+  "MAILBOX_STATUS_TIMEOUT",
+  "MAILBOX_SEND_FAILED",
 ];
 
 /** A launch failure; `message` is prefixed with `code` for log-grep-ability. */
@@ -133,6 +180,8 @@ export interface MailboxLaunchOptions {
   onEscalation?: (record: EscalationRecord) => void;
   /** Observer fired when an escalation is resolved or parked. */
   onResolution?: (record: EscalationRecord) => void;
+  /** Observer fired whenever a progress/result update changes a TaskState. */
+  onTaskState?: (assignmentId: string, state: TaskState) => void;
   /** Per-launch timeout; defaults to {@link DEFAULT_MAILBOX_LAUNCH_TIMEOUT_MS}. */
   timeoutMs?: number;
   now?: () => Date;
@@ -159,6 +208,19 @@ export interface MailboxLaunchBridge {
   handleEnvelope(envelope: Envelope): void;
   /** Poll the Master mailbox once; returns how many envelopes were processed. */
   pollOnce(): number;
+  /** Last known state for one assignment (retained after the result). */
+  taskState(assignmentId: string): TaskState | undefined;
+  /** Snapshot of every known assignment state. */
+  taskStates(): Record<string, TaskState>;
+  /**
+   * Ask the Worker for its live state (`gethen.task.status` -> correlated
+   * `status.result`). Rejects with `MAILBOX_STATUS_TIMEOUT` when unanswered.
+   */
+  requestStatus(assignmentId: string, options?: { timeoutMs?: number }): Promise<TaskState | null>;
+  /** Send `gethen.task.steer` to a running assignment. */
+  steer(assignmentId: string, text: string): Promise<void>;
+  /** Send `gethen.task.cancel`; the launch keeps waiting for its `result`. */
+  cancel(assignmentId: string, reason?: string): Promise<void>;
   /** Stop polling and reject in-flight launches with `MAILBOX_CLOSED`. */
   close(): void;
 }
@@ -173,6 +235,13 @@ interface PendingLaunch {
   timer: ReturnType<typeof setTimeout> | undefined;
   resolve(result: LaunchResult): void;
   reject(error: Error): void;
+}
+
+interface PendingStatusRequest {
+  readonly assignmentId: string;
+  readonly resolve: (state: TaskState | null) => void;
+  readonly reject: (error: Error) => void;
+  readonly timer: ReturnType<typeof setTimeout>;
 }
 
 /**
@@ -192,6 +261,10 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
   const leaseMs = options.leaseMs ?? DEFAULT_LEASE_MS;
   const batchSize = options.batchSize ?? DEFAULT_BATCH_SIZE;
   const pendingByAssignment = new Map<string, PendingLaunch>();
+  /** Live/recent assignment states, keyed by assignment id (retained after result). */
+  const states = new Map<string, TaskState>();
+  /** In-flight `gethen.task.status` requests, keyed by request envelope id. */
+  const statusRequests = new Map<string, PendingStatusRequest>();
   let timer: ReturnType<typeof setInterval> | undefined;
   let closed = false;
 
@@ -203,6 +276,37 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
     } catch {
       // ignored on purpose
     }
+  }
+
+  function publishTaskState(assignmentId: string, state: TaskState): void {
+    states.set(assignmentId, state);
+    notify(() => options.onTaskState?.(assignmentId, state));
+  }
+
+  /** Retain the final `done`/`failed` state when the result arrives. */
+  function finalizeTaskState(pending: PendingLaunch, report: Report): void {
+    const assignmentId = pending.request.assignment.id;
+    const at = nowIso();
+    const previous = states.get(assignmentId);
+    const phase: TaskPhase = report.kind === "failed" ? "failed" : "done";
+    const state: TaskState =
+      previous === undefined
+        ? {
+            phase,
+            step: 0,
+            lastEventAt: report.at,
+            lastMessage: report.summary,
+            seq: 0,
+            updatedAt: at,
+          }
+        : {
+            ...previous,
+            phase,
+            lastEventAt: report.at,
+            lastMessage: report.summary,
+            updatedAt: at,
+          };
+    publishTaskState(assignmentId, state);
   }
 
   function finish(pending: PendingLaunch): void {
@@ -282,22 +386,39 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
   function handleResult(pending: PendingLaunch, envelope: Envelope): void {
     const data = asRecord(envelope.data);
     const parsed = parseTaskResult(data, nowIso());
-    if (!parsed.ok) {
-      resolveWith(
-        pending,
-        resultFor(pending, {
+    const report: Report = parsed.ok
+      ? parsed.report
+      : {
           kind: "failed",
           summary: `invalid task result: ${parsed.reasons.join("; ")}`,
           at: nowIso(),
-        }),
-      );
-      return;
-    }
-    resolveWith(pending, resultFor(pending, parsed.report));
+        };
+    finalizeTaskState(pending, report);
+    resolveWith(pending, resultFor(pending, report));
   }
 
-  function handleProgress(pending: PendingLaunch): void {
+  function handleProgress(pending: PendingLaunch, data: Record<string, unknown> | undefined): void {
     pending.events += 1;
+    const rawState = data?.state;
+    // Older workers send only text/event progress without a state.
+    if (rawState === undefined || rawState === null || !isRecord(rawState)) return;
+    const state = parseTaskState(rawState, nowIso());
+    if (state === undefined) return;
+    publishTaskState(pending.request.assignment.id, state);
+  }
+
+  function handleStatusResult(envelope: Envelope): void {
+    const data = asRecord(envelope.data);
+    const requestId =
+      stringValue(envelope.correlationId) ??
+      stringValue(data?.requestId) ??
+      stringValue(data?.statusRequestId);
+    if (requestId === undefined) return;
+    const pending = statusRequests.get(requestId);
+    if (pending === undefined) return;
+    statusRequests.delete(requestId);
+    clearTimeout(pending.timer);
+    pending.resolve(parseStatusResult(data, nowIso()));
   }
 
   function handleAsk(pending: PendingLaunch, envelope: Envelope): void {
@@ -425,7 +546,7 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
         const assignmentId = assignmentIdOf(data, envelope);
         const pending =
           assignmentId === undefined ? undefined : pendingByAssignment.get(assignmentId);
-        if (pending !== undefined) handleProgress(pending);
+        if (pending !== undefined) handleProgress(pending, data);
         return;
       }
       case MESSAGE_TYPES.ask: {
@@ -433,6 +554,10 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
         const pending =
           assignmentId === undefined ? undefined : pendingByAssignment.get(assignmentId);
         if (pending !== undefined) handleAsk(pending, envelope);
+        return;
+      }
+      case MESSAGE_TYPES.statusResult: {
+        handleStatusResult(envelope);
         return;
       }
       default:
@@ -495,6 +620,16 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
         ),
       );
     }
+    for (const [requestId, pending] of [...statusRequests]) {
+      clearTimeout(pending.timer);
+      statusRequests.delete(requestId);
+      pending.reject(
+        new MailboxLaunchError(
+          "MAILBOX_CLOSED",
+          `assignment ${pending.assignmentId}: status request after the mailbox bridge closed`,
+        ),
+      );
+    }
   }
 
   function assignEnvelope(request: LaunchRequest): Envelope {
@@ -544,6 +679,125 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
     });
   }
 
+  function taskState(assignmentId: string): TaskState | undefined {
+    return states.get(assignmentId);
+  }
+
+  function taskStates(): Record<string, TaskState> {
+    return Object.fromEntries(states);
+  }
+
+  function requestStatus(
+    assignmentId: string,
+    requestOptions: { timeoutMs?: number } = {},
+  ): Promise<TaskState | null> {
+    if (closed) {
+      return Promise.reject(
+        new MailboxLaunchError(
+          "MAILBOX_CLOSED",
+          `assignment ${assignmentId}: status request after the mailbox bridge closed`,
+        ),
+      );
+    }
+    const requestTimeoutMs = positiveTimeout(requestOptions.timeoutMs ?? DEFAULT_STATUS_TIMEOUT_MS);
+    return new Promise<TaskState | null>((resolve, reject) => {
+      const request = newEnvelope({
+        source: "master:router",
+        type: MESSAGE_TYPES.status,
+        subject: assignmentId,
+        time: nowIso(),
+        data: { assignmentId },
+        to: workerMailbox,
+        correlationId: assignmentId,
+        replyTo: masterMailbox,
+      });
+      const requestId = request.id;
+      const timer = setTimeout(() => {
+        statusRequests.delete(requestId);
+        reject(
+          new MailboxLaunchError(
+            "MAILBOX_STATUS_TIMEOUT",
+            `assignment ${assignmentId} status request ${requestId} timed out after ${requestTimeoutMs}ms`,
+          ),
+        );
+      }, requestTimeoutMs);
+      timer.unref();
+      statusRequests.set(requestId, { assignmentId, resolve, reject, timer });
+      try {
+        client.send(request);
+      } catch (error) {
+        statusRequests.delete(requestId);
+        clearTimeout(timer);
+        reject(
+          new MailboxLaunchError(
+            "MAILBOX_SEND_FAILED",
+            `assignment ${assignmentId} status request failed: ${messageOf(error)}`,
+          ),
+        );
+      }
+    });
+  }
+
+  async function steer(assignmentId: string, text: string): Promise<void> {
+    if (closed) {
+      throw new MailboxLaunchError(
+        "MAILBOX_CLOSED",
+        `assignment ${assignmentId}: steer after the mailbox bridge closed`,
+      );
+    }
+    if (typeof text !== "string" || text.trim().length === 0) {
+      throw new Error("bridge-mailbox: steer text must be a non-empty string");
+    }
+    try {
+      client.send(
+        newEnvelope({
+          source: "master:router",
+          type: MESSAGE_TYPES.steer,
+          subject: assignmentId,
+          time: nowIso(),
+          data: { assignmentId, text },
+          to: workerMailbox,
+          correlationId: assignmentId,
+        }),
+      );
+    } catch (error) {
+      throw new MailboxLaunchError(
+        "MAILBOX_SEND_FAILED",
+        `assignment ${assignmentId} steer failed: ${messageOf(error)}`,
+      );
+    }
+  }
+
+  async function cancel(assignmentId: string, reason?: string): Promise<void> {
+    if (closed) {
+      throw new MailboxLaunchError(
+        "MAILBOX_CLOSED",
+        `assignment ${assignmentId}: cancel after the mailbox bridge closed`,
+      );
+    }
+    try {
+      client.send(
+        newEnvelope({
+          source: "master:router",
+          type: MESSAGE_TYPES.cancel,
+          subject: assignmentId,
+          time: nowIso(),
+          data: {
+            assignmentId,
+            ...(reason === undefined ? {} : { reason }),
+          },
+          to: workerMailbox,
+          correlationId: assignmentId,
+        }),
+      );
+    } catch (error) {
+      throw new MailboxLaunchError(
+        "MAILBOX_SEND_FAILED",
+        `assignment ${assignmentId} cancel failed: ${messageOf(error)}`,
+      );
+    }
+  }
+
   if (options.autoStart ?? true) start();
 
   return {
@@ -552,11 +806,61 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
     masterMailbox,
     handleEnvelope,
     pollOnce,
+    taskState,
+    taskStates,
+    requestStatus,
+    steer,
+    cancel,
     close,
   };
 }
 
 // ---------------------------------------------------------------- validation
+
+/** Validate one worker-reported live state; `undefined` means malformed/absent. */
+function parseTaskState(value: unknown, receivedAt: string): TaskState | undefined {
+  const record = asRecord(value);
+  if (record === undefined) return undefined;
+  const phase = record.phase;
+  if (typeof phase !== "string" || !isTaskPhase(phase)) return undefined;
+  const step = record.step;
+  if (typeof step !== "number" || !Number.isFinite(step) || step < 0) return undefined;
+  const seq = record.seq;
+  if (typeof seq !== "number" || !Number.isInteger(seq) || seq < 0) return undefined;
+  const lastEventAt = stringValue(record.lastEventAt);
+  if (lastEventAt === undefined) return undefined;
+
+  const state: TaskState = { phase, step, lastEventAt, seq, updatedAt: receivedAt };
+  const lastTool = parseToolState(record.lastTool);
+  if (lastTool !== undefined) state.lastTool = lastTool;
+  const lastMessage = stringValue(record.lastMessage);
+  if (lastMessage !== undefined) state.lastMessage = lastMessage;
+  return state;
+}
+
+function parseToolState(value: unknown): TaskToolState | undefined {
+  const record = asRecord(value);
+  if (record === undefined) return undefined;
+  const name = stringValue(record.name);
+  const startedAt = stringValue(record.startedAt);
+  if (name === undefined || startedAt === undefined) return undefined;
+  return { name, startedAt };
+}
+
+/** `gethen.task.status.result` payload: the state, or null when unavailable. */
+function parseStatusResult(
+  data: Record<string, unknown> | undefined,
+  receivedAt: string,
+): TaskState | null {
+  if (data === undefined) return null;
+  const raw = data.state;
+  if (raw === undefined || raw === null) return null;
+  return parseTaskState(raw, receivedAt) ?? null;
+}
+
+function isTaskPhase(value: string): value is TaskPhase {
+  return (TASK_PHASES as readonly string[]).includes(value);
+}
 
 type TaskResultParse = { ok: true; report: Report } | { ok: false; reasons: string[] };
 

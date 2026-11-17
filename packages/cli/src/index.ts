@@ -3,6 +3,7 @@ import { initCommand } from "./commands/init";
 import { runCommand } from "./commands/run";
 import { serveCommand } from "./commands/serve";
 import { statusCommand } from "./commands/status";
+import { taskCommand } from "./commands/task";
 import { workerCommand } from "./commands/worker";
 import { USAGE } from "./usage";
 
@@ -29,6 +30,8 @@ async function dispatch(argv: string[]): Promise<number> {
       return serveCommand(argv.slice(1));
     case "status":
       return statusCommand(argv.slice(1));
+    case "task":
+      return taskCommand(argv.slice(1));
     case "worker":
       return workerCommand(argv.slice(1));
     default:

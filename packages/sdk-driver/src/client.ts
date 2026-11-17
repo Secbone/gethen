@@ -69,6 +69,14 @@ export interface SessionStatusNotification {
   status: SessionStatus;
 }
 
+/** Options for `wait()`: no total timeout unless one is supplied. */
+export interface WaitOptions {
+  /** Total wait timeout; omitted or `0` waits until the session is idle or aborted. */
+  timeoutMs?: number;
+  /** Abandon the wait (the pending JSON-RPC request is removed). */
+  signal?: AbortSignal;
+}
+
 export type ApprovalOutcome = "allowed-once" | "rejected" | "cancelled";
 
 export interface ApprovalRequestParams {
@@ -278,10 +286,19 @@ export class DshSdkClient {
     })) as SessionQueryResult;
   }
 
-  /** Wait until the session and its managed descendants finish this round. */
-  async wait(sessionId: string, timeoutMs?: number): Promise<void> {
+  /**
+   * Wait until the session and its managed descendants finish this round. By
+   * default there is no total timeout; pass `timeoutMs` to bound it or a
+   * `signal` to abandon the wait (for example when a session event already
+   * reported completion and the wait is only a fallback).
+   */
+  async wait(sessionId: string, options: WaitOptions = {}): Promise<void> {
     const peer = this.requirePeer();
-    await peer.request("session/wait", { sessionId }, timeoutMs === undefined ? {} : { timeoutMs });
+    const requestOptions: { timeoutMs: number; signal?: AbortSignal } = {
+      timeoutMs: options.timeoutMs ?? 0,
+    };
+    if (options.signal !== undefined) requestOptions.signal = options.signal;
+    await peer.request("session/wait", { sessionId }, requestOptions);
   }
 
   /** Resume a persisted session without queueing new input. */
@@ -372,15 +389,29 @@ export class DshSdkClient {
   }
 
   /**
-   * Synchronous last-resort cleanup: reject pending requests, stop reading,
-   * detach stderr and kill a still-live runtime with SIGKILL.
+   * Synchronous cleanup: reject pending requests, stop reading, detach stderr
+   * and kill a still-live runtime with SIGKILL unless a graceful shutdown is
+   * already in flight.
    */
   close(): void {
+    this.finalize("dsh sdk client closed", false);
+  }
+
+  /**
+   * Hard interrupt: reject pending requests and SIGKILL the child immediately,
+   * without the `shutdown` handshake. Used for process-isolated executions and
+   * watchdog/cancel cleanup.
+   */
+  terminate(): void {
+    this.finalize("dsh sdk client terminated", true);
+  }
+
+  private finalize(reason: string, forceKill: boolean): void {
     if (this.closed) return;
     this.closed = true;
     const peer = this.peer;
     this.peer = undefined;
-    peer?.close("dsh sdk client closed");
+    peer?.close(reason);
 
     const stream = this.stderrStream;
     const listener = this.stderrListener;
@@ -390,7 +421,10 @@ export class DshSdkClient {
 
     const child = this.child;
     this.child = undefined;
-    if (child !== undefined && !this.exited && !this.terminated) child.kill("SIGKILL");
+    if (child !== undefined && !this.exited && (forceKill || !this.terminated)) {
+      this.terminated = true;
+      child.kill("SIGKILL");
+    }
 
     this.eventListeners.clear();
     this.statusListeners.clear();

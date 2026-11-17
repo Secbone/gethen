@@ -12,6 +12,7 @@ import type {
   HarnessResolution,
   HarnessSink,
   HarnessTask,
+  HarnessTaskState,
 } from "@gethen/harness";
 import type { Envelope, ReceivedMessage } from "@gethen/mailbox";
 import type { MailboxLike } from "./consumer";
@@ -143,6 +144,12 @@ export class FakeMailbox implements MailboxLike {
 export interface FakeExecution extends HarnessExecution {
   task: HarnessTask;
   sink: HarnessSink;
+  /** Live state returned by `state()` when `withState` is on. */
+  stateValue?: HarnessTaskState;
+  /** Texts passed to `steer()`, in order. */
+  readonly steerCalls: string[];
+  /** How many times `interrupt()` was called. */
+  interruptCalls: number;
 }
 
 export interface FakeHarnessOptions {
@@ -150,6 +157,19 @@ export interface FakeHarnessOptions {
   startError?: Error;
   /** Report `ready` right after `sendResolution` (default true). */
   reportOnResolution?: boolean;
+  /**
+   * Install the optional control methods. All default to `false` so the doubles
+   * keep modelling a harness that only has `cancel` unless a test opts in.
+   */
+  withState?: boolean;
+  withSteer?: boolean;
+  withInterrupt?: boolean;
+  /** Initial `stateValue` for every execution (tests may mutate it later). */
+  state?: HarnessTaskState;
+  /** Throw from `steer` with this error. */
+  steerError?: Error;
+  /** Throw from `interrupt` with this error. */
+  interruptError?: Error;
 }
 
 export class FakeHarness implements HarnessExecutor {
@@ -160,10 +180,22 @@ export class FakeHarness implements HarnessExecutor {
   readonly cancels: (string | undefined)[] = [];
   startError: Error | undefined;
   reportOnResolution: boolean;
+  private readonly withState: boolean;
+  private readonly withSteer: boolean;
+  private readonly withInterrupt: boolean;
+  private readonly initialState: HarnessTaskState | undefined;
+  private readonly steerError: Error | undefined;
+  private readonly interruptError: Error | undefined;
 
   constructor(options: FakeHarnessOptions = {}) {
     this.startError = options.startError;
     this.reportOnResolution = options.reportOnResolution ?? true;
+    this.withState = options.withState ?? false;
+    this.withSteer = options.withSteer ?? false;
+    this.withInterrupt = options.withInterrupt ?? false;
+    this.initialState = options.state;
+    this.steerError = options.steerError;
+    this.interruptError = options.interruptError;
   }
 
   async start(task: HarnessTask, sink: HarnessSink): Promise<HarnessExecution> {
@@ -173,6 +205,8 @@ export class FakeHarness implements HarnessExecutor {
     const execution: FakeExecution = {
       task,
       sink,
+      steerCalls: [],
+      interruptCalls: 0,
       sendResolution: async (resolution: HarnessResolution): Promise<void> => {
         this.resolutions.push(resolution);
         if (this.reportOnResolution) sink.report({ kind: "ready", summary: "resolved" });
@@ -185,6 +219,22 @@ export class FakeHarness implements HarnessExecutor {
         });
       },
     };
+    if (this.withState) {
+      execution.stateValue = this.initialState;
+      execution.state = () => execution.stateValue ?? defaultState(task);
+    }
+    if (this.withSteer) {
+      execution.steer = async (steerText: string): Promise<void> => {
+        if (this.steerError !== undefined) throw this.steerError;
+        execution.steerCalls.push(steerText);
+      };
+    }
+    if (this.withInterrupt) {
+      execution.interrupt = async (): Promise<void> => {
+        if (this.interruptError !== undefined) throw this.interruptError;
+        execution.interruptCalls += 1;
+      };
+    }
     this.executions.push(execution);
     return execution;
   }
@@ -202,4 +252,20 @@ export class FakeHarness implements HarnessExecutor {
   report(index: number, report: HarnessReport): void {
     this.executions[index]?.sink.report(report);
   }
+
+  /** Mutate the live state returned by execution `index` (requires `withState`). */
+  setState(index: number, state: HarnessTaskState | undefined): void {
+    const execution = this.executions[index];
+    if (execution !== undefined) execution.stateValue = state;
+  }
+}
+
+function defaultState(task: HarnessTask): HarnessTaskState {
+  return {
+    assignmentId: task.assignmentId,
+    phase: "starting",
+    step: 0,
+    lastEventAt: new Date().toISOString(),
+    seq: 0,
+  };
 }

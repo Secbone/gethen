@@ -11,11 +11,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createMailboxLaunchPort,
   DEFAULT_MAILBOX_LAUNCH_TIMEOUT_MS,
+  DEFAULT_STATUS_TIMEOUT_MS,
   MAILBOX_LAUNCH_ERROR_CODES,
   type MailboxClientLike,
   type MailboxLaunchBridge,
   MailboxLaunchError,
   type MailboxLaunchOptions,
+  type TaskState,
 } from "./launch";
 
 const NOW = new Date("2026-11-17T02:00:00.000Z");
@@ -158,6 +160,45 @@ function progressEnvelope(assignmentId: string): Envelope {
     time: AT,
     data: { assignmentId, event: { type: "message", at: AT, data: { text: "working" } } },
     correlationId: assignmentId,
+    to: "mailbox:master",
+  });
+}
+
+function rawState(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    phase: "thinking",
+    step: 3,
+    lastEventAt: AT,
+    lastMessage: "reading files",
+    seq: 7,
+    ...overrides,
+  };
+}
+
+function stateProgressEnvelope(assignmentId: string, state: Record<string, unknown>): Envelope {
+  seq += 1;
+  return newEnvelope({
+    id: `state-progress-${seq}`,
+    source: "agent:worker-a",
+    type: "gethen.task.progress",
+    subject: assignmentId,
+    time: AT,
+    data: { assignmentId, state },
+    correlationId: assignmentId,
+    to: "mailbox:master",
+  });
+}
+
+function statusResultEnvelope(requestId: string, assignmentId: string, state: unknown): Envelope {
+  seq += 1;
+  return newEnvelope({
+    id: `status-result-${seq}`,
+    source: "agent:worker-a",
+    type: "gethen.task.status.result",
+    subject: assignmentId,
+    time: AT,
+    data: { assignmentId, state, at: AT },
+    correlationId: requestId,
     to: "mailbox:master",
   });
 }
@@ -484,6 +525,286 @@ describe("createMailboxLaunchPort", () => {
   });
 });
 
+describe("task state, status, steer and cancel", () => {
+  it("updates TaskState from progress and notifies onTaskState", async () => {
+    const client = new FakeMailbox();
+    const updates: Array<{ assignmentId: string; state: TaskState }> = [];
+    const bridge = makeBridge(client, {
+      onTaskState: (assignmentId, state) => updates.push({ assignmentId, state }),
+    });
+    const resultPromise = bridge.launchPort.launch(launchRequest());
+    bridge.handleEnvelope(
+      stateProgressEnvelope(
+        "assignment-1",
+        rawState({ lastTool: { name: "read", startedAt: AT } }),
+      ),
+    );
+
+    const state = bridge.taskState("assignment-1");
+    expect(state).toEqual({
+      phase: "thinking",
+      step: 3,
+      lastTool: { name: "read", startedAt: AT },
+      lastEventAt: AT,
+      lastMessage: "reading files",
+      seq: 7,
+      updatedAt: AT,
+    });
+    expect(bridge.taskStates()).toEqual({ "assignment-1": state });
+    expect(updates).toHaveLength(1);
+    expect(updates.at(0)?.assignmentId).toBe("assignment-1");
+
+    bridge.handleEnvelope(resultEnvelope("assignment-1"));
+    await resultPromise;
+  });
+
+  it("still counts progress from older workers that send no state", async () => {
+    const client = new FakeMailbox();
+    const bridge = makeBridge(client);
+    const resultPromise = bridge.launchPort.launch(launchRequest());
+    bridge.handleEnvelope(progressEnvelope("assignment-1"));
+
+    expect(bridge.taskState("assignment-1")).toBeUndefined();
+    expect(bridge.taskStates()).toEqual({});
+
+    bridge.handleEnvelope(resultEnvelope("assignment-1"));
+    const result = await resultPromise;
+    expect(result.receipt.events).toBe(1);
+  });
+
+  it("keeps the latest progress state", async () => {
+    const client = new FakeMailbox();
+    const updates: TaskState[] = [];
+    const bridge = makeBridge(client, {
+      onTaskState: (_assignmentId, state) => updates.push(state),
+    });
+    const resultPromise = bridge.launchPort.launch(launchRequest());
+    bridge.handleEnvelope(stateProgressEnvelope("assignment-1", rawState({ seq: 1, step: 1 })));
+    bridge.handleEnvelope(
+      stateProgressEnvelope("assignment-1", rawState({ seq: 2, step: 2, phase: "tool" })),
+    );
+    expect(bridge.taskState("assignment-1")).toMatchObject({ phase: "tool", step: 2, seq: 2 });
+    expect(updates.map((state) => state.seq)).toEqual([1, 2]);
+    bridge.handleEnvelope(resultEnvelope("assignment-1"));
+    await resultPromise;
+  });
+
+  it("retains the final done state after the result", async () => {
+    const client = new FakeMailbox();
+    const updates: TaskState[] = [];
+    const bridge = makeBridge(client, {
+      onTaskState: (_assignmentId, state) => updates.push(state),
+    });
+    const resultPromise = bridge.launchPort.launch(launchRequest());
+    bridge.handleEnvelope(stateProgressEnvelope("assignment-1", rawState()));
+    bridge.handleEnvelope(resultEnvelope("assignment-1", { summary: "all done" }));
+    const result = await resultPromise;
+
+    expect(result.report.kind).toBe("ready");
+    expect(bridge.taskState("assignment-1")).toEqual({
+      phase: "done",
+      step: 3,
+      lastEventAt: AT,
+      lastMessage: "all done",
+      seq: 7,
+      updatedAt: AT,
+    });
+    expect(updates.map((state) => state.phase)).toEqual(["thinking", "done"]);
+  });
+
+  it("marks the final state failed and synthesizes one when none was reported", async () => {
+    const client = new FakeMailbox();
+    const bridge = makeBridge(client);
+    const first = bridge.launchPort.launch(launchRequest("assignment-1"));
+    bridge.handleEnvelope(stateProgressEnvelope("assignment-1", rawState()));
+    bridge.handleEnvelope(resultEnvelope("assignment-1", { kind: "failed", summary: "boom" }));
+    await first;
+    expect(bridge.taskState("assignment-1")).toMatchObject({ phase: "failed", step: 3 });
+
+    const second = bridge.launchPort.launch(launchRequest("assignment-2"));
+    bridge.handleEnvelope(resultEnvelope("assignment-2", { kind: "failed", summary: "boom" }));
+    await second;
+    expect(bridge.taskState("assignment-2")).toEqual({
+      phase: "failed",
+      step: 0,
+      lastEventAt: AT,
+      lastMessage: "boom",
+      seq: 0,
+      updatedAt: AT,
+    });
+  });
+
+  it("requests status and resolves the correlated state", async () => {
+    const client = new FakeMailbox();
+    const bridge = makeBridge(client);
+    const statusPromise = bridge.requestStatus("assignment-1", { timeoutMs: 500 });
+    const request = client.sent.at(-1);
+    expect(request).toMatchObject({
+      type: "gethen.task.status",
+      subject: "assignment-1",
+      to: "mailbox:worker-a",
+      replyTo: "mailbox:master",
+      data: { assignmentId: "assignment-1" },
+    });
+    if (request?.id === undefined) throw new Error("status request has no envelope id");
+
+    bridge.handleEnvelope(statusResultEnvelope(request.id, "assignment-1", rawState()));
+    await expect(statusPromise).resolves.toEqual({
+      phase: "thinking",
+      step: 3,
+      lastEventAt: AT,
+      lastMessage: "reading files",
+      seq: 7,
+      updatedAt: AT,
+    });
+    // A status query reports but does not overwrite the progress-derived state.
+    expect(bridge.taskState("assignment-1")).toBeUndefined();
+  });
+
+  it("resolves status.result with a null or missing state as null", async () => {
+    const client = new FakeMailbox();
+    const bridge = makeBridge(client);
+
+    const first = bridge.requestStatus("assignment-1", { timeoutMs: 500 });
+    const firstRequest = client.sent.at(-1);
+    if (firstRequest?.id === undefined) throw new Error("status request has no envelope id");
+    bridge.handleEnvelope(statusResultEnvelope(firstRequest.id, "assignment-1", null));
+    await expect(first).resolves.toBeNull();
+
+    const second = bridge.requestStatus("assignment-1", { timeoutMs: 500 });
+    const secondRequest = client.sent.at(-1);
+    if (secondRequest?.id === undefined) throw new Error("status request has no envelope id");
+    const noState = newEnvelope({
+      id: "status-result-no-state",
+      source: "agent:worker-a",
+      type: "gethen.task.status.result",
+      subject: "assignment-1",
+      time: AT,
+      data: { assignmentId: "assignment-1", at: AT },
+      correlationId: secondRequest.id,
+      to: "mailbox:master",
+    });
+    bridge.handleEnvelope(noState);
+    await expect(second).resolves.toBeNull();
+  });
+
+  it("times out an unanswered status request", async () => {
+    const client = new FakeMailbox();
+    const bridge = makeBridge(client);
+    const failure = await bridge.requestStatus("assignment-1", { timeoutMs: 10 }).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    expect(failure).toBeInstanceOf(MailboxLaunchError);
+    expect((failure as MailboxLaunchError).code).toBe("MAILBOX_STATUS_TIMEOUT");
+  });
+
+  it("acks a status.result consumed by the poll loop", async () => {
+    const client = new FakeMailbox();
+    const bridge = makeBridge(client);
+    const statusPromise = bridge.requestStatus("assignment-1", { timeoutMs: 500 });
+    const request = client.sent.at(-1);
+    if (request?.id === undefined) throw new Error("status request has no envelope id");
+    const reply = statusResultEnvelope(request.id, "assignment-1", rawState());
+    client.push(reply);
+
+    expect(bridge.pollOnce()).toBe(1);
+    await expect(statusPromise).resolves.toMatchObject({ seq: 7 });
+    expect(client.acked.at(0)).toEqual({ mailbox: "mailbox:master", ids: [reply.id] });
+  });
+
+  it("rejects pending status requests on close", async () => {
+    const client = new FakeMailbox();
+    const bridge = makeBridge(client);
+    const pending = bridge.requestStatus("assignment-1", { timeoutMs: 500 });
+    bridge.close();
+    await expect(pending).rejects.toMatchObject({ code: "MAILBOX_CLOSED" });
+    await expect(bridge.requestStatus("assignment-1")).rejects.toMatchObject({
+      code: "MAILBOX_CLOSED",
+    });
+  });
+
+  it("sends a well-formed steer envelope", async () => {
+    const client = new FakeMailbox();
+    const bridge = makeBridge(client);
+    await bridge.steer("assignment-1", "focus on the failing test");
+
+    const sent = client.sent.at(-1);
+    expect(sent).toMatchObject({
+      type: "gethen.task.steer",
+      subject: "assignment-1",
+      to: "mailbox:worker-a",
+      correlationId: "assignment-1",
+      data: { assignmentId: "assignment-1", text: "focus on the failing test" },
+    });
+    await expect(bridge.steer("assignment-1", "   ")).rejects.toThrow(/non-empty/);
+    bridge.close();
+    await expect(bridge.steer("assignment-1", "too late")).rejects.toMatchObject({
+      code: "MAILBOX_CLOSED",
+    });
+  });
+
+  it("sends a cancel envelope without waiting for the result", async () => {
+    const client = new FakeMailbox();
+    const bridge = makeBridge(client);
+    const resultPromise = bridge.launchPort.launch(launchRequest());
+
+    await bridge.cancel("assignment-1", "user stopped it");
+    expect(client.sent.at(-1)).toMatchObject({
+      type: "gethen.task.cancel",
+      subject: "assignment-1",
+      to: "mailbox:worker-a",
+      correlationId: "assignment-1",
+      data: { assignmentId: "assignment-1", reason: "user stopped it" },
+    });
+    await bridge.cancel("assignment-1");
+    const withoutReason = client.sent.at(-1)?.data as Record<string, unknown>;
+    expect(withoutReason).toEqual({ assignmentId: "assignment-1" });
+
+    bridge.handleEnvelope(resultEnvelope("assignment-1", { kind: "failed", summary: "cancelled" }));
+    await expect(resultPromise).resolves.toMatchObject({ report: { kind: "failed" } });
+  });
+
+  it("keeps concurrent assignments and status correlations isolated", async () => {
+    const client = new FakeMailbox();
+    const bridge = makeBridge(client);
+    const first = bridge.launchPort.launch(launchRequest("assignment-1"));
+    const second = bridge.launchPort.launch(launchRequest("assignment-2"));
+
+    bridge.handleEnvelope(stateProgressEnvelope("assignment-1", rawState({ seq: 1, step: 1 })));
+    bridge.handleEnvelope(stateProgressEnvelope("assignment-2", rawState({ seq: 5, step: 9 })));
+    bridge.handleEnvelope(stateProgressEnvelope("assignment-x", rawState({ seq: 1, step: 1 })));
+    expect(bridge.taskStates()).toMatchObject({
+      "assignment-1": { seq: 1, step: 1 },
+      "assignment-2": { seq: 5, step: 9 },
+    });
+    expect(bridge.taskState("assignment-x")).toBeUndefined();
+
+    const statusOne = bridge.requestStatus("assignment-1", { timeoutMs: 500 });
+    const requestOne = client.sent.at(-1);
+    const statusTwo = bridge.requestStatus("assignment-2", { timeoutMs: 500 });
+    const requestTwo = client.sent.at(-1);
+    if (requestOne?.id === undefined || requestTwo?.id === undefined) {
+      throw new Error("status requests have no envelope ids");
+    }
+    // Reply out of order; correlationId pairs each reply with its request.
+    bridge.handleEnvelope(
+      statusResultEnvelope(requestTwo.id, "assignment-2", rawState({ seq: 20 })),
+    );
+    bridge.handleEnvelope(
+      statusResultEnvelope(requestOne.id, "assignment-1", rawState({ seq: 10 })),
+    );
+    await expect(statusOne).resolves.toMatchObject({ seq: 10 });
+    await expect(statusTwo).resolves.toMatchObject({ seq: 20 });
+
+    // Unknown correlation ids are ignored (no throw, no state change).
+    bridge.handleEnvelope(statusResultEnvelope("unknown-request", "assignment-1", rawState()));
+    bridge.handleEnvelope(resultEnvelope("assignment-2"));
+    bridge.handleEnvelope(resultEnvelope("assignment-1"));
+    await Promise.all([first, second]);
+  });
+});
+
 describe("with a real MailboxClient", () => {
   it("closes the loop against an in-memory mailbox store", async () => {
     const client = new MailboxClient({
@@ -533,11 +854,14 @@ describe("with a real MailboxClient", () => {
 describe("mailbox launch constants", () => {
   it("exports the protocol defaults", () => {
     expect(DEFAULT_MAILBOX_LAUNCH_TIMEOUT_MS).toBe(600_000);
+    expect(DEFAULT_STATUS_TIMEOUT_MS).toBe(5_000);
     expect(MAILBOX_LAUNCH_ERROR_CODES).toEqual([
       "MAILBOX_LAUNCH_TIMEOUT",
       "MAILBOX_DISPATCH_FAILED",
       "MAILBOX_RESOLUTION_FAILED",
       "MAILBOX_CLOSED",
+      "MAILBOX_STATUS_TIMEOUT",
+      "MAILBOX_SEND_FAILED",
     ]);
   });
 });

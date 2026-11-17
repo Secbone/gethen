@@ -9,20 +9,26 @@
  *    the workspace's `dsh --profile sdk` client is started once and initialized
  *    with `provider`/`model`/`cwd` plus `approvalRequests` and `userQuestions`;
  * 2. every `session.event` payload (assistant text, tool results, tool inputs,
- *    any string field) is scanned for a complete `[GETHEN-REPORT]` block (last
- *    block wins) and a `[GETHEN-ESCALATION]` block (worker-side compat tool);
- * 3. `session/wait` ends the turn; the report is parsed with
- *    `@gethen/master`'s `parseReportText` and narrowed to the port's three
- *    states (`ready`/`failed`/`waiting`);
- * 4. DSH's native channels map onto blocking `HarnessEscalation`s:
- *    `approval/request` → `permission` (`allow <tool>?`), `user-question/ask` →
- *    one `decision` per question, and a `[GETHEN-ESCALATION]` tool result → the
- *    escalation it carries. `HarnessExecution.sendResolution` answers them;
- * 5. errors (initialize, prompt, wait, report parse, resolution delivery) become
- *    a single `HarnessReport{kind:"failed"}`; `start` never rejects;
- * 6. `cancel` keeps the DSH limitation: the SDK protocol has no per-turn
- *    cancel, so it closes the workspace runtime (all its sessions) and reports
- *    `failed`.
+ *    any string field) is scanned for a complete `[GETHEN-REPORT]` block (the
+ *    last syntactically valid block wins) and a `[GETHEN-ESCALATION]` block;
+ * 3. completion is **event-driven**: the session's `turn/end` event ends the
+ *    turn, with a `session.status → idle` event as a fallback; `session/wait`
+ *    is only a background fallback for a broken event stream (no total timeout);
+ * 4. a silence watchdog (`idleTimeoutMs`, default 5 min) fails the execution
+ *    when no event arrives for too long; a task `deadlineAt` also fails it;
+ * 5. DSH's native channels map onto blocking `HarnessEscalation`s:
+ *    `approval/request` → `permission`, `user-question/ask` → one `decision` per
+ *    question, and a `[GETHEN-ESCALATION]` tool result → the escalation it
+ *    carries. `HarnessExecution.sendResolution` answers them;
+ * 6. every event updates a live `HarnessTaskState` (`state()`); `steer(text)`
+ *    queues more input; `interrupt()` rejects pending escalation, steers a stop,
+ *    waits a grace period and then terminates the runtime; `cancel(reason)`
+ *    performs that interrupt and reports `failed`;
+ * 7. `isolation: "process"` gives each assignment its own runtime (terminated on
+ *    completion/cancel); `"shared"` (default) reuses the per-workspace pool and
+ *    only closes that client on a hard stop. DSH has no native per-turn
+ *    interrupt, so a stop means closing (shared) or killing (dedicated) the
+ *    runtime.
  */
 import type {
   HarnessEscalation,
@@ -33,6 +39,8 @@ import type {
   HarnessResolution,
   HarnessSink,
   HarnessTask,
+  HarnessTaskPhase,
+  HarnessTaskState,
   JsonObject,
 } from "@gethen/harness";
 import { buildResolutionText, parseReportText, REPORT_CLOSE, REPORT_OPEN } from "@gethen/master";
@@ -43,9 +51,11 @@ import type {
   InitializeResult,
   SessionEventNotification,
   SessionPromptResult,
+  SessionStatusNotification,
   StartDshSdkOptions,
   UserQuestionRequest,
   UserQuestionResult,
+  WaitOptions,
 } from "@gethen/sdk-driver";
 import { DshSdkClient } from "@gethen/sdk-driver";
 
@@ -54,6 +64,18 @@ const ESCALATION_OPEN = "[GETHEN-ESCALATION]";
 const ESCALATION_CLOSE = "[/GETHEN-ESCALATION]";
 /** A single execution answers at most this many tool-result escalations. */
 const MAX_TOOL_ESCALATIONS = 5;
+/** Silence before the watchdog fails an execution. */
+export const DEFAULT_IDLE_TIMEOUT_MS = 300_000;
+/** Time a cancel/interrupt lets a steered stop take effect before terminating. */
+export const DEFAULT_INTERRUPT_GRACE_MS = 1_000;
+/** Steering message sent before a hard interrupt. */
+export const STOP_STEER_TEXT =
+  "Stop the current work immediately and summarize what you have done so far.";
+/** How much assistant text is kept in the live state. */
+const MAX_LAST_MESSAGE_CHARS = 500;
+
+/** Process isolation model: reuse the workspace pool, or spawn per assignment. */
+export type HarnessIsolation = "shared" | "process";
 
 /** Options accepted by the DSH harness executor. */
 export interface SdkHarnessExecutorOptions {
@@ -67,9 +89,15 @@ export interface SdkHarnessExecutorOptions {
   cwdFor?: (workspace: string) => string;
   /** Injection seam for tests or a shared client pool. */
   clientFactory?: () => SdkClientLike;
-  /** JSON-RPC request timeout handed to the client; long waits may raise it. */
+  /** JSON-RPC request timeout for short calls (initialize/prompt/wait fallback). */
   requestTimeoutMs?: number;
-  /** Injectable clock (assignment-deadline guard and event timestamp fallback). */
+  /** Silence before the execution fails; `0` disables the watchdog. Default 300000. */
+  idleTimeoutMs?: number;
+  /** Grace period after the stop steer before the runtime is terminated. Default 1000. */
+  interruptGraceMs?: number;
+  /** `"shared"` (default) pools one runtime per workspace; `"process"` isolates each. */
+  isolation?: HarnessIsolation;
+  /** Injectable clock (deadline scheduling, event timestamp fallback, state). */
   now?: () => Date;
 }
 
@@ -86,14 +114,17 @@ export interface SdkClientLike {
   start?(options: StartDshSdkOptions): unknown;
   initialize(options: InitializeOptions): Promise<InitializeResult>;
   prompt(sessionId: string, text: string): Promise<SessionPromptResult>;
-  wait(sessionId: string, timeoutMs?: number): Promise<void>;
+  wait(sessionId: string, options?: WaitOptions): Promise<void>;
   onEvent(listener: (notification: SessionEventNotification) => void): () => void;
+  onStatus(listener: (notification: SessionStatusNotification) => void): () => void;
   onApprovalRequest(
     handler: (params: ApprovalRequestParams) => ApprovalOutcome | Promise<ApprovalOutcome>,
   ): void;
   onUserQuestion(
     handler: (request: UserQuestionRequest) => UserQuestionResult | Promise<UserQuestionResult>,
   ): void;
+  /** SIGKILL the child immediately; falls back to `close()` when absent. */
+  terminate?(): void;
   close(): void;
 }
 
@@ -108,6 +139,7 @@ export class SdkHarnessError extends Error {
 /** Per-session routing table attached to one workspace client. */
 interface SessionBinding {
   event(notification: SessionEventNotification): void;
+  status(notification: SessionStatusNotification): void;
   approval(params: ApprovalRequestParams): Promise<ApprovalOutcome>;
   question(request: UserQuestionRequest): Promise<UserQuestionResult>;
 }
@@ -124,9 +156,10 @@ interface ExecutionState {
   task: HarnessTask;
   sink: HarnessSink;
   workspaceClient: WorkspaceClient | undefined;
+  /** True when the client belongs to this assignment (`isolation: "process"`). */
+  dedicated: boolean;
   settled: boolean;
   cancelled: boolean;
-  /** Last event string that contained a complete report block. */
   /** Complete `[GETHEN-REPORT]` blocks in event order; the last valid one wins. */
   reportTexts: string[];
   /** Last complete escalation block found in an event string, not yet answered. */
@@ -137,6 +170,18 @@ interface ExecutionState {
   pending: PendingEscalation | undefined;
   escalationChain: Promise<void>;
   escalationSeq: number;
+  // ---- live state
+  phase: HarnessTaskPhase;
+  step: number;
+  lastTool: { name: string; startedAt: string } | undefined;
+  lastEventAt: string;
+  lastMessage: string | undefined;
+  seq: number;
+  // ---- lifecycle
+  abort: AbortController;
+  watchdogTimer: NodeJS.Timeout | undefined;
+  deadlineTimer: NodeJS.Timeout | undefined;
+  interruptPromise: Promise<void> | undefined;
 }
 
 interface PendingEscalation {
@@ -145,8 +190,8 @@ interface PendingEscalation {
 }
 
 /**
- * Create the DSH-backed `HarnessExecutor`. One runtime is kept per workspace;
- * each `start` runs one DSH session named after its assignment.
+ * Create the DSH-backed `HarnessExecutor`. In `shared` isolation one runtime is
+ * kept per workspace; in `process` isolation each assignment gets its own.
  */
 export function createSdkHarnessExecutor(options: SdkHarnessExecutorOptions): SdkHarnessExecutor {
   return new DshHarnessExecutor(options);
@@ -157,6 +202,9 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
   private readonly cwdFor: (workspace: string) => string;
   private readonly clientFactory: () => SdkClientLike;
   private readonly now: () => Date;
+  private readonly isolation: HarnessIsolation;
+  private readonly idleTimeoutMs: number;
+  private readonly interruptGraceMs: number;
   private readonly clients = new Map<string, WorkspaceClient>();
   private readonly creating = new Map<string, Promise<WorkspaceClient>>();
   private closed = false;
@@ -166,6 +214,9 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
     this.cwdFor = options.cwdFor ?? ((workspace) => workspace);
     this.clientFactory = options.clientFactory ?? (() => new DshSdkClient());
     this.now = options.now ?? (() => new Date());
+    this.isolation = options.isolation ?? "shared";
+    this.idleTimeoutMs = options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
+    this.interruptGraceMs = options.interruptGraceMs ?? DEFAULT_INTERRUPT_GRACE_MS;
   }
 
   async start(task: HarnessTask, sink: HarnessSink): Promise<HarnessExecution> {
@@ -173,6 +224,7 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
       task,
       sink,
       workspaceClient: undefined,
+      dedicated: this.isolation === "process",
       settled: false,
       cancelled: false,
       reportTexts: [],
@@ -181,7 +233,18 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
       pending: undefined,
       escalationChain: Promise.resolve(),
       escalationSeq: 0,
+      phase: "starting",
+      step: 0,
+      lastTool: undefined,
+      lastEventAt: this.now().toISOString(),
+      lastMessage: undefined,
+      seq: 0,
+      abort: new AbortController(),
+      watchdogTimer: undefined,
+      deadlineTimer: undefined,
+      interruptPromise: undefined,
     };
+
     const execution: HarnessExecution = {
       sendResolution: async (resolution: HarnessResolution): Promise<void> => {
         const pending = state.pending;
@@ -189,7 +252,14 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
         pending.resolve(resolution);
       },
       cancel: async (reason?: string): Promise<void> => {
-        this.cancelExecution(state, reason);
+        await this.cancelExecution(state, reason);
+      },
+      state: (): HarnessTaskState => this.snapshot(state),
+      steer: async (text: string): Promise<void> => {
+        await this.steer(state, text);
+      },
+      interrupt: async (): Promise<void> => {
+        await this.interruptExecution(state);
       },
     };
 
@@ -201,7 +271,10 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
 
     let workspaceClient: WorkspaceClient;
     try {
-      workspaceClient = await this.ensureClient(task.workspace);
+      workspaceClient =
+        this.isolation === "process"
+          ? await this.createDedicatedClient(task.workspace)
+          : await this.ensureClient(task.workspace);
     } catch (error) {
       this.finish(state, {
         kind: "failed",
@@ -210,7 +283,10 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
       return execution;
     }
     state.workspaceClient = workspaceClient;
-    if (state.cancelled || state.settled) return execution;
+    if (state.cancelled || state.settled) {
+      this.disposeDedicated(state);
+      return execution;
+    }
 
     workspaceClient.sessions.set(task.assignmentId, this.bindingFor(state));
     try {
@@ -223,15 +299,22 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
           summary: `failed to prompt DSH SDK session: ${messageOf(error)}`,
         });
       }
+      this.disposeDedicated(state);
       return execution;
     }
-    if (state.cancelled || state.settled) return execution;
+    if (state.cancelled || state.settled) {
+      this.disposeDedicated(state);
+      return execution;
+    }
 
-    void this.run(state, workspaceClient);
+    state.phase = "thinking";
+    state.lastEventAt = this.now().toISOString();
+    this.armTimers(state);
+    this.startWaitFallback(state, workspaceClient);
     return execution;
   }
 
-  /** Close all pooled clients; running executions are left to their consumer. */
+  /** Close all pooled clients; process-isolated runtimes clean themselves up. */
   async close(): Promise<void> {
     this.closed = true;
     const clients = [...this.clients.values()];
@@ -247,6 +330,66 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
     }
   }
 
+  // ------------------------------------------------------------ live state
+
+  private snapshot(state: ExecutionState): HarnessTaskState {
+    const snapshot: HarnessTaskState = {
+      assignmentId: state.task.assignmentId,
+      phase: state.phase,
+      step: state.step,
+      lastEventAt: state.lastEventAt,
+      seq: state.seq,
+    };
+    if (state.lastTool !== undefined) snapshot.lastTool = { ...state.lastTool };
+    if (state.lastMessage !== undefined) snapshot.lastMessage = state.lastMessage;
+    return snapshot;
+  }
+
+  private applyEventToState(state: ExecutionState, event: unknown): void {
+    const record = asRecord(event);
+    if (record === undefined) return;
+    const type = typeof record.type === "string" ? record.type : "event";
+    state.seq += 1;
+    state.lastEventAt = eventTimestamp(record) ?? this.now().toISOString();
+    const data = asRecord(record.data) ?? {};
+
+    switch (type) {
+      case "step/start": {
+        state.phase = "thinking";
+        const step = data.step;
+        if (typeof step === "number" && Number.isInteger(step) && step > 0) state.step = step;
+        return;
+      }
+      case "tool/call": {
+        state.phase = "tool";
+        const name = typeof data.name === "string" && data.name.length > 0 ? data.name : "tool";
+        state.lastTool = { name, startedAt: state.lastEventAt };
+        return;
+      }
+      case "tool/result":
+        state.phase = "thinking";
+        return;
+      case "assistant/message": {
+        state.phase = "thinking";
+        const message = assistantMessageText(data);
+        if (message !== undefined) {
+          state.lastMessage = message.slice(0, MAX_LAST_MESSAGE_CHARS);
+        }
+        return;
+      }
+      case "turn/start":
+        state.phase = "thinking";
+        return;
+      case "turn/end":
+        state.phase = "done";
+        return;
+      default:
+        return;
+    }
+  }
+
+  // -------------------------------------------------------------- lifecycle
+
   private guardStaleTask(state: ExecutionState): boolean {
     const { deadlineAt } = state.task;
     if (deadlineAt === undefined) return false;
@@ -254,6 +397,117 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
     this.finish(state, { kind: "failed", summary: "assignment deadline had already passed" });
     return true;
   }
+
+  private armTimers(state: ExecutionState): void {
+    this.resetWatchdog(state);
+    const { deadlineAt } = state.task;
+    if (deadlineAt === undefined) return;
+    const remaining = Date.parse(deadlineAt) - this.now().getTime();
+    if (!Number.isFinite(remaining) || remaining <= 0) return;
+    state.deadlineTimer = setTimeout(() => {
+      if (state.settled) return;
+      this.finish(state, { kind: "failed", summary: "assignment deadline passed" });
+      this.hardStop(state);
+    }, remaining);
+    state.deadlineTimer.unref?.();
+  }
+
+  private resetWatchdog(state: ExecutionState): void {
+    if (state.watchdogTimer !== undefined) clearTimeout(state.watchdogTimer);
+    state.watchdogTimer = undefined;
+    if (this.idleTimeoutMs <= 0) return;
+    state.watchdogTimer = setTimeout(() => {
+      if (state.settled) return;
+      this.finish(state, {
+        kind: "failed",
+        summary: `no session events for ${this.idleTimeoutMs}ms`,
+      });
+      this.hardStop(state);
+    }, this.idleTimeoutMs);
+    state.watchdogTimer.unref?.();
+  }
+
+  private clearLifecycleTimers(state: ExecutionState): void {
+    if (state.watchdogTimer !== undefined) {
+      clearTimeout(state.watchdogTimer);
+      state.watchdogTimer = undefined;
+    }
+    if (state.deadlineTimer !== undefined) {
+      clearTimeout(state.deadlineTimer);
+      state.deadlineTimer = undefined;
+    }
+  }
+
+  private finish(state: ExecutionState, report: HarnessReport): void {
+    if (state.settled) return;
+    state.settled = true;
+    state.phase = report.kind === "failed" ? "failed" : "done";
+    state.lastEventAt = this.now().toISOString();
+    this.clearLifecycleTimers(state);
+    state.abort.abort();
+    state.workspaceClient?.sessions.delete(state.task.assignmentId);
+    this.disposeDedicated(state);
+    state.sink.report(report);
+  }
+
+  /** Reject escalations, steer a stop, wait the grace period, then hard-stop. */
+  private interruptExecution(state: ExecutionState): Promise<void> {
+    if (state.interruptPromise !== undefined) return state.interruptPromise;
+    state.interruptPromise = this.runInterrupt(state);
+    return state.interruptPromise;
+  }
+
+  private async runInterrupt(state: ExecutionState): Promise<void> {
+    if (state.settled) return;
+    state.cancelled = true;
+    state.pending?.reject(new SdkHarnessError("execution interrupted"));
+    state.abort.abort();
+    const workspaceClient = state.workspaceClient;
+    if (workspaceClient !== undefined) {
+      try {
+        await workspaceClient.client.prompt(state.task.assignmentId, STOP_STEER_TEXT);
+      } catch {
+        // Best effort: the runtime may already be gone.
+      }
+    }
+    if (this.interruptGraceMs > 0) await delay(this.interruptGraceMs);
+    if (state.settled) return;
+    this.hardStop(state);
+  }
+
+  private async cancelExecution(state: ExecutionState, reason?: string): Promise<void> {
+    if (state.settled) return;
+    await this.interruptExecution(state);
+    this.finish(state, {
+      kind: "failed",
+      summary: reason === undefined ? "cancelled" : `cancelled: ${reason}`,
+    });
+  }
+
+  /** Terminate (process isolation) or close the shared runtime, best effort. */
+  private hardStop(state: ExecutionState): void {
+    const workspaceClient = state.workspaceClient;
+    if (workspaceClient === undefined) return;
+    if (state.dedicated) {
+      this.disposeDedicated(state);
+      return;
+    }
+    this.closeWorkspaceClient(workspaceClient);
+    state.workspaceClient = undefined;
+  }
+
+  private async steer(state: ExecutionState, text: string): Promise<void> {
+    if (state.settled || state.cancelled) return;
+    const workspaceClient = state.workspaceClient;
+    if (workspaceClient === undefined) return;
+    try {
+      await workspaceClient.client.prompt(state.task.assignmentId, text);
+    } catch {
+      // Steering is best effort; the execution continues with its current turn.
+    }
+  }
+
+  // ---------------------------------------------------------------- clients
 
   private async ensureClient(workspace: string): Promise<WorkspaceClient> {
     if (this.closed) throw new SdkHarnessError("executor is closed");
@@ -285,18 +539,62 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
   private async createClient(workspace: string): Promise<WorkspaceClient> {
     const cwd = this.cwdFor(workspace);
     const client = this.clientFactory();
-    if (client.running !== true) {
-      const startOptions: StartDshSdkOptions = { cwd };
-      if (this.options.dshCommand !== undefined) startOptions.command = this.options.dshCommand;
-      if (this.options.dshArgs !== undefined) startOptions.args = [...this.options.dshArgs];
-      if (this.options.requestTimeoutMs !== undefined) {
-        startOptions.requestTimeoutMs = this.options.requestTimeoutMs;
-      }
-      client.start?.(startOptions);
+    this.launch(client, cwd);
+    const workspaceClient = this.wire(workspace, client);
+    try {
+      await this.initialize(client, cwd);
+    } catch (error) {
+      workspaceClient.detach();
+      this.disposeClient(client);
+      throw error;
     }
+    return workspaceClient;
+  }
+
+  private async createDedicatedClient(workspace: string): Promise<WorkspaceClient> {
+    const cwd = this.cwdFor(workspace);
+    const client = this.clientFactory();
+    this.launch(client, cwd);
+    const workspaceClient = this.wire(workspace, client);
+    try {
+      await this.initialize(client, cwd);
+    } catch (error) {
+      workspaceClient.detach();
+      this.disposeClient(client);
+      throw error;
+    }
+    return workspaceClient;
+  }
+
+  private launch(client: SdkClientLike, cwd: string): void {
+    if (client.running === true) return;
+    const startOptions: StartDshSdkOptions = { cwd };
+    if (this.options.dshCommand !== undefined) startOptions.command = this.options.dshCommand;
+    if (this.options.dshArgs !== undefined) startOptions.args = [...this.options.dshArgs];
+    if (this.options.requestTimeoutMs !== undefined) {
+      startOptions.requestTimeoutMs = this.options.requestTimeoutMs;
+    }
+    client.start?.(startOptions);
+  }
+
+  private async initialize(client: SdkClientLike, cwd: string): Promise<void> {
+    const initialize: InitializeOptions = {
+      provider: this.options.provider,
+      model: this.options.model,
+      cwd,
+      approvalRequests: true,
+      userQuestions: true,
+    };
+    await client.initialize(initialize);
+  }
+
+  private wire(workspace: string, client: SdkClientLike): WorkspaceClient {
     const sessions = new Map<string, SessionBinding>();
     const detachEvent = client.onEvent((notification) => {
       sessions.get(notification.sessionId)?.event(notification);
+    });
+    const detachStatus = client.onStatus((notification) => {
+      sessions.get(notification.sessionId)?.status(notification);
     });
     client.onApprovalRequest((params) => {
       const binding = sessions.get(params.sessionId);
@@ -306,119 +604,163 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
       const binding = sessions.get(request.sessionId);
       return binding === undefined ? { cancelled: true } : binding.question(request);
     });
-    const initialize: InitializeOptions = {
-      provider: this.options.provider,
-      model: this.options.model,
-      cwd,
-      approvalRequests: true,
-      userQuestions: true,
+    return {
+      workspace,
+      client,
+      sessions,
+      detach: () => {
+        detachEvent();
+        detachStatus();
+      },
     };
-    try {
-      await client.initialize(initialize);
-    } catch (error) {
-      detachEvent();
-      try {
-        client.close();
-      } catch {
-        // ignore; the initialize failure is the actionable error
-      }
-      throw error;
-    }
-    return { workspace, client, sessions, detach: detachEvent };
   }
+
+  private closeWorkspaceClient(workspaceClient: WorkspaceClient): void {
+    if (this.clients.get(workspaceClient.workspace) === workspaceClient) {
+      this.clients.delete(workspaceClient.workspace);
+    }
+    workspaceClient.detach();
+    workspaceClient.sessions.clear();
+    try {
+      workspaceClient.client.close();
+    } catch {
+      // Best effort: the caller reports the failure regardless.
+    }
+  }
+
+  private disposeDedicated(state: ExecutionState): void {
+    if (!state.dedicated) return;
+    const workspaceClient = state.workspaceClient;
+    if (workspaceClient === undefined) return;
+    state.workspaceClient = undefined;
+    workspaceClient.detach();
+    workspaceClient.sessions.clear();
+    this.disposeClient(workspaceClient.client);
+  }
+
+  private disposeClient(client: SdkClientLike): void {
+    try {
+      if (client.terminate !== undefined) client.terminate();
+      else client.close();
+    } catch {
+      // Best effort.
+    }
+  }
+
+  // ---------------------------------------------------------------- events
 
   private bindingFor(state: ExecutionState): SessionBinding {
     return {
-      event: (notification) => {
-        if (state.settled) return;
-        state.sink.event(mapSessionEvent(notification.event, this.now()));
-        scanEvent(state, notification.event);
-      },
+      event: (notification) => this.onSessionEvent(state, notification),
+      status: (notification) => this.onSessionStatus(state, notification),
       approval: (params) => this.askApproval(state, params),
       question: (request) => this.askQuestion(state, request),
     };
   }
 
-  private async run(state: ExecutionState, workspaceClient: WorkspaceClient): Promise<void> {
-    for (;;) {
-      try {
-        await workspaceClient.client.wait(state.task.assignmentId);
-      } catch (error) {
-        if (!state.cancelled) {
-          this.finish(state, {
-            kind: "failed",
-            summary: `DSH SDK wait failed: ${messageOf(error)}`,
-          });
-        }
-        this.release(state);
-        return;
-      }
-      if (state.settled || state.cancelled) {
-        this.release(state);
-        return;
-      }
+  private onSessionEvent(state: ExecutionState, notification: SessionEventNotification): void {
+    if (state.settled) return;
+    state.sink.event(mapSessionEvent(notification.event, this.now()));
+    scanEvent(state, notification.event);
+    this.applyEventToState(state, notification.event);
+    this.resetWatchdog(state);
+    if (eventTypeOf(notification.event) === "turn/end") this.onTurnEnd(state);
+  }
 
-      // A report always wins over a pending tool-result escalation in the same
-      // batch: the worker finished, whatever else it printed.
-      if (state.reportTexts.length > 0) {
-        this.finish(state, this.reportFor(state));
-        this.release(state);
-        return;
-      }
+  private onSessionStatus(state: ExecutionState, notification: SessionStatusNotification): void {
+    if (state.settled || notification.status !== "idle") return;
+    // An idle without any observed event is not evidence of a finished turn.
+    if (state.seq === 0) return;
+    this.onTurnEnd(state);
+  }
 
-      const escalation = state.toolEscalation;
-      if (escalation === undefined) {
-        this.finish(state, this.reportFor(state));
-        this.release(state);
-        return;
-      }
-      state.toolEscalation = undefined;
-      state.rounds += 1;
-      if (state.rounds > MAX_TOOL_ESCALATIONS) {
+  /** Turn completion: report, answer a pending tool-result escalation, or wait. */
+  private onTurnEnd(state: ExecutionState): void {
+    if (state.settled || state.cancelled) return;
+    if (state.reportTexts.length > 0) {
+      this.finish(state, this.reportFor(state));
+      return;
+    }
+    const escalation = state.toolEscalation;
+    if (escalation !== undefined) {
+      void this.answerToolEscalation(state, escalation);
+      return;
+    }
+    this.finish(state, this.reportFor(state));
+  }
+
+  private async answerToolEscalation(
+    state: ExecutionState,
+    escalation: HarnessEscalation,
+  ): Promise<void> {
+    if (state.settled || state.cancelled) return;
+    if (state.toolEscalation === escalation) state.toolEscalation = undefined;
+    state.rounds += 1;
+    if (state.rounds > MAX_TOOL_ESCALATIONS) {
+      this.finish(state, {
+        kind: "failed",
+        summary: `worker escalated more than ${MAX_TOOL_ESCALATIONS} times`,
+      });
+      this.hardStop(state);
+      return;
+    }
+
+    let resolution: HarnessResolution;
+    try {
+      resolution = await this.requestEscalation(
+        state,
+        escalationForAssignment(state.task.assignmentId, escalation),
+      );
+    } catch {
+      return; // Interrupted/cancelled: the cancel path owns the report.
+    }
+    if (state.settled || state.cancelled) return;
+
+    const workspaceClient = state.workspaceClient;
+    if (workspaceClient === undefined) return;
+    try {
+      await workspaceClient.client.prompt(
+        state.task.assignmentId,
+        resolutionPromptFor(escalation, resolution),
+      );
+    } catch (error) {
+      if (!state.cancelled) {
         this.finish(state, {
           kind: "failed",
-          summary: `worker escalated more than ${MAX_TOOL_ESCALATIONS} times`,
+          summary: `failed to deliver the resolution to the DSH SDK session: ${messageOf(error)}`,
         });
-        this.release(state);
-        return;
+        this.hardStop(state);
       }
-
-      let resolution: HarnessResolution;
-      try {
-        resolution = await this.requestEscalation(
-          state,
-          escalationForAssignment(state.task.assignmentId, escalation),
-        );
-      } catch {
-        this.release(state);
-        return; // Cancelled: the failed report was already emitted.
-      }
-      if (state.settled || state.cancelled) {
-        this.release(state);
-        return;
-      }
-
-      try {
-        await workspaceClient.client.prompt(
-          state.task.assignmentId,
-          resolutionPromptFor(escalation, resolution),
-        );
-      } catch (error) {
-        if (!state.cancelled) {
-          this.finish(state, {
-            kind: "failed",
-            summary: `failed to deliver the resolution to the DSH SDK session: ${messageOf(error)}`,
-          });
-        }
-        this.release(state);
-        return;
-      }
-      if (state.settled || state.cancelled) {
-        this.release(state);
-        return;
-      }
+      return;
     }
+    if (state.settled || state.cancelled) return;
+    this.resetWatchdog(state);
+    this.startWaitFallback(state, workspaceClient);
   }
+
+  /** Background wait: a fallback for a broken event stream, never a timeout. */
+  private startWaitFallback(state: ExecutionState, workspaceClient: WorkspaceClient): void {
+    const signal = state.abort.signal;
+    void (async () => {
+      try {
+        await workspaceClient.client.wait(state.task.assignmentId, {
+          timeoutMs: 0,
+          signal,
+        });
+      } catch (error) {
+        if (state.settled || state.cancelled || signal.aborted) return;
+        this.finish(state, {
+          kind: "failed",
+          summary: `DSH SDK wait failed: ${messageOf(error)}`,
+        });
+        return;
+      }
+      if (state.settled || state.cancelled) return;
+      this.onTurnEnd(state);
+    })();
+  }
+
+  // -------------------------------------------------------------- escalations
 
   private reportFor(state: ExecutionState): HarnessReport {
     if (state.reportTexts.length === 0) {
@@ -582,42 +924,6 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
       }
     });
   }
-
-  private cancelExecution(state: ExecutionState, reason?: string): void {
-    if (state.settled) return;
-    state.cancelled = true;
-    state.pending?.reject(new SdkHarnessError("execution cancelled"));
-    const workspaceClient = state.workspaceClient;
-    if (workspaceClient !== undefined) this.closeWorkspaceClient(workspaceClient);
-    this.finish(state, {
-      kind: "failed",
-      summary: reason === undefined ? "cancelled" : `cancelled: ${reason}`,
-    });
-    this.release(state);
-  }
-
-  private closeWorkspaceClient(workspaceClient: WorkspaceClient): void {
-    if (this.clients.get(workspaceClient.workspace) === workspaceClient) {
-      this.clients.delete(workspaceClient.workspace);
-    }
-    workspaceClient.detach();
-    workspaceClient.sessions.clear();
-    try {
-      workspaceClient.client.close();
-    } catch {
-      // Best effort: cancellation reports the failure regardless.
-    }
-  }
-
-  private finish(state: ExecutionState, report: HarnessReport): void {
-    if (state.settled) return;
-    state.settled = true;
-    state.sink.report(report);
-  }
-
-  private release(state: ExecutionState): void {
-    state.workspaceClient?.sessions.delete(state.task.assignmentId);
-  }
 }
 
 // ---------------------------------------------------------------- pure helpers
@@ -705,13 +1011,17 @@ export function repairReportBlock(text: string): string {
       out += char;
       continue;
     }
-    if (inString && (char.codePointAt(0) ?? 0) < 0x20) {
-      out += JSON.stringify(char).slice(1, -1);
+    if (inString) {
+      if (char === "\n") out += "\\n";
+      else if (char === "\r") out += "\\r";
+      else if (char === "\t") out += "\\t";
+      else if (char < " ") out += `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`;
+      else out += char;
       continue;
     }
     out += char;
   }
-  return text.slice(0, open + REPORT_OPEN.length) + out + text.slice(close);
+  return `${text.slice(0, open + REPORT_OPEN.length)}${out}${text.slice(close)}`;
 }
 
 /**
@@ -797,6 +1107,24 @@ function isEscalationKind(value: unknown): value is HarnessEscalation["kind"] {
   );
 }
 
+/** Text blocks joined from an `assistant/message` event's message. */
+function assistantMessageText(data: Record<string, unknown>): string | undefined {
+  const message = asRecord(data.message);
+  const content = message?.content;
+  if (!Array.isArray(content)) return undefined;
+  const parts: string[] = [];
+  for (const block of content) {
+    const record = asRecord(block);
+    if (record?.type === "text" && typeof record.text === "string") parts.push(record.text);
+  }
+  return parts.length > 0 ? parts.join("") : undefined;
+}
+
+function eventTypeOf(event: unknown): string | undefined {
+  const record = asRecord(event);
+  return typeof record?.type === "string" ? record.type : undefined;
+}
+
 function eventTimestamp(record: Record<string, unknown>): string | undefined {
   const time = record.time;
   if (typeof time === "number" && Number.isFinite(time)) {
@@ -805,6 +1133,12 @@ function eventTimestamp(record: Record<string, unknown>): string | undefined {
   const at = record.at;
   if (typeof at === "string" && at.length > 0) return at;
   return undefined;
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, milliseconds);
+  });
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {

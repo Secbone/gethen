@@ -3,21 +3,27 @@ import {
   HARNESS_ESCALATION_KINDS,
   HARNESS_REPORT_KINDS,
   HARNESS_RESOLUTION_KINDS,
+  HARNESS_TASK_PHASES,
   type HarnessCapabilities,
   type HarnessEscalation,
   type HarnessEvent,
   type HarnessExecution,
+  type HarnessExecution as HarnessExecutionType,
   type HarnessExecutor,
   type HarnessReport,
   type HarnessReportKind,
   type HarnessResolution,
   type HarnessSink,
   type HarnessTask,
+  type HarnessTaskPhase,
+  type HarnessTaskState,
   HarnessValidationError,
   hasTerminalReport,
   isHarnessEscalationKind,
   isHarnessReportKind,
   isHarnessResolutionKind,
+  isHarnessTaskPhase,
+  isTerminalPhase,
   parseHarnessDeadline,
   validateHarnessEscalation,
   validateHarnessReport,
@@ -278,5 +284,52 @@ describe("HarnessExecutor port", () => {
 
     expect(events).toEqual([{ type: "message", at: AT, data: { text: "started assignment-1" } }]);
     expect(reports).toEqual([{ kind: "ready", summary: "done" }]);
+  });
+});
+
+describe("live task state and control surface", () => {
+  it("knows terminal phases and guards phase values", () => {
+    expect(HARNESS_TASK_PHASES).toEqual([
+      "starting",
+      "thinking",
+      "tool",
+      "waiting",
+      "done",
+      "failed",
+    ]);
+    expect(isTerminalPhase("done")).toBe(true);
+    expect(isTerminalPhase("failed")).toBe(true);
+    for (const phase of ["starting", "thinking", "tool", "waiting"] as const) {
+      expect(isTerminalPhase(phase)).toBe(false);
+    }
+    expect(isHarnessTaskPhase("tool")).toBe(true);
+    expect(isHarnessTaskPhase("finished")).toBe(false);
+  });
+
+  it("exposes optional state/steer/interrupt methods on a harness execution", async () => {
+    expectTypeOf<HarnessExecutionType["state"]>().toEqualTypeOf<
+      (() => HarnessTaskState) | undefined
+    >();
+    expectTypeOf<HarnessExecutionType["steer"]>().toEqualTypeOf<
+      ((text: string) => Promise<void>) | undefined
+    >();
+    expectTypeOf<HarnessExecutionType["interrupt"]>().toEqualTypeOf<
+      (() => Promise<void>) | undefined
+    >();
+
+    const phases: HarnessTaskPhase[] = ["starting", "thinking"];
+    expect(phases).toHaveLength(2);
+
+    const state: HarnessTaskState = {
+      assignmentId: "assignment-1",
+      phase: "tool",
+      step: 2,
+      lastTool: { name: "bash", startedAt: AT },
+      lastEventAt: AT,
+      lastMessage: "running the tests",
+      seq: 7,
+    };
+    expect(state.lastTool?.name).toBe("bash");
+    expect(isTerminalPhase(state.phase)).toBe(false);
   });
 });

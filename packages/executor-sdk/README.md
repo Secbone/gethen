@@ -27,7 +27,9 @@ const agent = createMailboxAgent({ workerId: "worker-1", mailbox, harness });
 `createSdkHarnessExecutor(options)` returns a `HarnessExecutor` with an extra
 `close()` that releases the pooled DSH runtimes. Options: `provider`, `model`,
 `dshCommand?`, `dshArgs?`, `cwdFor?(workspace)`, `clientFactory?` (test/shared
-pool seam), `requestTimeoutMs?`, `now?`.
+pool seam), `requestTimeoutMs?`, `idleTimeoutMs?` (silence watchdog, default
+300000), `interruptGraceMs?` (default 1000), `isolation?: "shared" | "process"`
+(default `"shared"`), `now?`.
 
 ## Flow
 
@@ -43,13 +45,21 @@ pool seam), `requestTimeoutMs?`, `now?`.
    considered (a block split across events or fields is never glued together)
    and the last complete report block wins.
 3. It prompts the session with `task.prompt`.
-4. In the background it `session/wait`s, then parses the last report block with
-   `@gethen/master`'s `parseReportText` and narrows it to the port's three
-   states: `ready → ready`, `failed → failed`, `waiting`/`blocked`/`progress →
-   waiting` (question preserved, so blocked becomes `waiting + question`),
-   `dropped → ready`. A missing report becomes `waiting`; an invalid report
-   block, a failed wait or a failed prompt becomes `failed`.
-5. Errors never escape `start`: runtime initialize/prompt/wait, resolution
+4. Completion is **event-driven**: the session's `turn/end` event finishes the
+   turn; a `session.status → idle` notification is a fallback for a harness that
+   misses it. `session/wait` runs in the background only as a fallback for a
+   broken event stream and has **no total-duration timeout** (only a silence
+   watchdog). The last valid report block is parsed with `@gethen/master`'s
+   `parseReportText` and narrowed to the port's three states: `ready → ready`,
+   `failed → failed`, `waiting`/`blocked`/`progress → waiting` (question
+   preserved, so blocked becomes `waiting + question`), `dropped → ready`. A
+   missing report becomes `waiting`; an invalid report block or a failed wait
+   becomes `failed`.
+5. A **silence watchdog** (`idleTimeoutMs`, default 5 min) fails the execution
+   with `no session events for <n>ms` when the stream goes quiet; it resets on
+   every `session.event`. `task.deadlineAt` also fails the execution when it
+   passes. Both hard-stop the runtime.
+6. Errors never escape `start`: runtime initialize/prompt/wait, resolution
    delivery and cancellation failures are reported as a single
    `HarnessReport{kind:"failed"}`.
 
@@ -61,16 +71,39 @@ pool seam), `requestTimeoutMs?`, `now?`.
 | `user-question/ask` | one `decision` escalation per question, asked **sequentially** (one live escalation at a time) | `answer` → DSH `answers:[{id, selected:[option label], custom?}]`; `escalate` / `drop` → `{cancelled:true}` |
 | tool-result `[GETHEN-ESCALATION]` (compat `gethen_escalate` tool) | the escalation it carries (kind/question/options, `blocking: true`) | the answer is written back into the same session as a `[GETHEN-RESOLUTION]` block, then the executor waits again (at most 5 tool-result escalations per execution) |
 
+## Live state, steering and isolation
+
+`HarnessExecution.state()` returns a `HarnessTaskState` snapshot (`phase`,
+`step`, `lastTool`, `lastEventAt`, truncated `lastMessage`, `seq`) updated from
+the event stream: `step/start → thinking + step`, `tool/call → tool + lastTool`,
+`tool/result → thinking`, `assistant/message → lastMessage`, `turn/end → done`,
+and `failed` on failure. The snapshot is a copy; mutating it does not affect the
+execution.
+
+`HarnessExecution.steer(text)` queues another `session/prompt` into the running
+session (best effort; failures are ignored). `HarnessExecution.interrupt()` is
+the hard-stop sequence: reject a pending escalation, steer `STOP_STEER_TEXT`,
+wait `interruptGraceMs`, then terminate/close the runtime.
+
+`isolation`:
+
+| Mode | Runtime | Completion cleanup | Cancel/interrupt cleanup |
+|---|---|---|---|
+| `"shared"` (default) | one pooled `DshSdkClient` per workspace, reused by assignments | session binding removed; runtime kept for the next assignment | the shared client is closed (all its sessions end) |
+| `"process"` | one dedicated `DshSdkClient` per assignment | dedicated runtime is `terminate()`d (SIGKILL) | dedicated runtime is `terminate()`d |
+
 ## Deadline and cancellation
 
 - An assignment whose `deadlineAt` has already passed is reported `failed`
-  before any runtime is spawned.
+  before any runtime is spawned; a future deadline arms a timer that fails and
+  hard-stops the execution.
 - The DSH SDK protocol has **no per-turn cancel/interrupt method** — only
-  process `shutdown`/EOF. `HarnessExecution.cancel(reason?)` therefore rejects
-  any pending escalation, closes the workspace's SDK client (killing **every**
-  session it hosts), and reports `{kind:"failed", summary:"cancelled"}` (or
-  `"cancelled: <reason>"`) exactly once. Other assignments on the same workspace
-  fail too; use a distinct workspace per assignment if isolation matters.
+  process `shutdown`/EOF. `HarnessExecution.cancel(reason?)` therefore runs the
+  interrupt sequence (reject pending escalation → steer a stop → grace period →
+  terminate/close) and reports `{kind:"failed", summary:"cancelled"}` (or
+  `"cancelled: <reason>"`) exactly once. In `"shared"` isolation the whole
+  workspace runtime closes, so other assignments on it fail too; use
+  `isolation: "process"` when per-assignment isolation matters.
 
 ## Migration note
 

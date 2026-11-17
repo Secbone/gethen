@@ -23,7 +23,11 @@
  *    terminal, `waiting` means the mailbox consumer keeps the execution open
  *    (for example while a person answers a question);
  * 5. `execution.cancel(reason?)` asks the execution to stop; the implementation
- *    is expected to report `failed` (never both a cancel report and a normal one).
+ *    is expected to report `failed` (never both a cancel report and a normal one);
+ * 6. all three observation/control methods on the execution are optional:
+ *    `state()` exposes a live `HarnessTaskState`, `steer(text)` queues more input
+ *    into the running turn, and `interrupt()` asks for a hard stop without
+ *    reporting (the consumer decides what the report is).
  */
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
@@ -116,6 +120,45 @@ export interface HarnessReport {
   usage?: JsonObject;
 }
 
+/** What a harness execution is doing right now. */
+export type HarnessTaskPhase = "starting" | "thinking" | "tool" | "waiting" | "done" | "failed";
+
+export const HARNESS_TASK_PHASES: readonly HarnessTaskPhase[] = [
+  "starting",
+  "thinking",
+  "tool",
+  "waiting",
+  "done",
+  "failed",
+];
+
+/** The tool a harness is currently executing, when one is running. */
+export interface HarnessToolState {
+  name: string;
+  /** RFC 3339 UTC timestamp of the tool call. */
+  startedAt: string;
+}
+
+/**
+ * A live snapshot of one execution. Every field except the optional ones is
+ * present from the first `start`; `seq` and `lastEventAt` advance with the
+ * harness event stream, and `phase` becomes terminal (`done`/`failed`) once the
+ * execution reports.
+ */
+export interface HarnessTaskState {
+  assignmentId: string;
+  phase: HarnessTaskPhase;
+  /** 1-based step within the current turn (`0` before the first step). */
+  step: number;
+  lastTool?: HarnessToolState;
+  /** RFC 3339 UTC timestamp of the most recent observation. */
+  lastEventAt: string;
+  /** Truncated assistant text from the most recent assistant message. */
+  lastMessage?: string;
+  /** Monotonic count of observations received by the consumer. */
+  seq: number;
+}
+
 /** Where a running execution delivers its observations. */
 export interface HarnessSink {
   event(event: HarnessEvent): void;
@@ -129,6 +172,12 @@ export interface HarnessExecution {
   sendResolution(resolution: HarnessResolution): Promise<void>;
   /** Stop the execution; the executor is expected to report `failed`. */
   cancel(reason?: string): Promise<void>;
+  /** Live execution state, when the harness can report one. */
+  state?(): HarnessTaskState;
+  /** Queue more input into the running execution; best effort. */
+  steer?(text: string): Promise<void>;
+  /** Ask for a hard stop without settling the execution (no report is written). */
+  interrupt?(): Promise<void>;
 }
 
 /** Starts (and owns) one execution per task. */
@@ -203,6 +252,16 @@ export function isHarnessResolutionKind(value: unknown): value is HarnessResolut
 /** True when a report kind ends the execution (`ready` or `failed`). */
 export function hasTerminalReport(kind: HarnessReportKind): boolean {
   return kind === "ready" || kind === "failed";
+}
+
+/** True when an execution phase is over (`done` or `failed`). */
+export function isTerminalPhase(phase: HarnessTaskPhase): boolean {
+  return phase === "done" || phase === "failed";
+}
+
+/** Runtime guard for phases read from outside the type system. */
+export function isHarnessTaskPhase(value: unknown): value is HarnessTaskPhase {
+  return (HARNESS_TASK_PHASES as readonly unknown[]).includes(value);
 }
 
 /**

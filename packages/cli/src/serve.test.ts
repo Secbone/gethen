@@ -18,6 +18,38 @@ import {
 } from "./commands/serve";
 
 type MailboxHarness = Parameters<typeof createMailboxAgent>[0]["harness"];
+type EnvelopeLike = Parameters<MailboxClientLink["send"]>[0];
+
+/** A live TaskState a scripted worker reports (matches bridge-mailbox). */
+const TASK_STATE = {
+  phase: "thinking",
+  step: 1,
+  seq: 0,
+  lastEventAt: new Date("2026-11-17T10:00:00.000Z").toISOString(),
+  lastMessage: "planning",
+};
+
+/** Build a worker->master mailbox envelope without importing @gethen/mailbox. */
+function workerEnvelope(input: {
+  type: string;
+  data: unknown;
+  subject?: string;
+  correlationId?: string;
+  to?: string;
+}): EnvelopeLike {
+  return {
+    specversion: "1.0",
+    id: crypto.randomUUID(),
+    source: "agent:worker-1",
+    type: input.type,
+    time: new Date().toISOString(),
+    datacontenttype: "application/json",
+    data: input.data,
+    ...(input.subject === undefined ? {} : { subject: input.subject }),
+    ...(input.correlationId === undefined ? {} : { correlationId: input.correlationId }),
+    ...(input.to === undefined ? {} : { to: input.to }),
+  };
+}
 
 const handles: ServeHandle[] = [];
 const agents: MailboxAgent[] = [];
@@ -117,6 +149,42 @@ async function attachWorker(
   });
   agents.push(agent);
   agent.start();
+}
+
+/** Attach a raw mailbox link (no agent) so a test can script the worker side. */
+async function attachRawWorker(handle: ServeHandle, token: string): Promise<MailboxClientLink> {
+  const session = await createWsTransport({ heartbeat: false }).connect(
+    { url: `ws://127.0.0.1:${handle.port}${WORKER_PATH}` },
+    { kind: "bearer", token },
+  );
+  sessions.push(session);
+  const link = await createMailboxClientLink({
+    session,
+    mailbox: "mailbox:worker-1",
+    receiveTimeoutMs: 100,
+    visibilityTimeoutMs: 2_000,
+  });
+  links.push(link);
+  return link;
+}
+
+async function receiveEnvelope(
+  link: MailboxClientLink,
+  timeoutMs = 3_000,
+): Promise<{ envelope: { id: string; type?: string; data?: unknown; replyTo?: string } }> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const messages = await link.receive({ limit: 1, timeoutMs: 100 });
+    const [message] = messages;
+    if (message !== undefined) {
+      return message as unknown as {
+        envelope: { id: string; type?: string; data?: unknown; replyTo?: string };
+      };
+    }
+    if (Date.now() > deadline) {
+      throw new Error("timed out waiting for a mailbox delivery");
+    }
+  }
 }
 
 function baseUrl(handle: ServeHandle): string {
@@ -323,5 +391,121 @@ describe("gethen serve", () => {
     expect(bad.status).toBe(400);
     const missing = await fetch(`${baseUrl(handle)}/nope`);
     expect(missing.status).toBe(404);
+  });
+  it("returns 409 for task routes when no mailbox transport is configured", async () => {
+    const handle = await serve();
+    const base = baseUrl(handle);
+
+    const list = await fetch(`${base}/gethen/tasks`);
+    expect(list.status).toBe(409);
+    expect(await list.json()).toMatchObject({ code: "RUNTIME_COMMS_UNAVAILABLE" });
+
+    const status = await fetch(`${base}/gethen/tasks/assignment-1`);
+    expect(status.status).toBe(409);
+
+    const steer = await fetch(`${base}/gethen/tasks/assignment-1/steer`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: "go" }),
+    });
+    expect(steer.status).toBe(409);
+  });
+
+  it("serves the task list and asks the worker for status", async () => {
+    const token = "task-token";
+    const handle = await serve({
+      tokens: [{ workerId: "worker-1", token }],
+      mailboxPollIntervalMs: 10,
+      mailboxVisibilityTimeoutMs: 2_000,
+    });
+    const link = await attachRawWorker(handle, token);
+
+    expect(await getJson(handle, "/gethen/tasks")).toEqual({ tasks: {} });
+
+    const statusResponse = fetch(`${baseUrl(handle)}/gethen/tasks/assignment-1`);
+    const request = await receiveEnvelope(link);
+    expect(request.envelope).toMatchObject({
+      type: "gethen.task.status",
+      subject: "assignment-1",
+    });
+    await link.ack([request.envelope.id]);
+    await link.send(
+      workerEnvelope({
+        type: "gethen.task.status.result",
+        data: { assignmentId: "assignment-1", state: TASK_STATE },
+        correlationId: request.envelope.id,
+        ...(request.envelope.replyTo === undefined ? {} : { to: request.envelope.replyTo }),
+      }),
+    );
+    const status = await statusResponse;
+    expect(status.status).toBe(200);
+    expect(await status.json()).toMatchObject({
+      assignmentId: "assignment-1",
+      state: { phase: "thinking", step: 1 },
+    });
+
+    const unknownResponse = fetch(`${baseUrl(handle)}/gethen/tasks/missing`);
+    const unknownRequest = await receiveEnvelope(link);
+    await link.ack([unknownRequest.envelope.id]);
+    await link.send(
+      workerEnvelope({
+        type: "gethen.task.status.result",
+        data: { assignmentId: "missing", state: null },
+        correlationId: unknownRequest.envelope.id,
+        ...(unknownRequest.envelope.replyTo === undefined
+          ? {}
+          : { to: unknownRequest.envelope.replyTo }),
+      }),
+    );
+    expect((await unknownResponse).status).toBe(404);
+  });
+
+  it("maps an unanswered status to 504 and sends steer/cancel", async () => {
+    const token = "control-token";
+    const handle = await serve({
+      tokens: [{ workerId: "worker-1", token }],
+      mailboxPollIntervalMs: 10,
+      mailboxVisibilityTimeoutMs: 2_000,
+    });
+    const link = await attachRawWorker(handle, token);
+
+    const timeoutResponse = await fetch(`${baseUrl(handle)}/gethen/tasks/slow?timeoutMs=100`);
+    expect(timeoutResponse.status).toBe(504);
+    expect(await timeoutResponse.json()).toMatchObject({ code: "MAILBOX_STATUS_TIMEOUT" });
+    const stale = await receiveEnvelope(link);
+    await link.ack([stale.envelope.id]);
+
+    const steerResponse = await fetch(`${baseUrl(handle)}/gethen/tasks/assignment-1/steer`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: "focus on tests" }),
+    });
+    expect(steerResponse.status).toBe(202);
+    const steerMessage = await receiveEnvelope(link);
+    expect(steerMessage.envelope).toMatchObject({
+      type: "gethen.task.steer",
+      data: { assignmentId: "assignment-1", text: "focus on tests" },
+    });
+    await link.ack([steerMessage.envelope.id]);
+
+    const emptySteer = await fetch(`${baseUrl(handle)}/gethen/tasks/assignment-1/steer`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    expect(emptySteer.status).toBe(400);
+
+    const cancelResponse = await fetch(`${baseUrl(handle)}/gethen/tasks/assignment-1/cancel`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ reason: "stop" }),
+    });
+    expect(cancelResponse.status).toBe(202);
+    const cancelMessage = await receiveEnvelope(link);
+    expect(cancelMessage.envelope).toMatchObject({
+      type: "gethen.task.cancel",
+      data: { reason: "stop" },
+    });
+    await link.ack([cancelMessage.envelope.id]);
   });
 });

@@ -179,7 +179,7 @@ describe("DshSdkClient process", () => {
   it("waits, resumes and reads or changes the working directory", async () => {
     const { child, client } = start();
 
-    const waiting = client.wait("s1", 1_000);
+    const waiting = client.wait("s1", { timeoutMs: 1_000 });
     expect(paramsOf(child, "session/wait")).toEqual({ sessionId: "s1" });
     child.respond(frameOf(child, "session/wait").id, {});
     await expect(waiting).resolves.toBeUndefined();
@@ -221,14 +221,19 @@ describe("DshSdkClient process", () => {
     expect(statuses).toEqual([{ sessionId: "s1", status: "running" }]);
     expect(stderr).toEqual(["warning: heads up\n"]);
 
+    child.notify("session.event", { sessionId: "s2", event: { type: "message", text: "two" } });
+    child.notify("session.status", { sessionId: "s2", status: "idle" });
+    expect(events.at(-1)?.sessionId).toBe("s2");
+    expect(statuses.at(-1)?.sessionId).toBe("s2");
+
     offEvent();
     offStatus();
     offStderr();
     child.notify("session.event", { sessionId: "s1", event: { type: "message" } });
     child.notify("session.status", { sessionId: "s1", status: "idle" });
     child.stderr.emit("data", "late\n");
-    expect(events).toHaveLength(1);
-    expect(statuses).toHaveLength(1);
+    expect(events).toHaveLength(2);
+    expect(statuses).toHaveLength(2);
     expect(stderr).toHaveLength(1);
     client.close();
   });
@@ -366,7 +371,7 @@ describe("DshSdkClient process", () => {
     vi.useFakeTimers();
     try {
       const { child, client } = start();
-      const waiting = client.wait("s1", 50);
+      const waiting = client.wait("s1", { timeoutMs: 50 });
       frameOf(child, "session/wait");
       const rejection = expect(waiting).rejects.toThrow(/timed out after 50ms/);
       vi.advanceTimersByTime(50);
@@ -375,5 +380,72 @@ describe("DshSdkClient process", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("waits without a total timeout by default and aborts on demand", async () => {
+    vi.useFakeTimers();
+    try {
+      const { child, client } = start();
+      let outcome = "pending";
+      const waiting = client.wait("s1");
+      void waiting.then(
+        () => {
+          outcome = "resolved";
+        },
+        () => {
+          outcome = "rejected";
+        },
+      );
+      const waitFrame = frameOf(child, "session/wait");
+
+      // The peer default (30s) must not bound `session/wait`; only an explicit
+      // timeoutMs or an abort does.
+      vi.advanceTimersByTime(60_000);
+      await Promise.resolve();
+      expect(outcome).toBe("pending");
+
+      child.respond(waitFrame.id, {});
+      await vi.advanceTimersByTimeAsync(0);
+      await expect(waiting).resolves.toBeUndefined();
+
+      const controller = new AbortController();
+      const aborted = client.wait("s1", { signal: controller.signal });
+      frameOf(child, "session/wait");
+      const rejection = expect(aborted).rejects.toMatchObject({ name: "AbortError" });
+      controller.abort();
+      await rejection;
+      client.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("aborts a wait and ignores its late response", async () => {
+    const { child, client } = start();
+    const controller = new AbortController();
+    const waiting = client.wait("s1", { signal: controller.signal });
+    const frame = frameOf(child, "session/wait");
+
+    controller.abort();
+    await expect(waiting).rejects.toThrow(/aborted/);
+    expect(child.frames().filter((item) => item.method === "session/wait")).toHaveLength(1);
+
+    // The already-sent request may still answer; it must be ignored.
+    child.respond(frame.id, {});
+    client.close();
+  });
+
+  it("terminates the child immediately and rejects pending work", async () => {
+    const { child, client } = start();
+    const waiting = client.wait("s1");
+    frameOf(child, "session/wait");
+
+    client.terminate();
+
+    expect(child.signals).toEqual(["SIGKILL"]);
+    expect(client.running).toBe(false);
+    await expect(waiting).rejects.toThrow(/terminated/);
+    expect(() => client.terminate()).not.toThrow();
+    expect(() => client.close()).not.toThrow();
   });
 });

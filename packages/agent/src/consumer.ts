@@ -13,8 +13,12 @@
  * - out `gethen.task.progress` → sink.event (at-most-once, optional throttle);
  * - out `gethen.task.ask`      → sink.escalation, correlationId = assign id;
  * - in  `gethen.task.answer`   → validate resolution, `execution.sendResolution`;
- * - in  `gethen.task.cancel`   → `execution.cancel(reason)` (the harness reports
- *   `failed`; the consumer does not invent a second result);
+ * - in  `gethen.task.status`   → reply `gethen.task.status.result` with the live
+ *   `execution.state()` (or a synthesized minimal state) and ack;
+ * - in  `gethen.task.steer`    → `execution.steer(text)` when the harness has one;
+ * - in  `gethen.task.cancel`   → `execution.interrupt()` when available, else
+ *   `execution.cancel(reason)` (the harness reports `failed`; the consumer does
+ *   not invent a second result and never cancels one execution twice);
  * - out `gethen.task.result`   → sink.report, then ack the assign message.
  *
  * Delivery policy:
@@ -37,6 +41,7 @@ import type {
   HarnessResolution,
   HarnessSink,
   HarnessTask,
+  HarnessTaskState,
   JsonObject,
 } from "@gethen/harness";
 import {
@@ -59,6 +64,9 @@ export const MESSAGE_TYPES = {
   ask: "gethen.task.ask",
   answer: "gethen.task.answer",
   result: "gethen.task.result",
+  status: "gethen.task.status",
+  statusResult: "gethen.task.status.result",
+  steer: "gethen.task.steer",
   cancel: "gethen.task.cancel",
 } as const;
 
@@ -86,6 +94,8 @@ export interface TaskAssignPayload {
 export interface TaskProgressPayload {
   assignmentId: string;
   event: HarnessEvent;
+  /** Live state snapshot when the harness exposes `execution.state()`. */
+  state?: HarnessTaskState;
 }
 
 export interface TaskAskPayload {
@@ -109,6 +119,21 @@ export interface TaskResultPayload {
   summary: string;
   question?: string;
   usage?: JsonObject;
+}
+
+export interface TaskStatusPayload {
+  assignmentId?: string;
+}
+
+export interface TaskStatusResultPayload {
+  assignmentId: string;
+  state: HarnessTaskState | null;
+  at: string;
+}
+
+export interface TaskSteerPayload {
+  assignmentId?: string;
+  text?: string;
 }
 
 export interface TaskCancelPayload {
@@ -302,6 +327,8 @@ export type MailboxAgentErrorPhase =
   | "receive"
   | "assign"
   | "answer"
+  | "status"
+  | "steer"
   | "cancel"
   | "harness"
   | "progress"
@@ -408,7 +435,13 @@ interface ExecutionEntry {
   settled: boolean;
   cancelled: boolean;
   cancelRequested: boolean;
+  /** The interrupt/cancel control call was issued; never issue it twice. */
+  cancelApplied: boolean;
   cancelReason?: string;
+  lastState?: HarnessTaskState;
+  lastPhase?: HarnessTaskState["phase"];
+  lastEventAt?: string;
+  eventSeq: number;
   pendingEscalation?: HarnessEscalation;
   askEnvelopeId?: string;
   queuedResolutions: HarnessResolution[];
@@ -604,6 +637,10 @@ class MailboxAgentImpl implements MailboxAgent {
         return this.handleAssign(message);
       case MESSAGE_TYPES.answer:
         return this.handleAnswer(message);
+      case MESSAGE_TYPES.status:
+        return this.handleStatus(message);
+      case MESSAGE_TYPES.steer:
+        return this.handleSteer(message);
       case MESSAGE_TYPES.cancel:
         return this.handleCancel(message);
       default:
@@ -643,7 +680,15 @@ class MailboxAgentImpl implements MailboxAgent {
       const execution = await this.harness.start(task, entry.sink);
       entry.execution = execution;
       if (entry.cancelled) {
-        await execution.cancel(entry.cancelReason);
+        try {
+          await this.applyCancel(entry, entry.cancelReason);
+        } catch (error) {
+          this.reportError(error, {
+            phase: "cancel",
+            assignmentId: task.assignmentId,
+            envelope,
+          });
+        }
         return;
       }
       for (const resolution of entry.queuedResolutions.splice(0)) {
@@ -727,23 +772,156 @@ class MailboxAgentImpl implements MailboxAgent {
     const data = asRecord(envelope.data) ?? {};
     const assignmentId = stringValue(data.assignmentId) ?? stringValue(envelope.subject);
     const entry = this.findExecution(assignmentId, envelope.correlationId);
-    await this.ack(envelope.id);
-    if (entry === undefined || entry.settled) return;
+    if (entry === undefined || entry.settled) {
+      await this.ack(envelope.id);
+      return;
+    }
+    if (entry.cancelled) {
+      // One cancel per execution: a duplicate request is acked without a second
+      // interrupt/cancel call.
+      await this.ack(envelope.id);
+      return;
+    }
 
     const reason = stringValue(data.reason);
     entry.cancelled = true;
     entry.cancelRequested = true;
     if (reason !== undefined) entry.cancelReason = reason;
-    if (entry.execution === undefined) return; // cancelled when start() resolves
+    if (entry.execution === undefined) {
+      // The assign is still starting; handleAssign applies the cancel as soon as
+      // the harness returns its execution handle.
+      await this.ack(envelope.id);
+      return;
+    }
     try {
-      await entry.execution.cancel(reason);
+      await this.applyCancel(entry, reason);
+      await this.ack(envelope.id);
     } catch (error) {
+      // Allow a redelivered cancel to retry the control call.
+      entry.cancelled = false;
       this.reportError(error, {
         phase: "cancel",
         assignmentId: entry.task.assignmentId,
         envelope,
       });
+      await this.nack(envelope.id, "requeue");
     }
+  }
+
+  /**
+   * Cancellation always goes through `cancel(reason)`: the harness contract
+   * makes `cancel` responsible for stopping the execution *and* emitting the
+   * terminal report. `interrupt` alone may stop the runtime without a report,
+   * which would leave the assignment open until the bridge timeout.
+   */
+  private async applyCancel(entry: ExecutionEntry, reason?: string): Promise<void> {
+    if (entry.cancelApplied) return;
+    const execution = entry.execution;
+    if (execution === undefined) return;
+    await execution.cancel(reason);
+    entry.cancelApplied = true;
+  }
+
+  private async handleStatus(message: ReceivedMessage): Promise<void> {
+    const envelope = message.envelope;
+    try {
+      const data = asRecord(envelope.data) ?? {};
+      const requestedId = stringValue(data.assignmentId) ?? stringValue(envelope.subject);
+      const entry = this.findExecution(requestedId, envelope.correlationId);
+      const assignmentId = entry?.task.assignmentId ?? requestedId ?? "";
+      const at = this.now().toISOString();
+      const reply = newEnvelope({
+        source: `agent:${this.workerId}`,
+        type: MESSAGE_TYPES.statusResult,
+        to: envelope.replyTo ?? this.masterMailbox,
+        ...(assignmentId === "" ? {} : { subject: assignmentId }),
+        time: at,
+        correlationId: envelope.id,
+        causationId: envelope.id,
+        data: {
+          assignmentId,
+          state: entry === undefined ? null : this.snapshotState(entry),
+          at,
+        } satisfies TaskStatusResultPayload,
+      });
+      await this.mailbox.send(reply);
+      await this.ack(envelope.id);
+    } catch (error) {
+      this.reportError(error, { phase: "status", envelope });
+      await this.nack(envelope.id, "requeue");
+    }
+  }
+
+  private async handleSteer(message: ReceivedMessage): Promise<void> {
+    const envelope = message.envelope;
+    const data = asRecord(envelope.data) ?? {};
+    const assignmentId = stringValue(data.assignmentId) ?? stringValue(envelope.subject);
+    const entry = this.findExecution(assignmentId, envelope.correlationId);
+    if (entry === undefined || entry.settled) {
+      this.reportError(
+        new MailboxAgentError(
+          "STEER_UNKNOWN_ASSIGNMENT",
+          `no running execution for assignment ${assignmentId ?? "<unknown>"}`,
+        ),
+        { phase: "steer", ...(assignmentId === undefined ? {} : { assignmentId }), envelope },
+      );
+      await this.ack(envelope.id);
+      return;
+    }
+
+    const text = stringValue(data.text);
+    const execution = entry.execution;
+    if (execution === undefined || execution.steer === undefined) {
+      this.reportError(
+        new MailboxAgentError(
+          "STEER_UNSUPPORTED",
+          `assignment ${entry.task.assignmentId}: harness has no steer capability`,
+        ),
+        { phase: "steer", assignmentId: entry.task.assignmentId, envelope },
+      );
+      await this.ack(envelope.id);
+      return;
+    }
+    if (text === undefined) {
+      this.reportError(
+        new MailboxAgentError(
+          "STEER_INVALID",
+          `assignment ${entry.task.assignmentId}: steer text must be a non-empty string`,
+        ),
+        { phase: "steer", assignmentId: entry.task.assignmentId, envelope },
+      );
+      await this.ack(envelope.id);
+      return;
+    }
+
+    try {
+      await execution.steer(text);
+      await this.ack(envelope.id);
+    } catch (error) {
+      this.reportError(error, {
+        phase: "steer",
+        assignmentId: entry.task.assignmentId,
+        envelope,
+      });
+      await this.nack(envelope.id, "requeue");
+    }
+  }
+
+  /** Live state from the harness, else the last one, else a minimal synthesis. */
+  private snapshotState(entry: ExecutionEntry): HarnessTaskState {
+    const live = entry.execution?.state?.();
+    if (live !== undefined) {
+      entry.lastState = live;
+      return live;
+    }
+    if (entry.lastState !== undefined) return entry.lastState;
+    return {
+      assignmentId: entry.task.assignmentId,
+      phase: entry.eventSeq > 0 ? "thinking" : "starting",
+      step: 0,
+      lastEventAt: entry.lastEventAt ?? entry.assignEnvelope.time,
+      seq: entry.eventSeq,
+    };
   }
 
   // ------------------------------------------------------------- harness
@@ -765,6 +943,8 @@ class MailboxAgentImpl implements MailboxAgent {
       settled: false,
       cancelled: false,
       cancelRequested: false,
+      cancelApplied: false,
+      eventSeq: 0,
       queuedResolutions: [],
       done,
       resolveDone,
@@ -774,9 +954,24 @@ class MailboxAgentImpl implements MailboxAgent {
 
   private onEvent(entry: ExecutionEntry, event: HarnessEvent): void {
     if (entry.settled) return;
+    entry.eventSeq += 1;
+    entry.lastEventAt = event.at;
+
+    const state = entry.execution?.state?.();
+    const phaseChanged =
+      state !== undefined && (entry.lastPhase === undefined || entry.lastPhase !== state.phase);
+    if (state !== undefined) {
+      entry.lastState = state;
+      entry.lastPhase = state.phase;
+    }
+
     if (this.progressThrottleMs > 0) {
       const timestamp = this.now().getTime();
+      // A phase change is worth a message even inside the throttle window: the
+      // master's live view should not wait for the next allowed tick to show
+      // "tool" or "waiting".
       if (
+        !phaseChanged &&
         entry.lastProgressAt !== undefined &&
         timestamp - entry.lastProgressAt < this.progressThrottleMs
       ) {
@@ -784,7 +979,9 @@ class MailboxAgentImpl implements MailboxAgent {
       }
       entry.lastProgressAt = timestamp;
     }
+
     const payload: TaskProgressPayload = { assignmentId: entry.task.assignmentId, event };
+    if (state !== undefined) payload.state = state;
     this.queue(entry, MESSAGE_TYPES.progress, payload);
     void this.flush();
   }
