@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { isIP } from "node:net";
 import { agentMailboxName, createMailboxAgent, type MailboxAgent } from "@gethen/agent";
 import { createSdkHarnessExecutor } from "@gethen/executor-sdk";
@@ -231,13 +231,55 @@ async function runMailboxWorker(config: WorkerConfig): Promise<number> {
   }
 
   const link: MailboxClientLink = await createMailboxClientLink({ session, mailbox });
-  const harness = createSdkHarnessExecutor({
+
+  /** Map the master-side workspace to a local directory that exists. */
+  function resolveWorkspace(workspace: string): string {
+    const mapped = config.workspaceMap?.[workspace] ?? workspace;
+    if (existsSync(mapped)) return mapped;
+    const configured = config.workspaces.find((candidate) => existsSync(candidate));
+    const fallback = configured ?? process.cwd();
+    process.stderr.write(
+      `worker: workspace "${workspace}" -> "${mapped}" does not exist; using "${fallback}"\n`,
+    );
+    return fallback;
+  }
+
+  const baseHarness = createSdkHarnessExecutor({
     provider: config.provider,
     model: config.model,
-    cwdFor: (workspace) => config.workspaceMap?.[workspace] ?? workspace,
+    cwdFor: resolveWorkspace,
     ...(config.dshCommand === undefined ? {} : { dshCommand: config.dshCommand }),
     ...(config.dshArgs === undefined ? {} : { dshArgs: config.dshArgs }),
   });
+  const harness = {
+    async start(
+      task: Parameters<typeof baseHarness.start>[0],
+      sink: Parameters<typeof baseHarness.start>[1],
+    ) {
+      process.stderr.write(
+        `worker: assign ${task.assignmentId} workspace=${task.workspace} cwd=${resolveWorkspace(task.workspace)}\n`,
+      );
+      let execution;
+      try {
+        execution = await baseHarness.start(task, {
+          event: (event) => sink.event(event),
+          escalation: (escalation) => {
+            process.stderr.write(`worker: escalation ${escalation.kind}: ${escalation.question}\n`);
+            sink.escalation(escalation);
+          },
+          report: (report) => {
+            process.stderr.write(`worker: report ${report.kind}: ${report.summary}\n`);
+            sink.report(report);
+          },
+        });
+      } catch (error) {
+        process.stderr.write(`worker: harness start failed: ${messageOf(error)}\n`);
+        throw error;
+      }
+      return execution;
+    },
+    close: () => baseHarness.close(),
+  };
   const agent: MailboxAgent = createMailboxAgent({
     workerId,
     mailbox: link,
