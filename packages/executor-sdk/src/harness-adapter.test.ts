@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { zstdCompressSync } from "node:zlib";
@@ -647,6 +647,39 @@ describe("live state, steering and lifecycle timers", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("fails and releases an execution that hits the hard duration cap", async () => {
+    vi.useFakeTimers();
+    try {
+      const capped = setup({ maxExecutionMs: 1_000, idleTimeoutMs: 60_000 });
+      await capped.executor.start(task(), capped.sink);
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(capped.sink.reports).toEqual([
+        { kind: "failed", summary: "assignment exceeded the 1000ms execution limit" },
+      ]);
+      expect(capped.client.closeCount).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("marks an open-turn session with no live owner as stale", async () => {
+    const fixture = dshFixture({ sessionId: "stale-session", openTurn: true });
+    const old = new Date(0);
+    for (const path of [
+      join(fixture.home, "storages", "session_projcache", "sessions", "stale-session.json"),
+      join(fixture.home, "sessions", "--work-project--", "stale-session", "session.v4.jsonl.zstd"),
+    ]) {
+      utimesSync(path, old, old);
+    }
+    const stale = setup({ sessionStore: fixture.store, staleSessionMs: 1 });
+    await stale.executor.start(task({ assignmentId: "a1" }), stale.sink);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const summary = stale.executor
+      .sessions()
+      .find((session) => session.sessionId === "stale-session");
+    expect(summary?.state).toBe("stale");
   });
 
   it("defaults the watchdog to five minutes", () => {

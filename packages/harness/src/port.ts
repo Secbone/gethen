@@ -224,7 +224,7 @@ export interface HarnessSessionInfo {
     approvalPolicy?: string;
   };
   /** Last known persisted state (`unknown` when no store record exists). */
-  state?: "running" | "idle" | "unknown";
+  state?: "running" | "idle" | "stale" | "unknown";
   /** RFC 3339 timestamp of the last stored activity. */
   lastActivityAt?: string;
   /** Last persisted event sequence (cheap estimate). */

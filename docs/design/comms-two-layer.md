@@ -329,6 +329,13 @@ interface TaskState { assignmentId; phase; step; lastTool?: {name,startedAt};
 
 `isolation: "shared" | "process"`（默认 shared）：process 模式每个 assignment 独立 `dsh --profile sdk`，cancel 可精确杀进程；shared 模式取消会影响同 workspace 的其它 session。
 
+### Session 释放与死锁防护
+
+- 每次执行有一个**硬上限** `maxExecutionMs`（worker 配置，0 关闭，默认 60 分钟）：即使 session 持续产生事件但永不结束，也会被判 failed、关闭 runtime 并释放 assignment/session，不会永久占用；
+- 静默看门狗（默认 5 分钟无事件）覆盖"卡住不说话"的情况；升级等待期间暂停，回答后恢复；
+- `session list` 里 `state:"stale"` 表示：DSH store 里 turn 未结束、但本 worker 没有活跃 assignment 且超过 `staleSessionMs`（默认 10 分钟）没有落盘活动——多半是上次进程崩溃/强杀留下的会话；可以取消、忽略，或用 resume 复用它（复用时会产生新的 turn/end 收尾）；
+- Master 侧 bridge 的 launch 活动超时 + worker 心跳保证不断有进展的长任务不被误杀，而真正静默/超长的任务最终一定会释放。
+
 ### Session 管理（复用/新建）
 
 - Assignment 携带 `SessionSpec {mode:"new"|"reuse", sessionId?, key?}`，由 Master 入口（gethen_run / POST /gethen/run）传入；

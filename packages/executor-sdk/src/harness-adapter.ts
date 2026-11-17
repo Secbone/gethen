@@ -85,6 +85,10 @@ const MAX_TOOL_ESCALATIONS = 5;
 export const DEFAULT_IDLE_TIMEOUT_MS = 300_000;
 /** Time a cancel/interrupt lets a steered stop take effect before terminating. */
 export const DEFAULT_INTERRUPT_GRACE_MS = 1_000;
+/** Hard cap for one execution; a long-but-live task must still release eventually. */
+export const DEFAULT_MAX_EXECUTION_MS = 60 * 60 * 1000;
+/** Open-turn sessionswithout activity for this long are reported as stale. */
+export const DEFAULT_STALE_SESSION_MS = 10 * 60 * 1000;
 /** Steering message sent before a hard interrupt. */
 export const STOP_STEER_TEXT =
   "Stop the current work immediately and summarize what you have done so far.";
@@ -118,6 +122,14 @@ export interface SdkHarnessExecutorOptions {
   idleTimeoutMs?: number;
   /** Grace period after the stop steer before the runtime is terminated. Default 1000. */
   interruptGraceMs?: number;
+  /**
+   * Hard cap for one execution. 0 disables. A task that keeps emitting events
+   * but never finishes is failed and its session released instead of hanging
+   * forever. Default 60 minutes.
+   */
+  maxExecutionMs?: number;
+  /** A store session with an open turn and no activity for this long is stale. */
+  staleSessionMs?: number;
   /** `"shared"` (default) pools one runtime per workspace; `"process"` isolates each. */
   isolation?: HarnessIsolation;
   /** Cap for one forwarded log text; longer text is truncated. Default 8000; `0` disables. */
@@ -250,6 +262,7 @@ interface ExecutionState {
   abort: AbortController;
   watchdogTimer: NodeJS.Timeout | undefined;
   deadlineTimer: NodeJS.Timeout | undefined;
+  maxDurationTimer: NodeJS.Timeout | undefined;
   interruptPromise: Promise<void> | undefined;
 }
 
@@ -275,6 +288,8 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
   private readonly idleTimeoutMs: number;
   private readonly interruptGraceMs: number;
   private readonly maxLogChars: number;
+  private readonly maxExecutionMs: number;
+  private readonly staleSessionMs: number;
   private readonly clients = new Map<string, WorkspaceClient>();
   private readonly creating = new Map<string, Promise<WorkspaceClient>>();
   private readonly sessionRecords = new Map<string, SessionRecord>();
@@ -294,6 +309,8 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
     this.idleTimeoutMs = options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
     this.interruptGraceMs = options.interruptGraceMs ?? DEFAULT_INTERRUPT_GRACE_MS;
     this.maxLogChars = Math.max(0, options.maxLogChars ?? DEFAULT_MAX_LOG_CHARS);
+    this.maxExecutionMs = Math.max(0, options.maxExecutionMs ?? DEFAULT_MAX_EXECUTION_MS);
+    this.staleSessionMs = Math.max(0, options.staleSessionMs ?? DEFAULT_STALE_SESSION_MS);
     this.sessionStore = options.sessionStore ?? new DshSessionStore();
     this.sessionListLimit = Math.max(1, options.sessionListLimit ?? DEFAULT_SESSION_LIST_LIMIT);
     this.sessionKeysFile = options.sessionKeysFile;
@@ -325,6 +342,7 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
       abort: new AbortController(),
       watchdogTimer: undefined,
       deadlineTimer: undefined,
+      maxDurationTimer: undefined,
       interruptPromise: undefined,
       detachStderr: undefined,
     };
@@ -589,6 +607,12 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
         hasLog: summary.hasLog,
       };
       if (summary.lastActivityAt !== undefined) info.lastActivityAt = summary.lastActivityAt;
+      // An open turn with no live registry entry and no recent activity is a
+      // leftover from a crashed/wedged runtime, not a running assignment.
+      if (summary.state === "running" && this.staleSessionMs > 0) {
+        const last = summary.lastActivityAt ?? summary.config.createdAt;
+        if (this.now().getTime() - Date.parse(last) > this.staleSessionMs) info.state = "stale";
+      }
       if (summary.eventCount !== undefined) info.eventCount = summary.eventCount;
       if (summary.tokenUsage !== undefined) info.tokenUsage = summary.tokenUsage;
       byId.set(summary.sessionId, info);
@@ -680,6 +704,7 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
 
   private armTimers(state: ExecutionState): void {
     this.resetWatchdog(state);
+    this.armMaxDuration(state);
     const { deadlineAt } = state.task;
     if (deadlineAt === undefined) return;
     const remaining = Date.parse(deadlineAt) - this.now().getTime();
@@ -691,6 +716,26 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
       this.hardStop(state);
     }, remaining);
     state.deadlineTimer.unref?.();
+  }
+
+  /** One absolute cap per execution; emitting events forever must not pin a session. */
+  private armMaxDuration(state: ExecutionState): void {
+    if (state.maxDurationTimer !== undefined) clearTimeout(state.maxDurationTimer);
+    state.maxDurationTimer = undefined;
+    if (this.maxExecutionMs <= 0) return;
+    state.maxDurationTimer = setTimeout(() => {
+      if (state.settled) return;
+      this.emitLog(state, {
+        phase: "timeout",
+        text: `execution exceeded ${this.maxExecutionMs}ms and is being released`,
+      });
+      this.finish(state, {
+        kind: "failed",
+        summary: `assignment exceeded the ${this.maxExecutionMs}ms execution limit`,
+      });
+      this.hardStop(state);
+    }, this.maxExecutionMs);
+    state.maxDurationTimer.unref?.();
   }
 
   private resetWatchdog(state: ExecutionState): void {
@@ -728,6 +773,10 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
     if (state.deadlineTimer !== undefined) {
       clearTimeout(state.deadlineTimer);
       state.deadlineTimer = undefined;
+    }
+    if (state.maxDurationTimer !== undefined) {
+      clearTimeout(state.maxDurationTimer);
+      state.maxDurationTimer = undefined;
     }
   }
 

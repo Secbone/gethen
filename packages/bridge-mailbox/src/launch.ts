@@ -169,7 +169,7 @@ export interface HarnessSessionSummary {
   /** Persisted configuration, when the worker can read it. */
   config?: JsonObject;
   /** Last known persisted state. */
-  state?: "running" | "idle" | "unknown";
+  state?: "running" | "idle" | "stale" | "unknown";
   /** RFC 3339 timestamp of the last stored activity. */
   lastActivityAt?: string;
   /** Last persisted event sequence (cheap estimate). */
@@ -1377,7 +1377,9 @@ function parseSessionSummary(value: unknown): HarnessSessionSummary | undefined 
   const config = asRecord(record.config);
   if (config !== undefined) summary.config = config as unknown as JsonObject;
   const state = record.state;
-  if (state === "running" || state === "idle" || state === "unknown") summary.state = state;
+  if (state === "running" || state === "idle" || state === "stale" || state === "unknown") {
+    summary.state = state;
+  }
   const lastActivityAt = stringValue(record.lastActivityAt);
   if (lastActivityAt !== undefined) summary.lastActivityAt = lastActivityAt;
   const eventCount = record.eventCount;

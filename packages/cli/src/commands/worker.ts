@@ -28,6 +28,8 @@ export interface WorkerConfig {
   requestTimeoutMs?: number;
   /** Process model: shared workspace runtime (default) or one runtime per assignment. */
   isolation?: "shared" | "process";
+  /** Hard cap for one execution in ms (0 disables, default 3600000). */
+  maxExecutionMs?: number;
   /** Directory for durable worker state (session key registry). */
   stateDir?: string;
 }
@@ -56,6 +58,8 @@ interface WorkerConfigFile {
   requestTimeoutMs?: number;
   /** Process model: shared workspace runtime (default) or one runtime per assignment. */
   isolation?: "shared" | "process";
+  /** Hard cap for one execution in ms (0 disables, default 3600000). */
+  maxExecutionMs?: number;
   /** Directory for durable worker state (session key registry). */
   stateDir?: string;
 }
@@ -281,6 +285,7 @@ async function runMailboxWorker(config: WorkerConfig): Promise<number> {
     model: config.model,
     requestTimeoutMs: config.requestTimeoutMs ?? 600_000,
     ...(config.isolation === undefined ? {} : { isolation: config.isolation }),
+    ...(config.maxExecutionMs === undefined ? {} : { maxExecutionMs: config.maxExecutionMs }),
     cwdFor: resolveWorkspace,
     // Durable key -> sessionId registry: a restarted worker must still answer
     // session.mode "reuse" by key (it used to forget every key).
