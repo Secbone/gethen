@@ -127,7 +127,8 @@ interface ExecutionState {
   settled: boolean;
   cancelled: boolean;
   /** Last event string that contained a complete report block. */
-  reportText: string | undefined;
+  /** Complete `[GETHEN-REPORT]` blocks in event order; the last valid one wins. */
+  reportTexts: string[];
   /** Last complete escalation block found in an event string, not yet answered. */
   toolEscalation: HarnessEscalation | undefined;
   /** Tool-result escalations answered so far. */
@@ -174,7 +175,7 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
       workspaceClient: undefined,
       settled: false,
       cancelled: false,
-      reportText: undefined,
+      reportTexts: [],
       toolEscalation: undefined,
       rounds: 0,
       pending: undefined,
@@ -359,7 +360,7 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
 
       // A report always wins over a pending tool-result escalation in the same
       // batch: the worker finished, whatever else it printed.
-      if (state.reportText !== undefined) {
+      if (state.reportTexts.length > 0) {
         this.finish(state, this.reportFor(state));
         this.release(state);
         return;
@@ -420,17 +421,33 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
   }
 
   private reportFor(state: ExecutionState): HarnessReport {
-    const text = state.reportText;
-    if (text === undefined) {
+    if (state.reportTexts.length === 0) {
       return { kind: "waiting", summary: "worker produced no report" };
     }
-    let report: ReturnType<typeof parseReportText>;
-    try {
-      report = parseReportText(text);
-    } catch (error) {
-      return { kind: "failed", summary: `worker report is invalid: ${messageOf(error)}` };
+    // Models sometimes echo a hand-written report block after the tool result;
+    // prefer the last block that actually parses instead of failing the whole
+    // assignment on a malformed echo.
+    let lastError: unknown;
+    let parsed: ReturnType<typeof parseReportText>;
+    for (let index = state.reportTexts.length - 1; index >= 0; index -= 1) {
+      const text = state.reportTexts[index] as string;
+      try {
+        parsed = parseReportText(text);
+      } catch (error) {
+        lastError = error;
+        try {
+          parsed = parseReportText(repairReportBlock(text));
+        } catch {
+          continue;
+        }
+      }
+      if (parsed !== undefined) break;
     }
+    const report: ReturnType<typeof parseReportText> = parsed;
     if (report === undefined) {
+      if (lastError !== undefined) {
+        return { kind: "failed", summary: `worker report is invalid: ${messageOf(lastError)}` };
+      }
       return { kind: "waiting", summary: "worker produced no report" };
     }
     const mapped: HarnessReport = {
@@ -660,6 +677,44 @@ function escalationForAssignment(
 }
 
 /**
+ * Repair a report block whose JSON string values contain raw control characters
+ * (models occasionally emit literal newlines inside a JSON string). Only
+ * characters inside strings are escaped; structural whitespace is untouched.
+ */
+export function repairReportBlock(text: string): string {
+  const open = text.indexOf(REPORT_OPEN);
+  const close = text.lastIndexOf(REPORT_CLOSE);
+  if (open < 0 || close < 0 || close <= open) return text;
+  const body = text.slice(open + REPORT_OPEN.length, close);
+  let out = "";
+  let inString = false;
+  let escaped = false;
+  for (const char of body) {
+    if (escaped) {
+      out += char;
+      escaped = false;
+      continue;
+    }
+    if (char === "\\") {
+      out += char;
+      escaped = true;
+      continue;
+    }
+    if (char === '"') {
+      inString = !inString;
+      out += char;
+      continue;
+    }
+    if (inString && (char.codePointAt(0) ?? 0) < 0x20) {
+      out += JSON.stringify(char).slice(1, -1);
+      continue;
+    }
+    out += char;
+  }
+  return text.slice(0, open + REPORT_OPEN.length) + out + text.slice(close);
+}
+
+/**
  * Scan one session-event payload for report and escalation blocks. Only
  * individual string values are considered, so a block split across events (or
  * fields) never gets glued together; a complete marker pair is required, which
@@ -668,7 +723,7 @@ function escalationForAssignment(
 function scanEvent(state: ExecutionState, event: unknown): void {
   for (const text of collectStrings(event)) {
     if (text.includes(REPORT_OPEN) && text.includes(REPORT_CLOSE)) {
-      state.reportText = text;
+      state.reportTexts.push(text);
       continue;
     }
     if (text.includes(ESCALATION_OPEN) && text.includes(ESCALATION_CLOSE)) {

@@ -22,6 +22,8 @@ export interface WorkerConfig {
   dnsOverrides?: Record<string, string>;
   /** Master-side workspace path → local path (cross-machine workers). */
   workspaceMap?: Record<string, string>;
+  /** Per-JSON-RPC timeout for the DSH SDK session (default 10 minutes). */
+  requestTimeoutMs?: number;
 }
 
 export interface WorkerConfigOptions {
@@ -44,6 +46,8 @@ interface WorkerConfigFile {
   dnsOverrides?: Record<string, string>;
   /** Master-side workspace path → local path (cross-machine workers). */
   workspaceMap?: Record<string, string>;
+  /** Per-JSON-RPC timeout for the DSH SDK session (default 10 minutes). */
+  requestTimeoutMs?: number;
 }
 
 /**
@@ -84,6 +88,10 @@ export function parseWorkerConfig(argv: string[], options: WorkerConfigOptions =
   const machine = flagValue(argv, "--machine") ?? file.machine;
   const dnsOverrides = parseDnsOverrides(flagValue(argv, "--dns-overrides"), file.dnsOverrides);
   const workspaceMap = parseWorkspaceMap(flagValue(argv, "--workspace-map"), file.workspaceMap);
+  const requestTimeoutMs = positiveInteger(
+    flagValue(argv, "--request-timeout-ms") ?? file.requestTimeoutMs,
+    "requestTimeoutMs",
+  );
 
   return {
     masterUrl: normalizeMasterUrl(masterUrl),
@@ -98,6 +106,7 @@ export function parseWorkerConfig(argv: string[], options: WorkerConfigOptions =
     ...(dshArgs === undefined ? {} : { dshArgs }),
     ...(dnsOverrides === undefined ? {} : { dnsOverrides }),
     ...(workspaceMap === undefined ? {} : { workspaceMap }),
+    ...(requestTimeoutMs === undefined ? {} : { requestTimeoutMs }),
   };
 }
 
@@ -247,6 +256,7 @@ async function runMailboxWorker(config: WorkerConfig): Promise<number> {
   const baseHarness = createSdkHarnessExecutor({
     provider: config.provider,
     model: config.model,
+    requestTimeoutMs: config.requestTimeoutMs ?? 600_000,
     cwdFor: resolveWorkspace,
     ...(config.dshCommand === undefined ? {} : { dshCommand: config.dshCommand }),
     ...(config.dshArgs === undefined ? {} : { dshArgs: config.dshArgs }),
@@ -439,6 +449,7 @@ function configFile(argv: string[]): WorkerConfigFile {
   const quota = optionalNumber(parsed, "quota");
   const dnsOverrides = parsed.dnsOverrides;
   const workspaceMap = parsed.workspaceMap;
+  const requestTimeoutMs = optionalNumber(parsed, "requestTimeoutMs");
   if (masterUrl !== undefined) file.masterUrl = masterUrl;
   if (token !== undefined) file.token = token;
   if (workerId !== undefined) file.workerId = workerId;
@@ -451,6 +462,7 @@ function configFile(argv: string[]): WorkerConfigFile {
   if (quota !== undefined) file.quota = quota;
   if (dnsOverrides !== undefined) file.dnsOverrides = dnsOverrides as Record<string, string>;
   if (workspaceMap !== undefined) file.workspaceMap = workspaceMap as Record<string, string>;
+  if (requestTimeoutMs !== undefined) file.requestTimeoutMs = requestTimeoutMs;
   return file;
 }
 
