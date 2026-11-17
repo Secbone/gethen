@@ -147,3 +147,12 @@ status/overview、ticket ack/close/archive、task status/logs/steer/cancel 与 s
 list/history 的唯一实现。CLI 的 HTTP 路由和 `@gethen/dsh` 工具只能做参数与线路适配；
 新增控制动作时先扩展 `ControlPlane`，不要在 CLI 或 DSH 里复制状态推导。离线
 `gethen status` 可复用 `@gethen/master` 的纯投影，但不得在只读路径上执行归档写入。
+
+## 2026-11-18 Escalation 答复归属
+
+`@gethen/bridge-mailbox` 只负责传输：保留 parked launch，发送 `gethen.task.answer`，
+并把恢复后的 result 作为 `onLateResult` 交给宿主。`@gethen/master-runtime` 的
+`createEscalationHooks` 是唯一把 escalation 写入 store 并调用 `engine.escalate/resolve`
+的实现，CLI serve 与 DSH 必须共用它。新增“答复/恢复”能力时扩展 `ControlPlane` 的
+`answer`（ticket 视角）或 `task action=answer`（assignment 视角），不要在适配器里
+自行调用 `engine.resolve` 或复制 parked 判定。

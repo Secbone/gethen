@@ -331,6 +331,13 @@ interface TaskState { assignmentId; phase; step; lastTool?: {name,startedAt};
 - 复用语义：`reuse + sessionId` 直接 `resume`；`reuse + key` 由 worker 维护 key→sessionId 映射；`resume` 失败即 failed，不静默新建；并发同 session/key 时第二条被拒绝；
 - session 目录是决策依据：Master 先 list/history，再选择 new 或 reuse，而不是每个任务都新建 session。
 
+### 升级回答闭环
+
+- Worker 的阻塞 escalation 在无人自动回答时由 bridge `park()`：**launch 立即返回 `waiting`**（gethen_run 不会一直挂着），但 pending 保留；
+- Master 通过 `gethen_escalations` / `gethen_status.escalations` 看到 parked 记录；
+- `gethen_task action:"answer"` / `gethen task answer` / `POST /gethen/tasks/:id/answer` 发送 resolution；
+- Worker 恢复执行后发 late result，runtime 的 `onLateResult` 更新 Ticket 的 `latestReport`、清 Attention 并落最终 receipt；期间 late progress/ask 仍可用。
+
 ### 结果读取一致性
 
 `gethen_run` / `POST /gethen/run` 在返回前调用 `MasterService.waitForTicket()`：

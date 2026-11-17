@@ -360,6 +360,26 @@ describe("session events and reports", () => {
     expect(encoded.sink.reports).toEqual([{ kind: "ready", summary: "encoded tool result" }]);
   });
 
+  it("ignores report-marker examples inside the assignment prompt", async () => {
+    const setupPrompt = setup();
+    await setupPrompt.executor.start(task(), setupPrompt.sink);
+    setupPrompt.client.emitSessionEvent("a1", "user/message", {
+      content: [
+        {
+          type: "text",
+          text:
+            '[GETHEN-ASSIGNMENT]\n{"proto":"gethen/assignment/v1"}\n' +
+            "[GETHEN-REPORT]\n{not json with a raw control: \u0002\n[/GETHEN-REPORT]",
+        },
+      ],
+    });
+    setupPrompt.client.emitSessionEvent("a1", "turn/end", { turn: 1 });
+    await tick();
+    expect(setupPrompt.sink.reports).toEqual([
+      { kind: "waiting", summary: "worker produced no report" },
+    ]);
+  });
+
   it("reports waiting without a report and fails on an invalid block or wait", async () => {
     const missing = setup();
     await missing.executor.start(task(), missing.sink);
@@ -596,6 +616,20 @@ describe("live state, steering and lifecycle timers", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("does not finish with an empty report while an escalation is pending", async () => {
+    const pending = setup();
+    const execution = await pending.executor.start(task(), pending.sink);
+    const asked = pending.client.askApproval({ sessionId: "a1", toolName: "shell" });
+    pending.client.emitSessionEvent("a1", "turn/end", { turn: 1 });
+    pending.client.emitStatus({ sessionId: "a1", status: "idle" });
+    await tick();
+    expect(pending.sink.reports).toEqual([]);
+    await execution.sendResolution({ kind: "answer", option: "allow", text: "go" });
+    await expect(asked).resolves.toBe("allowed-once");
+    await tick();
+    expect(pending.sink.reports).toEqual([]);
   });
 
   it("pauses the silence watchdog while an escalation waits for a person", async () => {

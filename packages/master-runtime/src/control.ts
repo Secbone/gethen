@@ -19,6 +19,8 @@ import {
   buildControlStatus,
   type ControlOverview,
   type ControlStatus,
+  type EscalationRecord,
+  type EscalationResolutionInput,
   type MasterService,
   type OverviewFilter,
   summarizeTicket,
@@ -28,7 +30,15 @@ import {
 } from "@gethen/master";
 import type { MasterRuntimeTasks } from "./runtime";
 
-const TASK_ACTIONS = ["status", "steer", "cancel", "logs", "sessions", "history"] as const;
+const TASK_ACTIONS = [
+  "status",
+  "steer",
+  "cancel",
+  "logs",
+  "sessions",
+  "history",
+  "answer",
+] as const;
 export type ControlTaskAction = (typeof TASK_ACTIONS)[number];
 
 export type ControlTaskRequest =
@@ -37,7 +47,13 @@ export type ControlTaskRequest =
   | { action: "cancel"; assignmentId: string; reason?: string }
   | { action: "logs"; assignmentId: string; limit?: number; afterSeq?: number; type?: string }
   | { action: "sessions"; timeoutMs?: number }
-  | { action: "history"; sessionId: string; limit?: number; afterSeq?: number; timeoutMs?: number };
+  | { action: "history"; sessionId: string; limit?: number; afterSeq?: number; timeoutMs?: number }
+  | {
+      action: "answer";
+      assignmentId: string;
+      resolution: EscalationResolutionInput;
+      escalationId?: string;
+    };
 
 export interface ControlTaskResult {
   action: ControlTaskAction;
@@ -55,6 +71,7 @@ export interface ControlTaskResult {
   sessions?: HarnessSessionSummary[];
   sessionId?: string;
   at?: string;
+  escalation?: EscalationRecord;
 }
 
 export type ControlTicketAction = "ack" | "close" | "archive";
@@ -94,6 +111,12 @@ export interface ControlPlane {
     reason?: string;
   }): Promise<TicketSummary>;
   archive(ticketId: string): TicketSummary;
+  /**
+   * Answer the escalation that is waiting on an open Ticket. A parked Worker
+   * receives the answer and its eventual result still lands on the Ticket;
+   * a report-only Attention is resolved locally without a Worker.
+   */
+  answer(request: ControlAnswerRequest): Promise<ControlAnswerResult>;
   /** Apply the retention policy and return the archived Ticket ids. */
   autoArchive(now?: Date): string[];
   /** Cached live task states, keyed by assignment id. */
@@ -104,6 +127,25 @@ export interface ControlPlane {
     sessionId: string,
     options?: { limit?: number; afterSeq?: number; timeoutMs?: number },
   ): Promise<HarnessSessionHistory>;
+}
+
+export interface ControlAnswerRequest {
+  ticketId: string;
+  /** The person's answer; becomes a text Input on the Ticket. */
+  text: string;
+  /** One of the escalation's declared option ids, when the answer selects one. */
+  option?: string;
+  /** Disambiguates multiple escalations on one Ticket. */
+  escalationId?: string;
+}
+
+export interface ControlAnswerResult {
+  ticket: TicketSummary;
+  /** The escalation now marked resolved, when the Ticket had one. */
+  escalation?: EscalationRecord;
+  /** True when a parked Worker received the answer over the mailbox. */
+  delivered: boolean;
+  assignmentId?: string;
 }
 
 export interface ControlPlaneOptions {
@@ -137,6 +179,136 @@ export function createControlPlane(options: ControlPlaneOptions): ControlPlane {
     const archived = service.engine.archiveDue(at ?? now());
     if (archived.length > 0) service.flush();
     return archived;
+  }
+
+  /** The escalation an answer targets: explicit id, else the Ticket's newest. */
+  function escalationFor(request: ControlAnswerRequest): EscalationRecord | undefined {
+    if (request.escalationId !== undefined) {
+      const record = service.store.getEscalation(request.escalationId);
+      if (record === undefined) throw new Error(`unknown escalation: ${request.escalationId}`);
+      if (record.ticket !== request.ticketId) {
+        throw new Error(
+          `escalation ${record.id} belongs to ticket ${record.ticket}, not ${request.ticketId}`,
+        );
+      }
+      return record;
+    }
+    return service.store
+      .listEscalations()
+      .filter((record) => record.ticket === request.ticketId)
+      .at(-1);
+  }
+
+  /**
+   * A bridge failure that only means "no parked Worker to resume" (fake launch,
+   * a report-only Attention, or an already-finished assignment) is not fatal:
+   * the engine can still record the answer locally.
+   */
+  function isLocalOnlyAnswerError(error: unknown): boolean {
+    if (typeof error !== "object" || error === null) return false;
+    const code = (error as { code?: unknown }).code;
+    return (
+      code === "RUNTIME_COMMS_UNAVAILABLE" ||
+      code === "MAILBOX_UNKNOWN_ASSIGNMENT" ||
+      code === "MAILBOX_NO_PARKED_ESCALATION"
+    );
+  }
+
+  /** Resolve the engine after `tasks.answer` when the host had no hook. */
+  function settleTaskAnswer(
+    request: Extract<ControlTaskRequest, { action: "answer" }>,
+    delivered: EscalationRecord | undefined,
+  ): void {
+    const assignment = service.store.assignments.get(request.assignmentId);
+    if (assignment === undefined) return;
+    const ticket = service.store.tickets.get(assignment.ticket);
+    if (ticket?.attention === undefined) return;
+    const resolved = service.engine.resolve(assignment.ticket, request.resolution);
+    service.flush();
+    const record = delivered ?? resolved;
+    service.store.saveEscalation({
+      ...record,
+      status: "resolved",
+      resolution: record.resolution ??
+        resolved.resolution ?? {
+          kind: request.resolution.kind,
+          text: request.resolution.text,
+          ...(request.resolution.option === undefined ? {} : { option: request.resolution.option }),
+          at: now().toISOString(),
+        },
+    });
+  }
+
+  async function answer(request: ControlAnswerRequest): Promise<ControlAnswerResult> {
+    const text = request.text.trim();
+    if (text.length === 0) throw new Error("answer text must be a non-empty string");
+    const ticket = service.store.tickets.get(request.ticketId);
+    if (ticket === undefined) throw new Error(`unknown ticket: ${request.ticketId}`);
+    if (ticket.endedAt !== undefined) throw new Error(`ticket ${ticket.id} has ended`);
+
+    const stored = escalationFor(request);
+    if (stored?.status === "resolved") {
+      throw new Error(`escalation ${stored.id} is already resolved`);
+    }
+    if (ticket.attention === undefined && stored === undefined) {
+      throw new Error(`ticket ${ticket.id} has no escalation waiting`);
+    }
+
+    const option = request.option;
+    const resolution: EscalationResolutionInput = {
+      kind: "answer",
+      text,
+      ...(option === undefined ? {} : { option }),
+    };
+    const assignmentId = stored?.assignment ?? ticket.assignments.at(-1);
+
+    let deliveredRecord: EscalationRecord | undefined;
+    let delivered = false;
+    if (assignmentId !== undefined) {
+      try {
+        deliveredRecord = tasks.answer(
+          assignmentId,
+          resolution,
+          request.escalationId === undefined ? {} : { escalationId: request.escalationId },
+        );
+        delivered = true;
+      } catch (error) {
+        if (!isLocalOnlyAnswerError(error)) throw error;
+      }
+    }
+
+    // A host with an `onResolution` hook (the DSH plugin) resolves the engine
+    // inside `tasks.answer`; a host without one (`gethen serve`) still has the
+    // Attention, so resolve it exactly once here.
+    let resolvedRecord: EscalationRecord | undefined;
+    const current = service.store.tickets.get(request.ticketId);
+    if (current?.attention !== undefined) {
+      resolvedRecord = service.engine.resolve(request.ticketId, resolution);
+      service.flush();
+    }
+
+    const base = deliveredRecord ?? resolvedRecord ?? stored;
+    let record: EscalationRecord | undefined;
+    if (base !== undefined) {
+      record = {
+        ...base,
+        status: "resolved",
+        resolution: base.resolution ?? {
+          kind: "answer",
+          text,
+          ...(option === undefined ? {} : { option }),
+          at: now().toISOString(),
+        },
+      };
+      service.store.saveEscalation(record);
+    }
+
+    return {
+      ticket: summary(request.ticketId),
+      ...(record === undefined ? {} : { escalation: record }),
+      delivered,
+      ...(assignmentId === undefined ? {} : { assignmentId }),
+    };
   }
 
   /**
@@ -195,13 +367,57 @@ export function createControlPlane(options: ControlPlaneOptions): ControlPlane {
       service.flush();
       return summary(ticketId);
     },
+    answer,
     autoArchive,
     states: () => tasks.states(),
-    task: taskControl.task,
+    task: async (request) => {
+      const result = await taskControl.task(request);
+      // A host without an `onResolution` hook still needs the Ticket's
+      // Attention cleared and the Assignment resumed after a task-level answer.
+      if (request.action === "answer") settleTaskAnswer(request, result.escalation);
+      return result;
+    },
     sessions: (request) => tasks.sessions(request),
     sessionHistory: (sessionId, request) => tasks.sessionHistory(sessionId, request),
   };
   return plane;
+}
+
+/**
+ * Persist the escalation lifecycle into the master store and keep the engine's
+ * Ticket state in sync. One implementation for both hosts: the bridge owns the
+ * mailbox protocol, the runtime owns what "parked"/"resolved" means locally.
+ */
+export function createEscalationHooks(serviceOf: () => MasterService | undefined): {
+  onEscalation(record: EscalationRecord): void;
+  onResolution(record: EscalationRecord): void;
+} {
+  return {
+    onEscalation(record) {
+      const service = serviceOf();
+      if (service === undefined) return;
+      const saved = service.engine.escalate(record.ticket, {
+        id: record.id,
+        assignment: record.assignment,
+        session: record.session,
+        kind: record.kind,
+        question: record.question,
+        options: record.options,
+        ...(record.defaultOption === undefined ? {} : { defaultOption: record.defaultOption }),
+      });
+      service.store.saveEscalation(saved);
+    },
+    onResolution(record) {
+      const service = serviceOf();
+      if (service === undefined) return;
+      if (record.resolution === undefined) {
+        service.store.saveEscalation(record);
+        return;
+      }
+      const saved = service.engine.resolve(record.ticket, record.resolution);
+      service.store.saveEscalation(saved ?? record);
+    },
+  };
 }
 
 /** The task slice of the control surface, usable without a full runtime. */
@@ -309,6 +525,23 @@ async function runTask(
         cancelled: true,
         ...(request.reason === undefined ? {} : { reason: request.reason }),
       };
+    }
+    case "answer": {
+      try {
+        const escalation = tasks.answer(request.assignmentId, request.resolution, {
+          ...(request.escalationId === undefined ? {} : { escalationId: request.escalationId }),
+        });
+        return {
+          action: "answer",
+          assignmentId: request.assignmentId,
+          escalation,
+        };
+      } catch (error) {
+        throw taskFailure(
+          error,
+          `assignment ${request.assignmentId} has no parked escalation to answer`,
+        );
+      }
     }
     case "logs": {
       const query: TaskEventQuery = {

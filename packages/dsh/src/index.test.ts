@@ -258,6 +258,39 @@ describe("gethen_ticket lifecycle tool", () => {
     expect(all.counts.archived).toBe(1);
   });
 
+  it("answers a report-only escalation with the answer action", async () => {
+    const { ctx, services, tools } = context();
+    apply(ctx, { dir: stateDir() });
+    const run = (await tool(tools, "gethen_run").execute(
+      { text: "fix the failing test" },
+      {},
+    )) as RunResult;
+    serviceOf(services).engine.report(run.ticket, {
+      kind: "waiting",
+      summary: "a person must choose",
+      question: "Which branch?",
+      at: new Date().toISOString(),
+    });
+
+    const answered = (await tool(tools, "gethen_ticket").execute(
+      { action: "answer", ticketId: run.ticket, text: "use main", option: "main" },
+      {},
+    )) as {
+      action: string;
+      delivered: boolean;
+      escalation: { status: string; resolution: { text: string } };
+      ticket: { needsAction: boolean; question?: string };
+    };
+    expect(answered).toMatchObject({
+      action: "answer",
+      delivered: false,
+      escalation: { status: "resolved", resolution: { text: "use main" } },
+      ticket: { needsAction: false },
+    });
+    expect(answered.ticket.question).toBeUndefined();
+    expect(serviceOf(services).store.listEscalations()).toHaveLength(1);
+  });
+
   it("rejects an unknown action and a non-close outcome", async () => {
     const { ctx, tools } = context();
     apply(ctx, { dir: stateDir() });

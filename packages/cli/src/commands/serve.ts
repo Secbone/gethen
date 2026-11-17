@@ -12,6 +12,7 @@ import {
 } from "@gethen/master";
 import {
   type ControlPlane,
+  createEscalationHooks,
   createMasterRuntime,
   type MasterRuntime,
   type TaskEventQuery,
@@ -159,7 +160,8 @@ export async function startServe(config: ServeConfig = {}): Promise<ServeHandle>
   const dbPath = config.dbPath ?? defaultMasterDbPath();
   mkdirSync(dirname(dbPath), { recursive: true });
 
-  const runtime = createMasterRuntime({
+  let runtime: MasterRuntime | undefined;
+  runtime = createMasterRuntime({
     dbPath,
     workspace: config.workspace ?? process.cwd(),
     ...(config.tokens === undefined ? {} : { tokens: config.tokens }),
@@ -176,6 +178,9 @@ export async function startServe(config: ServeConfig = {}): Promise<ServeHandle>
     ...(config.mailboxVisibilityTimeoutMs === undefined
       ? {}
       : { visibilityTimeoutMs: config.mailboxVisibilityTimeoutMs }),
+    // Same persistence/engine rules as the DSH host: a parked escalation keeps
+    // its Assignment waiting and a resolution resumes it.
+    ...createEscalationHooks(() => runtime?.service),
   });
   const service = runtime.service;
   const control = runtime.control;
@@ -288,7 +293,7 @@ export async function startServe(config: ServeConfig = {}): Promise<ServeHandle>
   };
 }
 
-const TASK_ROUTE = /^\/gethen\/tasks(?:\/([^/]+))?(?:\/(steer|cancel|events))?$/;
+const TASK_ROUTE = /^\/gethen\/tasks(?:\/([^/]+))?(?:\/(steer|cancel|events|answer))?$/;
 
 /** Session directory + history routes: `/gethen/sessions[/:id/history]`. */
 const SESSION_ROUTE = /^\/gethen\/sessions(?:\/([^/]+)\/history)?$/;
@@ -374,6 +379,32 @@ async function handleTaskRoutes(
       send(response, 405, { error: "method not allowed" });
       return;
     }
+    if (action === "answer") {
+      const body = await readJson(request);
+      let resolution: EscalationResolutionInput;
+      try {
+        resolution = escalationResolution(body);
+      } catch (error) {
+        send(response, 400, { error: messageOf(error) });
+        return;
+      }
+      const escalationId =
+        typeof body.escalationId === "string" && body.escalationId.length > 0
+          ? body.escalationId
+          : undefined;
+      const result = await control.task({
+        action: "answer",
+        assignmentId,
+        resolution,
+        ...(escalationId === undefined ? {} : { escalationId }),
+      });
+      send(response, 200, {
+        assignmentId,
+        action: "answer",
+        escalation: result.escalation,
+      });
+      return;
+    }
     if (action === "steer") {
       const body = await readJson(request);
       const message = typeof body.text === "string" ? body.text.trim() : "";
@@ -403,7 +434,23 @@ async function handleTaskRoutes(
   }
 }
 
-const TICKET_ROUTE = /^\/gethen\/tickets(?:\/([^/]+)\/(ack|close|archive))?$/;
+function escalationResolution(body: Record<string, unknown>): EscalationResolutionInput {
+  const rawKind = body.kind === undefined ? "answer" : body.kind;
+  if (rawKind !== "answer" && rawKind !== "escalate" && rawKind !== "drop") {
+    throw new Error('kind must be "answer", "escalate" or "drop"');
+  }
+  const text = typeof body.text === "string" ? body.text.trim() : "";
+  if (text.length === 0) throw new Error("answer needs a non-empty text");
+  const option =
+    typeof body.option === "string" && body.option.length > 0 ? body.option : undefined;
+  return {
+    kind: rawKind,
+    text,
+    ...(option === undefined ? {} : { option }),
+  };
+}
+
+const TICKET_ROUTE = /^\/gethen\/tickets(?:\/([^/]+)\/(ack|close|archive|answer))?$/;
 
 function parseOverviewFilter(search: URLSearchParams): OverviewFilter {
   const raw = search.get("filter") ?? "needs-action";
@@ -457,6 +504,28 @@ async function handleTicketRoutes(
       send(response, 200, { ok: true, action, ticket: control.archive(ticketId) });
       return;
     }
+    if (action === "answer") {
+      const body = await readJson(request);
+      const text = typeof body.text === "string" ? body.text.trim() : "";
+      if (text.length === 0) {
+        send(response, 400, { error: "answer needs a non-empty text" });
+        return;
+      }
+      const option =
+        typeof body.option === "string" && body.option.length > 0 ? body.option : undefined;
+      const escalationId =
+        typeof body.escalationId === "string" && body.escalationId.length > 0
+          ? body.escalationId
+          : undefined;
+      const result = await control.answer({
+        ticketId,
+        text,
+        ...(option === undefined ? {} : { option }),
+        ...(escalationId === undefined ? {} : { escalationId }),
+      });
+      send(response, 200, { ok: true, action, ...result });
+      return;
+    }
     const body = await readJson(request);
     const outcome = optionalOutcome(body.outcome);
     const reason =
@@ -485,10 +554,13 @@ function optionalOutcome(value: unknown): TicketCloseOutcome | undefined {
 
 function ticketErrorStatus(message: string): number {
   if (message.startsWith("unknown ticket")) return 404;
+  if (message.startsWith("unknown escalation")) return 404;
   if (
     message.includes("has ended") ||
     message.includes("already ended") ||
-    message.includes("is open")
+    message.includes("is open") ||
+    message.includes("already resolved") ||
+    message.includes("no escalation waiting")
   ) {
     return 409;
   }

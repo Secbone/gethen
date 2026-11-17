@@ -107,6 +107,65 @@ describe("control plane", () => {
     expect(() => runtime.control.acknowledge(ticketId)).toThrow(/has ended/);
   });
 
+  it("answers a report-only escalation locally in fake mode", async () => {
+    const runtime = makeRuntime();
+    const ticketId = await acceptedTicket(runtime);
+    runtime.service.engine.report(ticketId, {
+      kind: "waiting",
+      summary: "a person must choose",
+      question: "Which branch should I merge?",
+      at: now.toISOString(),
+    });
+
+    const overview = runtime.control.overview();
+    expect(overview.tickets.map((ticket) => ticket.question)).toEqual([
+      "Which branch should I merge?",
+    ]);
+
+    const answered = await runtime.control.answer({
+      ticketId,
+      text: "Use main.",
+      option: "main",
+    });
+    expect(answered).toMatchObject({
+      delivered: false,
+      assignmentId: expect.any(String),
+      escalation: {
+        ticket: ticketId,
+        status: "resolved",
+        question: "Which branch should I merge?",
+        resolution: { kind: "answer", text: "Use main.", option: "main" },
+      },
+      ticket: { id: ticketId, needsAction: false },
+    });
+    expect(answered.ticket.question).toBeUndefined();
+    expect(runtime.control.overview().tickets).toEqual([]);
+    expect(runtime.service.store.listEscalations()).toHaveLength(1);
+    // The answer is persisted as a human input on the Ticket.
+    const inputs = runtime.service.store.inputs.list().filter((input) => input.ticket === ticketId);
+    expect(inputs.at(-1)).toMatchObject({ kind: "text", text: "Use main." });
+
+    await expect(runtime.control.answer({ ticketId, text: "again" })).rejects.toThrow(
+      /already resolved/,
+    );
+    await expect(runtime.control.answer({ ticketId: "ticket-missing", text: "x" })).rejects.toThrow(
+      /unknown ticket/,
+    );
+  });
+
+  it("refuses an answer once the ticket has ended", async () => {
+    const runtime = makeRuntime();
+    const ticketId = await acceptedTicket(runtime);
+    runtime.service.engine.report(ticketId, {
+      kind: "waiting",
+      summary: "waiting",
+      question: "Which?",
+      at: now.toISOString(),
+    });
+    await runtime.control.close({ ticketId, outcome: "closed" });
+    await expect(runtime.control.answer({ ticketId, text: "late" })).rejects.toThrow(/has ended/);
+  });
+
   it("delegates task control to the runtime bridge with clear fake-mode errors", async () => {
     const runtime = makeRuntime();
     await expect(

@@ -15,6 +15,7 @@ import {
   DEFAULT_MAX_TASK_EVENTS,
   DEFAULT_STATUS_TIMEOUT_MS,
   DEFAULT_TASK_EVENT_LIMIT,
+  type LateLaunchResult,
   MAILBOX_LAUNCH_ERROR_CODES,
   type MailboxClientLike,
   type MailboxLaunchBridge,
@@ -304,6 +305,21 @@ function launchPending(
   const promise = bridge.launchPort.launch(launchRequest(assignmentId));
   pendingLaunches.push(promise.catch(() => undefined));
   return promise;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Launch and park on an ask; resolves with the already-settled waiting result. */
+async function parkAndWait(
+  bridge: MailboxLaunchBridge,
+  assignmentId = "assignment-1",
+  escalationId = "esc-1",
+): Promise<Awaited<ReturnType<MailboxLaunchBridge["launchPort"]["launch"]>>> {
+  const launch = bridge.launchPort.launch(launchRequest(assignmentId));
+  bridge.handleEnvelope(askEnvelope(assignmentId, { escalationId }));
+  return launch;
 }
 
 async function waitFor(predicate: () => boolean, timeoutMs = 1_000): Promise<void> {
@@ -1437,6 +1453,212 @@ describe("session list and history requests", () => {
   });
 });
 
+describe("parked escalation answers and late results", () => {
+  it("resolves the launch with a waiting report but keeps the pending entry", async () => {
+    const client = new FakeMailbox();
+    const bridge = makeBridge(client);
+    const result = await parkAndWait(bridge);
+
+    expect(result.report).toMatchObject({ kind: "waiting", question: "Which branch?" });
+    expect(result.escalations?.at(0)).toMatchObject({ id: "esc-1", status: "parked" });
+
+    // The pending entry survived the resolution, so a person can still answer.
+    const record = bridge.answer("assignment-1", {
+      kind: "answer",
+      text: "Merge it.",
+      option: "merge",
+    });
+    expect(record).toMatchObject({ id: "esc-1", status: "resolved" });
+    expect(record.resolution).toEqual({
+      kind: "answer",
+      text: "Merge it.",
+      option: "merge",
+      at: AT,
+    });
+  });
+
+  it("sends a correlated gethen.task.answer envelope matching the parked ask", async () => {
+    const client = new FakeMailbox();
+    const bridge = makeBridge(client);
+    const ask = askEnvelope("assignment-1", {
+      escalationId: "esc-42",
+      replyTo: "mailbox:worker-a",
+    });
+    const launch = bridge.launchPort.launch(launchRequest());
+    bridge.handleEnvelope(ask);
+    await launch;
+
+    bridge.answer(
+      "assignment-1",
+      { kind: "answer", text: "Use main." },
+      { escalationId: "esc-42" },
+    );
+    const sent = client.sent.at(-1);
+    expect(sent).toMatchObject({
+      type: "gethen.task.answer",
+      subject: "assignment-1",
+      to: "mailbox:worker-a",
+      correlationId: "assignment-1",
+      causationId: ask.id,
+      data: {
+        assignmentId: "assignment-1",
+        escalationId: "esc-42",
+        resolution: { kind: "answer", text: "Use main." },
+      },
+    });
+  });
+
+  it("notifies onResolution and clears the parked fields after answering", async () => {
+    const client = new FakeMailbox();
+    const resolutions: string[] = [];
+    const bridge = makeBridge(client, {
+      onResolution: (record) => resolutions.push(record.status),
+    });
+    await parkAndWait(bridge);
+    bridge.answer("assignment-1", { kind: "answer", text: "Merge it." });
+    expect(resolutions).toEqual(["parked", "resolved"]);
+    // Nothing left to answer twice.
+    expect(() => bridge.answer("assignment-1", { kind: "answer", text: "again" })).toThrow(
+      /MAILBOX_NO_PARKED_ESCALATION/,
+    );
+  });
+
+  it("delivers a late result through onLateResult and finishes the assignment", async () => {
+    const client = new FakeMailbox();
+    const late: LateLaunchResult[] = [];
+    const bridge = makeBridge(client, { onLateResult: (input) => late.push(input) });
+    await parkAndWait(bridge);
+    bridge.answer("assignment-1", { kind: "answer", text: "Merge it.", option: "merge" });
+    bridge.handleEnvelope(resultEnvelope("assignment-1", { summary: "merged" }));
+
+    expect(late).toHaveLength(1);
+    expect(late[0]).toMatchObject({
+      request: { assignment: { id: "assignment-1" } },
+      report: { kind: "ready", summary: "merged", at: AT },
+      receipt: {
+        assignment: "assignment-1",
+        ticket: "ticket-1",
+        worker: "worker-a",
+        workspace: "/ws",
+        packDigest: "sha256:pack",
+        outcome: "completed",
+        summary: "merged",
+      },
+    });
+    expect(late[0]?.escalations?.at(0)).toMatchObject({
+      id: "esc-1",
+      status: "resolved",
+      resolution: { kind: "answer", text: "Merge it." },
+    });
+    // The entry is gone: another answer reports an unknown assignment.
+    expect(() => bridge.answer("assignment-1", { kind: "answer", text: "again" })).toThrow(
+      /MAILBOX_UNKNOWN_ASSIGNMENT/,
+    );
+  });
+
+  it("delivers a late result even when the escalation was not answered", async () => {
+    const client = new FakeMailbox();
+    const late: LateLaunchResult[] = [];
+    const bridge = makeBridge(client, { onLateResult: (input) => late.push(input) });
+    await parkAndWait(bridge);
+    bridge.handleEnvelope(resultEnvelope("assignment-1", { kind: "failed", summary: "gave up" }));
+    expect(late).toHaveLength(1);
+    expect(late[0]?.report).toMatchObject({ kind: "failed", summary: "gave up" });
+  });
+
+  it("keeps updating state/events from late progress without re-arming the timer", async () => {
+    const client = new FakeMailbox();
+    const bridge = makeBridge(client, { timeoutMs: 30 });
+    await parkAndWait(bridge);
+    // Longer than the silence window: a re-armed timer would delete the entry.
+    await sleep(80);
+
+    bridge.handleEnvelope(eventProgressEnvelope("assignment-1", { event: toolEvent() }));
+    bridge.handleEnvelope(eventProgressEnvelope("assignment-1", { state: rawState({ step: 9 }) }));
+    expect(bridge.taskEventCount("assignment-1")).toBe(1);
+    expect(bridge.taskState("assignment-1")).toMatchObject({ step: 9 });
+    expect(() =>
+      bridge.answer("assignment-1", { kind: "answer", text: "Merge it." }),
+    ).not.toThrow();
+  });
+
+  it("parks a second late ask again so it can be answered in turn", async () => {
+    const client = new FakeMailbox();
+    const parkedRecords: string[] = [];
+    const bridge = makeBridge(client, {
+      onEscalation: (record) => parkedRecords.push(record.id),
+    });
+    await parkAndWait(bridge, "assignment-1", "esc-1");
+    bridge.answer("assignment-1", { kind: "answer", text: "first" });
+
+    // The resumed Worker asks again after the launch already resolved.
+    bridge.handleEnvelope(askEnvelope("assignment-1", { escalationId: "esc-2" }));
+    expect(parkedRecords).toEqual(["esc-1", "esc-2"]);
+    expect(() =>
+      bridge.answer("assignment-1", { kind: "answer", text: "stale" }, { escalationId: "esc-1" }),
+    ).toThrow(/MAILBOX_NO_PARKED_ESCALATION/);
+
+    bridge.answer("assignment-1", { kind: "answer", text: "second" }, { escalationId: "esc-2" });
+    expect(client.sent.at(-1)?.data).toMatchObject({
+      escalationId: "esc-2",
+      resolution: { text: "second" },
+    });
+  });
+
+  it("rejects answers for unknown assignments or without a parked escalation", async () => {
+    const client = new FakeMailbox();
+    const bridge = makeBridge(client);
+    expect(() => bridge.answer("ghost", { kind: "answer", text: "x" })).toThrow(
+      /MAILBOX_UNKNOWN_ASSIGNMENT/,
+    );
+
+    // Launched but never parked.
+    launchPending(bridge);
+    expect(() => bridge.answer("assignment-1", { kind: "answer", text: "x" })).toThrow(
+      /MAILBOX_NO_PARKED_ESCALATION/,
+    );
+  });
+
+  it("validates the resolution before sending the answer", async () => {
+    const client = new FakeMailbox();
+    const bridge = makeBridge(client);
+    await parkAndWait(bridge);
+    const invalid: Array<Parameters<MailboxLaunchBridge["answer"]>[1]> = [
+      { kind: "bogus", text: "x" } as never,
+      { kind: "answer", text: "   " },
+      { kind: "answer", text: "ok", option: "" },
+    ];
+    for (const resolution of invalid) {
+      expect(() => bridge.answer("assignment-1", resolution)).toThrow(/MAILBOX_INVALID_RESOLUTION/);
+    }
+    // The parked escalation is still answerable after the failed attempts.
+    expect(() => bridge.answer("assignment-1", { kind: "answer", text: "ok" })).not.toThrow();
+  });
+
+  it("rejects answers after close", async () => {
+    const client = new FakeMailbox();
+    const bridge = makeBridge(client);
+    await parkAndWait(bridge);
+    bridge.close();
+    expect(() => bridge.answer("assignment-1", { kind: "answer", text: "x" })).toThrow(
+      /MAILBOX_CLOSED/,
+    );
+  });
+
+  it("keeps the parked escalation answerable after a send failure", async () => {
+    const client = new FakeMailbox();
+    const bridge = makeBridge(client);
+    await parkAndWait(bridge);
+    client.failSend = new Error("mailbox down");
+    expect(() => bridge.answer("assignment-1", { kind: "answer", text: "x" })).toThrow(
+      /MAILBOX_SEND_FAILED/,
+    );
+    client.failSend = undefined;
+    const record = bridge.answer("assignment-1", { kind: "answer", text: "retry" });
+    expect(record).toMatchObject({ status: "resolved", resolution: { text: "retry" } });
+  });
+});
+
 describe("with a real MailboxClient", () => {
   it("closes the loop against an in-memory mailbox store", async () => {
     const client = new MailboxClient({
@@ -1497,6 +1719,9 @@ describe("mailbox launch constants", () => {
       "MAILBOX_CLOSED",
       "MAILBOX_STATUS_TIMEOUT",
       "MAILBOX_SEND_FAILED",
+      "MAILBOX_UNKNOWN_ASSIGNMENT",
+      "MAILBOX_NO_PARKED_ESCALATION",
+      "MAILBOX_INVALID_RESOLUTION",
     ]);
   });
 });

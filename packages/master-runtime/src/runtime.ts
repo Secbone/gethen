@@ -34,6 +34,7 @@ import {
 import { MailboxClient, SqliteMailboxStore } from "@gethen/mailbox";
 import { createMailboxServerLink, type MailboxServerLink } from "@gethen/mailbox-link";
 import {
+  type AssignmentReceipt,
   createFakeLaunch,
   type EscalationRecord,
   type EscalationResolutionInput,
@@ -41,6 +42,7 @@ import {
   type LaunchRequest,
   MasterService,
   type Policy,
+  type Report,
 } from "@gethen/master";
 import {
   createMemoryTokenStore,
@@ -134,6 +136,20 @@ export interface MasterRuntimeTasks {
     sessionId: string,
     options?: { limit?: number; afterSeq?: number; timeoutMs?: number },
   ): Promise<HarnessSessionHistory>;
+  /** Answer a parked Worker escalation; late results update the ticket/receipt. */
+  answer(
+    assignmentId: string,
+    resolution: EscalationResolutionInput,
+    options?: { escalationId?: string },
+  ): EscalationRecord;
+}
+
+/** A result produced after the original launch had already returned `waiting`. */
+export interface LateLaunchResult {
+  request: LaunchRequest;
+  report: Report;
+  receipt: AssignmentReceipt;
+  escalations?: EscalationRecord[];
 }
 
 export interface MasterRuntimeOptions {
@@ -155,6 +171,8 @@ export interface MasterRuntimeOptions {
   onEscalation?: (record: EscalationRecord) => void;
   /** Observer for resolved/parked escalation records. */
   onResolution?: (record: EscalationRecord) => void;
+  /** Observer for a result that arrives after a parked escalation was answered. */
+  onLateResult?: (input: LateLaunchResult) => void;
   /** Transport ping interval in milliseconds. */
   heartbeatMs?: number;
   now?: () => Date;
@@ -223,6 +241,12 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
   const serverLinks = new Set<MailboxServerLink>();
   let closed = false;
 
+  function handleLateResult(input: LateLaunchResult): void {
+    service.engine.report(input.request.ticket.id, input.report);
+    service.store.append(input.receipt);
+    options.onLateResult?.(input);
+  }
+
   if (verifyToken !== undefined) {
     const workerId = resolveWorkerId(options.workerId, options.tokens);
     const masterMailboxName = options.masterMailbox ?? `${DEFAULT_MAILBOX_PREFIX}${MASTER_MAILBOX}`;
@@ -253,6 +277,7 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
         : { resolveEscalation: options.resolveEscalation }),
       ...(options.onEscalation === undefined ? {} : { onEscalation: options.onEscalation }),
       ...(options.onResolution === undefined ? {} : { onResolution: options.onResolution }),
+      onLateResult: handleLateResult,
       ...(options.now === undefined ? {} : { now: options.now }),
     });
     const workerMailbox = mailboxBridge.workerMailbox;
@@ -389,6 +414,8 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
     eventDropped: (assignmentId) => taskBridge().taskEventDropped(assignmentId),
     sessions: async (options) => taskBridge().listSessions(options),
     sessionHistory: async (sessionId, options) => taskBridge().sessionHistory(sessionId, options),
+    answer: (assignmentId, resolution, options) =>
+      taskBridge().answer(assignmentId, resolution, options),
   };
 
   const control = createControlPlane({

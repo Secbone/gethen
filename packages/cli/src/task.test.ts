@@ -210,6 +210,53 @@ describe("gethen task", () => {
     ).toBe(1);
     expect(unreachable.lines.join("\n")).toContain("cannot reach master");
   });
+  it("posts an escalation answer and prints the returned record", async () => {
+    const stub = await stubMaster(() => ({
+      status: 200,
+      body: {
+        assignmentId: "a1",
+        action: "answer",
+        escalation: { id: "esc-1", status: "resolved" },
+      },
+    }));
+    const out = capture();
+
+    expect(
+      await taskCommand(
+        [
+          "answer",
+          "a1",
+          "--text",
+          "use main",
+          "--option",
+          "main",
+          "--escalation-id",
+          "esc-1",
+          "--master",
+          stub.base,
+          "--json",
+        ],
+        { write: out.write },
+      ),
+    ).toBe(0);
+    expect(stub.captured[0]).toMatchObject({ method: "POST", url: "/gethen/tasks/a1/answer" });
+    expect(JSON.parse(stub.captured[0]?.body ?? "{}")).toEqual({
+      kind: "answer",
+      text: "use main",
+      option: "main",
+      escalationId: "esc-1",
+    });
+    expect(JSON.parse(out.lines.join("\n"))).toMatchObject({
+      action: "answer",
+      escalation: { id: "esc-1" },
+    });
+
+    expect(() => parseTaskArgs(["answer", "a1", "--master", "http://m:1"])).toThrow(/text/);
+    expect(() =>
+      parseTaskArgs(["answer", "a1", "--text", "x", "--kind", "maybe", "--master", "http://m:1"]),
+    ).toThrow(/--kind/);
+  });
+
   it("reads task logs from the master", async () => {
     const logsBody = {
       assignmentId: "a1",

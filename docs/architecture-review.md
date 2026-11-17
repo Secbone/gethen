@@ -67,3 +67,18 @@ list/history 各只有一份实现。CLI HTTP 路由与 DSH 工具都只做参�
 验证：新增 lifecycle/engine/store/executor/control/CLI/DSH 回归，覆盖 ack 失效、关闭
 幂等、归档保留期、关闭后不 launch、HTTP 冲突码与 DSH 工具路径。`pnpm check` 结果以本次
 提交的检查输出为准；未调用真实模型，未修改历史评测数据。
+
+## 2026-11-18 Escalation 答复闭环
+
+`@gethen/bridge-mailbox` 的 `answer(assignmentId, resolution, {escalationId})` 让 parked
+升级可被事后答复：launch 以 `waiting` 报告结算，但 pending 条目保留，`gethen.task.answer`
+送达仍阻塞的 Worker；恢复后的最终 result 经 `onLateResult` 回写 Ticket 并追加 receipt。
+`@gethen/master-runtime` 的 `createEscalationHooks` 把 escalation 持久化、`escalate/resolve`
+与 Ticket/Assignment 状态统一给 CLI serve 和 DSH 两个宿主；控制面新增 `control.answer`
+与 task `action=answer`。CLI（`gethen ticket answer` / `gethen task answer`）、HTTP
+（`POST /gethen/tickets/:id/answer`、`POST /gethen/tasks/:id/answer`）与 DSH
+（`gethen_ticket` / `gethen_task` 的 answer 动作）仅做参数适配，不各自推导状态。
+
+验证：bridge 的 answer/late-result/late-ask 回归，master-runtime 的 parked→answer→late
+result 全链路（真实 loopback ws + mailbox），以及 control/CLI/DSH 的本地与 HTTP 回归通过；
+`pnpm check` 结果以本次提交的检查输出为准。未调用真实模型。

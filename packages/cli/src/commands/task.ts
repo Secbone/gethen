@@ -1,7 +1,7 @@
 import type { TaskEvent, TaskState } from "@gethen/master-runtime";
 import { masterEndpoint } from "./run";
 
-export type TaskAction = "status" | "logs" | "steer" | "cancel";
+export type TaskAction = "status" | "logs" | "steer" | "cancel" | "answer";
 
 export interface TaskArgs {
   action: TaskAction;
@@ -20,6 +20,10 @@ export interface TaskArgs {
   limit?: number;
   afterSeq?: number;
   type?: string;
+  /** `answer`: option id and escalation kind (default answer). */
+  option?: string;
+  kind?: "answer" | "escalate" | "drop";
+  escalationId?: string;
 }
 
 export interface TaskOptions {
@@ -39,6 +43,9 @@ const FLAGS_WITH_VALUE = new Set([
   "--limit",
   "--after-seq",
   "--type",
+  "--option",
+  "--kind",
+  "--escalation-id",
 ]);
 
 /**
@@ -48,8 +55,14 @@ const FLAGS_WITH_VALUE = new Set([
  */
 export function parseTaskArgs(argv: string[], env: NodeJS.ProcessEnv = process.env): TaskArgs {
   const action = argv[0];
-  if (action !== "status" && action !== "logs" && action !== "steer" && action !== "cancel") {
-    throw new Error('expected a subcommand: "status", "logs", "steer" or "cancel"');
+  if (
+    action !== "status" &&
+    action !== "logs" &&
+    action !== "steer" &&
+    action !== "cancel" &&
+    action !== "answer"
+  ) {
+    throw new Error('expected a subcommand: "status", "logs", "steer", "cancel" or "answer"');
   }
   const master = flagValue(argv, "--master") ?? env.GETHEN_MASTER_URL;
   if (master === undefined || master.trim().length === 0) {
@@ -84,6 +97,26 @@ export function parseTaskArgs(argv: string[], env: NodeJS.ProcessEnv = process.e
       ...(limit === undefined ? {} : { limit }),
       ...(afterSeq === undefined ? {} : { afterSeq }),
       ...(type === undefined || type.length === 0 ? {} : { type }),
+    };
+  }
+  if (action === "answer") {
+    const rawKind = (flagValue(argv, "--kind") ?? "answer").trim();
+    if (rawKind !== "answer" && rawKind !== "escalate" && rawKind !== "drop") {
+      throw new Error('--kind must be "answer", "escalate" or "drop"');
+    }
+    const text = (flagValue(argv, "--text") ?? rest).trim();
+    if (text.length === 0) throw new Error("answer needs a non-empty text");
+    const option = flagValue(argv, "--option")?.trim();
+    const escalationId = flagValue(argv, "--escalation-id")?.trim();
+    return {
+      action,
+      assignmentId,
+      master: master.trim(),
+      json: argv.includes("--json"),
+      text,
+      kind: rawKind,
+      ...(option === undefined || option.length === 0 ? {} : { option }),
+      ...(escalationId === undefined || escalationId.length === 0 ? {} : { escalationId }),
     };
   }
   if (action === "steer") {
@@ -150,9 +183,7 @@ export async function taskCommand(argv: string[], options: TaskOptions = {}): Pr
       : {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify(
-            args.action === "steer" ? { text: args.text ?? "" } : reasonBody(args.reason),
-          ),
+          body: JSON.stringify(taskBody(args)),
         };
 
   let response: Response;
@@ -169,7 +200,8 @@ export async function taskCommand(argv: string[], options: TaskOptions = {}): Pr
   }
 
   if (args.action !== "status" && args.action !== "logs") {
-    write(`${args.action} sent for ${args.assignmentId}`);
+    if (args.json) write(raw.trim());
+    else write(`${args.action} sent for ${args.assignmentId}`);
     return 0;
   }
 
@@ -207,6 +239,8 @@ const TASK_USAGE = `Usage:
                   [--type <event-type>] [--json]
   gethen task steer <assignmentId> "<text>" --master <url>
   gethen task cancel <assignmentId> [--reason "<text>"] --master <url>
+  gethen task answer <assignmentId> --option <id> --text "<text>" --master <url>
+                   [--kind answer|escalate|drop] [--escalation-id <id>] [--json]
 
 Talks to a running \`gethen serve\`: status asks the Worker for live task state
 (404 for an unknown assignment, 504 when the Worker does not answer in time);
@@ -250,6 +284,19 @@ function renderLogs(
     write(`#${event.seq} ${event.type} ${event.at}`);
     if (event.data !== undefined) write(`  ${truncate(JSON.stringify(event.data), 300)}`);
   }
+}
+
+function taskBody(args: TaskArgs): Record<string, unknown> {
+  if (args.action === "answer") {
+    return {
+      kind: args.kind ?? "answer",
+      text: args.text ?? "",
+      ...(args.option === undefined ? {} : { option: args.option }),
+      ...(args.escalationId === undefined ? {} : { escalationId: args.escalationId }),
+    };
+  }
+  if (args.action === "steer") return { text: args.text ?? "" };
+  return reasonBody(args.reason);
 }
 
 function reasonBody(reason: string | undefined): Record<string, string> {

@@ -15,9 +15,11 @@ gethen status --db /var/lib/gethen/master.sqlite
 gethen ticket ack <ticketId> --master http://127.0.0.1:8080
 gethen ticket close <ticketId> --outcome completed --master http://127.0.0.1:8080
 gethen ticket archive <ticketId> --master http://127.0.0.1:8080
+gethen ticket answer <ticketId> "use main" --option main --master http://127.0.0.1:8080
 gethen task status <assignmentId> --master http://127.0.0.1:8080
 gethen task steer <assignmentId> "…" --master http://127.0.0.1:8080
 gethen task cancel <assignmentId> --master http://127.0.0.1:8080
+gethen task answer <assignmentId> --text "use main" --option main --master http://127.0.0.1:8080
 
 # Worker
 gethen worker add --db /var/lib/gethen/master.sqlite --worker-id build-1 \

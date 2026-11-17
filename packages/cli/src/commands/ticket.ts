@@ -1,7 +1,7 @@
 import type { TicketCloseOutcome, TicketSummary } from "@gethen/master";
 import { masterEndpoint } from "./run";
 
-export type TicketAction = "ack" | "close" | "archive";
+export type TicketAction = "ack" | "close" | "archive" | "answer";
 
 export interface TicketArgs {
   action: TicketAction;
@@ -14,6 +14,10 @@ export interface TicketArgs {
   outcome?: TicketCloseOutcome;
   /** `close`: forwarded to a best-effort worker cancel. */
   reason?: string;
+  /** `answer`: the person's answer text. */
+  text?: string;
+  /** `answer`: one of the escalation's declared option ids. */
+  option?: string;
 }
 
 export interface TicketOptions {
@@ -25,24 +29,38 @@ export interface TicketOptions {
   readonly error?: (line: string) => void;
 }
 
-const FLAGS_WITH_VALUE = new Set(["--master", "--outcome", "--reason"]);
+const FLAGS_WITH_VALUE = new Set(["--master", "--outcome", "--reason", "--option"]);
 const OUTCOMES: readonly TicketCloseOutcome[] = ["completed", "closed", "merged", "dropped"];
 
 /** Parse `gethen ticket ack|close|archive <ticketId> … --master <url>`. */
 export function parseTicketArgs(argv: string[], env: NodeJS.ProcessEnv = process.env): TicketArgs {
   const action = argv[0];
-  if (action !== "ack" && action !== "close" && action !== "archive") {
-    throw new Error('expected a subcommand: "ack", "close" or "archive"');
+  if (action !== "ack" && action !== "close" && action !== "archive" && action !== "answer") {
+    throw new Error('expected a subcommand: "ack", "close", "archive" or "answer"');
   }
   const master = flagValue(argv, "--master") ?? env.GETHEN_MASTER_URL;
   if (master === undefined || master.trim().length === 0) {
     throw new Error("--master <url> is required (or set GETHEN_MASTER_URL)");
   }
-  const ticketId = positionalArgs(argv.slice(1))[0]?.trim();
+  const words = positionalArgs(argv.slice(1));
+  const ticketId = words[0]?.trim();
   if (ticketId === undefined || ticketId.length === 0) {
     throw new Error("a ticket id is required");
   }
   const json = argv.includes("--json");
+  if (action === "answer") {
+    const text = words.slice(1).join(" ").trim();
+    if (text.length === 0) throw new Error("answer requires a non-empty answer text");
+    const option = flagValue(argv, "--option")?.trim();
+    return {
+      action,
+      ticketId,
+      master: master.trim(),
+      json,
+      text,
+      ...(option === undefined || option.length === 0 ? {} : { option }),
+    };
+  }
   if (action !== "close") {
     return { action, ticketId, master: master.trim(), json };
   }
@@ -92,7 +110,7 @@ export async function ticketCommand(argv: string[], options: TicketOptions = {})
     response = await fetch(endpoint, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(closeBody(args)),
+      body: JSON.stringify(requestBody(args)),
     });
   } catch (error) {
     writeError(`gethen ticket: cannot reach master at ${endpoint}: ${messageOf(error)}`);
@@ -108,14 +126,18 @@ export async function ticketCommand(argv: string[], options: TicketOptions = {})
     return 0;
   }
 
-  let body: { ticket?: TicketSummary };
+  let body: {
+    ticket?: TicketSummary;
+    escalation?: { id?: string; status?: string; resolution?: { text?: string } };
+    delivered?: boolean;
+  };
   try {
-    body = JSON.parse(raw) as { ticket?: TicketSummary };
+    body = JSON.parse(raw) as typeof body;
   } catch {
     writeError(`gethen ticket: master returned invalid JSON: ${truncate(raw)}`);
     return 1;
   }
-  renderTicket(args.action, body.ticket, write);
+  renderTicket(args.action, body, write);
   return 0;
 }
 
@@ -124,15 +146,24 @@ const TICKET_USAGE = `Usage:
   gethen ticket close <ticketId> --master <url> [--outcome completed|closed|merged|dropped]
                           [--reason "<text>"] [--json]
   gethen ticket archive <ticketId> --master <url> [--json]
+  gethen ticket answer <ticketId> "<text>" [--option <id>] --master <url> [--json]
 
 Talks to a running \`gethen serve\`: ack clears the current "needs action" flag
 until the Ticket reports again; close writes the terminal outcome (idempotent
-for the same outcome); archive hides a closed Ticket from the default overview.
+for the same outcome); archive hides a closed Ticket from the default overview;
+answer resolves the escalation that parked a Worker and delivers the answer to
+it (a report-only question is resolved locally).
 --master may be an origin or an origin with a base path; GETHEN_MASTER_URL is
 the fallback.
 `;
 
-function closeBody(args: TicketArgs): Record<string, string> {
+function requestBody(args: TicketArgs): Record<string, string> {
+  if (args.action === "answer") {
+    return {
+      text: args.text ?? "",
+      ...(args.option === undefined ? {} : { option: args.option }),
+    };
+  }
   if (args.action !== "close") return {};
   return {
     ...(args.outcome === undefined ? {} : { outcome: args.outcome }),
@@ -142,9 +173,14 @@ function closeBody(args: TicketArgs): Record<string, string> {
 
 function renderTicket(
   action: TicketAction,
-  ticket: TicketSummary | undefined,
+  body: {
+    ticket?: TicketSummary;
+    escalation?: { id?: string; status?: string };
+    delivered?: boolean;
+  },
   write: (line: string) => void,
 ): void {
+  const ticket = body.ticket;
   if (ticket === undefined) {
     write(`${action}: no ticket returned`);
     return;
@@ -154,6 +190,12 @@ function renderTicket(
     `lifecycle: ${ticket.lifecycle}  stage: ${ticket.stage}  ` +
       `needs action: ${ticket.needsAction ? "yes" : "no"}`,
   );
+  if (body.escalation?.id !== undefined) {
+    write(`escalation: ${body.escalation.id}  status: ${body.escalation.status ?? "resolved"}`);
+  }
+  if (body.delivered !== undefined) {
+    write(`delivered to worker: ${body.delivered ? "yes" : "no"}`);
+  }
   if (ticket.outcome !== undefined) write(`outcome: ${ticket.outcome}`);
   if (ticket.endedAt !== undefined) write(`ended: ${ticket.endedAt}`);
   if (ticket.archivedAt !== undefined) write(`archived: ${ticket.archivedAt}`);

@@ -31,6 +31,7 @@ import {
 } from "@gethen/master";
 import {
   type ControlPlane,
+  createEscalationHooks,
   createMasterRuntime,
   DEFAULT_MASTER_POLICY,
   type MailboxHealth,
@@ -187,42 +188,6 @@ export function readWorkerTokens(config: GethenWsConfig): WorkerToken[] {
     return parseWorkerTokens(config.tokensJson, "ws.tokensJson");
   }
   return [];
-}
-
-/**
- * Persist escalation lifecycle into the master store: the mailbox bridge owns
- * the protocol, the plugin owns the audit trail.
- */
-function escalationHooks(serviceOf: () => MasterService | undefined): {
-  onEscalation(record: EscalationRecord): void;
-  onResolution(record: EscalationRecord): void;
-} {
-  return {
-    onEscalation(record) {
-      const service = serviceOf();
-      if (service === undefined) return;
-      const saved = service.engine.escalate(record.ticket, {
-        id: record.id,
-        assignment: record.assignment,
-        session: record.session,
-        kind: record.kind,
-        question: record.question,
-        options: record.options,
-        ...(record.defaultOption === undefined ? {} : { defaultOption: record.defaultOption }),
-      });
-      if (saved !== undefined) service.store.saveEscalation(saved);
-    },
-    onResolution(record) {
-      const service = serviceOf();
-      if (service === undefined) return;
-      if (record.resolution === undefined) {
-        service.store.saveEscalation(record);
-        return;
-      }
-      const saved = service.engine.resolve(record.ticket, record.resolution);
-      service.store.saveEscalation(saved ?? record);
-    },
-  };
 }
 
 interface ToolDeps {
@@ -503,7 +468,7 @@ export function apply(ctx: DshContext, config: GethenConfig = {}): void {
     ...(ws?.masterMailbox === undefined ? {} : { masterMailbox: ws.masterMailbox }),
     ...(tokens.length === 0 ? {} : { tokens }),
     ...(resolveEscalation === undefined ? {} : { resolveEscalation }),
-    ...escalationHooks(() => runtime?.service),
+    ...createEscalationHooks(() => runtime?.service),
   });
   const mounted = runtime;
 

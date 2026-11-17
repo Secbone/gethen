@@ -7,7 +7,12 @@
 import type { ControlPlane, ControlTicketAction } from "@gethen/master-runtime";
 import type { DshContext, DshToolDefinition } from "./index";
 
-export const TICKET_ACTIONS: readonly ControlTicketAction[] = ["ack", "close", "archive"];
+export const TICKET_ACTIONS: readonly (ControlTicketAction | "answer")[] = [
+  "ack",
+  "close",
+  "archive",
+  "answer",
+];
 
 const CLOSE_OUTCOMES = ["completed", "closed", "merged", "dropped"] as const;
 type CloseOutcome = (typeof CLOSE_OUTCOMES)[number];
@@ -15,14 +20,15 @@ type CloseOutcome = (typeof CLOSE_OUTCOMES)[number];
 /** Register `gethen_ticket` against the shared control surface. */
 export function registerTicketTool(
   ctx: DshContext,
-  control: Pick<ControlPlane, "acknowledge" | "close" | "archive">,
+  control: Pick<ControlPlane, "acknowledge" | "close" | "archive" | "answer">,
 ): void {
   const definition: DshToolDefinition = {
     name: "gethen_ticket",
     description:
       "Move one Ticket through its lifecycle: ack (mark the current needs-action state " +
-      "seen), close (terminal; default outcome completed) or archive (hide a closed Ticket " +
-      "from the default overview). Closing is idempotent for the same outcome.",
+      "seen), close (terminal; default outcome completed), archive (hide a closed Ticket " +
+      "from the default overview) or answer (resolve the escalation that parked a Worker " +
+      "and deliver the text to it). Closing is idempotent for the same outcome.",
     parameters: {
       action: {
         type: "string",
@@ -46,12 +52,30 @@ export function registerTicketTool(
         required: false,
         description: "close only; forwarded to a best-effort Worker cancel.",
       },
+      text: {
+        type: "string",
+        required: false,
+        description: "answer only; the person's answer, delivered to the parked Worker.",
+      },
+      option: {
+        type: "string",
+        required: false,
+        description: "answer only; one of the escalation's declared option ids.",
+      },
+      escalationId: {
+        type: "string",
+        required: false,
+        description: "answer only; disambiguates multiple escalations on one Ticket.",
+      },
     },
     output: {
       schema: objectSchema(
         {
           action: { type: "string", enum: [...TICKET_ACTIONS] },
           ticket: { type: "object" },
+          escalation: { type: "object" },
+          delivered: { type: "boolean" },
+          assignmentId: { type: "string" },
         },
         ["action", "ticket"],
       ),
@@ -66,9 +90,26 @@ export function registerTicketTool(
         ticketId?: unknown;
         outcome?: unknown;
         reason?: unknown;
+        text?: unknown;
+        option?: unknown;
+        escalationId?: unknown;
       };
       const action = parseAction(args.action);
       const ticketId = requireText(args.ticketId, 'gethen_ticket requires a non-empty "ticketId"');
+      if (action === "answer") {
+        const text = requireText(args.text, 'gethen_ticket "text" is required for answer');
+        const option = optionalText(args.option, 'gethen_ticket "option"');
+        const escalationId = optionalText(args.escalationId, 'gethen_ticket "escalationId"');
+        return {
+          action,
+          ...(await control.answer({
+            ticketId,
+            text,
+            ...(option === undefined ? {} : { option }),
+            ...(escalationId === undefined ? {} : { escalationId }),
+          })),
+        };
+      }
       if (action === "ack") {
         return { action, ticket: control.acknowledge(ticketId) };
       }
@@ -101,11 +142,11 @@ function objectSchema(
   return { type: "object", properties, required, additionalProperties: false };
 }
 
-function parseAction(value: unknown): ControlTicketAction {
+function parseAction(value: unknown): ControlTicketAction | "answer" {
   if (typeof value !== "string" || !(TICKET_ACTIONS as readonly string[]).includes(value)) {
     throw new Error(`gethen_ticket "action" must be one of: ${TICKET_ACTIONS.join(", ")}`);
   }
-  return value as ControlTicketAction;
+  return value as ControlTicketAction | "answer";
 }
 
 function requireText(value: unknown, label: string): string {
@@ -126,4 +167,9 @@ function optionalOutcome(value: unknown): CloseOutcome | undefined {
 function optionalReason(value: unknown): string | undefined {
   if (value === undefined) return undefined;
   return requireText(value, 'gethen_ticket "reason"');
+}
+
+function optionalText(value: unknown, label: string): string | undefined {
+  if (value === undefined) return undefined;
+  return requireText(value, label);
 }

@@ -75,6 +75,8 @@ import { DshSdkClient } from "@gethen/sdk-driver";
 /** Worker-side compat markers emitted by the `gethen_escalate` tool result. */
 const ESCALATION_OPEN = "[GETHEN-ESCALATION]";
 const ESCALATION_CLOSE = "[/GETHEN-ESCALATION]";
+/** The assignment prompt itself documents the report markers; never treat it as a report. */
+const ASSIGNMENT_OPEN = "[GETHEN-ASSIGNMENT]";
 /** A single execution answers at most this many tool-result escalations. */
 const MAX_TOOL_ESCALATIONS = 5;
 /** Silence before the watchdog fails an execution. */
@@ -221,6 +223,8 @@ interface ExecutionState {
   rounds: number;
   /** One escalation is live at a time; later ones queue on `escalationChain`. */
   pending: PendingEscalation | undefined;
+  /** A blocking escalation is in flight; turn-end/idle must not report yet. */
+  awaitingResolution: boolean;
   escalationChain: Promise<void>;
   escalationSeq: number;
   // ---- session
@@ -298,6 +302,7 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
       toolEscalation: undefined,
       rounds: 0,
       pending: undefined,
+      awaitingResolution: false,
       escalationChain: Promise.resolve(),
       escalationSeq: 0,
       sessionId: task.assignmentId,
@@ -995,6 +1000,9 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
   /** Turn completion: report, answer a pending tool-result escalation, or wait. */
   private onTurnEnd(state: ExecutionState): void {
     if (state.settled || state.cancelled) return;
+    // A trailing turn/end or idle status can arrive while the blocking ask is
+    // still waiting for an answer; finishing here would orphan the answer.
+    if (state.awaitingResolution || state.pending !== undefined) return;
     if (state.reportTexts.length > 0) {
       this.finish(state, this.reportFor(state));
       return;
@@ -1198,9 +1206,11 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
     // Waiting for a person/Master answer produces no session events by design;
     // the silence watchdog must not kill the execution while it is parked.
     this.pauseWatchdog(state);
+    state.awaitingResolution = true;
     const start = (): Promise<HarnessResolution> => {
       const run = this.emitEscalation(state, escalation);
       return run.finally(() => {
+        state.awaitingResolution = false;
         if (!state.settled && !state.cancelled) this.resetWatchdog(state);
       });
     };
@@ -1359,6 +1369,9 @@ export function repairReportBlock(text: string): string {
  */
 function scanEvent(state: ExecutionState, event: unknown, depth = 0): void {
   for (const text of collectStrings(event)) {
+    // The rendered assignment prompt contains the report/escalation protocol
+    // examples; scanning them would turn the instructions into a bogus report.
+    if (text.includes(ASSIGNMENT_OPEN)) continue;
     if (text.includes(REPORT_OPEN) && text.includes(REPORT_CLOSE)) {
       state.reportTexts.push(text);
     }

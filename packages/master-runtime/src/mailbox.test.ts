@@ -10,6 +10,7 @@ import type {
   EscalationResolutionInput,
   LaunchRequest,
   Ticket,
+  Trigger,
 } from "@gethen/master";
 import { createWsTransport, type TransportSession } from "@gethen/transport";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -292,6 +293,54 @@ describe("createMasterRuntime mailbox stack", () => {
     expect(runtime.health()).toMatchObject({ launch: "ws", workers: 1 });
   });
 
+  it("answers a parked escalation and applies the late result to the ticket", async () => {
+    const harness = await startHarness();
+    const runtime = harness.runtime;
+    const { link } = await attachWorker(harness);
+    const trigger: Trigger = {
+      id: "trigger-parked",
+      source: "local",
+      thread: "local",
+      actor: "local-user",
+      bot: false,
+      addressed: "mention",
+      text: "merge it",
+      at: AT,
+      meta: { scope: "local", workspace: "/ws" },
+    };
+
+    const submitted = runtime.service.submit(trigger);
+    const assign = await receiveOne(link);
+    const assignmentId = assignmentIdOf(assign.envelope);
+    await link.ack([assign.envelope.id]);
+    await link.send(askEnvelope(assign.envelope));
+
+    // gethen_run resolves promptly with a waiting report, it does not block.
+    const launch = await submitted;
+    expect(launch.decision?.outcome).toBe("accept");
+    const ticket = runtime.service.store.tickets.list().at(-1);
+    if (ticket === undefined) throw new Error("expected a ticket");
+    await waitFor(() => runtime.service.store.tickets.get(ticket.id)?.latestReport === "waiting");
+
+    const answered = runtime.tasks.answer(assignmentId, {
+      kind: "answer",
+      text: "Merge it.",
+      option: "merge",
+    });
+    expect(answered.status).toBe("resolved");
+    const answer = await receiveOne(link);
+    expect(answer.envelope).toMatchObject({
+      type: "gethen.task.answer",
+      correlationId: assignmentId,
+    });
+    await link.ack([answer.envelope.id]);
+
+    await link.send(resultEnvelope(assign.envelope, { kind: "ready", summary: "merged" }));
+    await waitFor(() => runtime.service.store.tickets.get(ticket.id)?.latestReport === "ready");
+    const receipts = runtime.service.store.listReceipts().filter((row) => row.ticket === ticket.id);
+    expect(receipts.at(-1)?.summary).toBe("merged");
+  });
+
   it("closes the ask loop over the link: assign, ask, answer, result", async () => {
     const statuses: string[] = [];
     const harness = await startHarness({
@@ -363,6 +412,67 @@ describe("createMasterRuntime mailbox stack", () => {
     expect(resolutions).toEqual(["parked"]);
     // No answer is sent back: a person still has to decide.
     await expect(link.receive({ limit: 1, timeoutMs: 100 })).resolves.toEqual([]);
+  });
+
+  it("answers a parked escalation and applies the resumed result to the ticket", async () => {
+    const harness = await startHarness();
+    const runtime = harness.runtime;
+    const { link } = await attachWorker(harness);
+
+    const trigger: Trigger = {
+      id: `trigger-${crypto.randomUUID()}`,
+      source: "local",
+      thread: "local",
+      actor: "local-user",
+      bot: false,
+      addressed: "mention",
+      text: "fix the failing test",
+      at: AT,
+      meta: { scope: "local", workspace: "/ws" },
+    };
+    const submitted = runtime.service.submit(trigger);
+    const ticketId = runtime.service.store.tickets.list().at(-1)?.id;
+    if (ticketId === undefined) throw new Error("expected an accepted ticket");
+
+    const assign = await receiveOne(link);
+    await link.ack([assign.envelope.id]);
+    await link.send(askEnvelope(assign.envelope));
+    await submitted;
+    await waitFor(() => runtime.service.store.tickets.get(ticketId)?.attention !== undefined);
+
+    const answered = await runtime.control.answer({
+      ticketId,
+      text: "Merge it.",
+      option: "merge",
+    });
+    expect(answered).toMatchObject({
+      delivered: true,
+      ticket: { id: ticketId, needsAction: false },
+      escalation: {
+        status: "resolved",
+        resolution: { kind: "answer", text: "Merge it.", option: "merge" },
+      },
+    });
+
+    const answer = await receiveOne(link);
+    expect(answer.envelope).toMatchObject({
+      type: "gethen.task.answer",
+      correlationId: answered.assignmentId,
+      data: {
+        escalationId: "esc-1",
+        resolution: { kind: "answer", text: "Merge it.", option: "merge" },
+      },
+    });
+    await link.ack([answer.envelope.id]);
+
+    // The answered Worker resumes and its result lands on the same Ticket.
+    await link.send(resultEnvelope(assign.envelope, { summary: "merged" }));
+    await waitFor(() => runtime.service.store.tickets.get(ticketId)?.latestReport === "ready");
+    expect(runtime.service.store.listReceipts().map((receipt) => receipt.summary)).toEqual([
+      "waiting for a person: Which branch?",
+      "merged",
+    ]);
+    expect(runtime.service.store.tickets.get(ticketId)?.attention).toBeUndefined();
   });
 
   it("counts attached transport sessions as workers", async () => {

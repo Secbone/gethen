@@ -58,6 +58,9 @@ function stubTasks(overrides: Partial<MasterRuntimeTasks> = {}): MasterRuntimeTa
     eventDropped: () => 0,
     sessions: async () => [],
     sessionHistory: async (sessionId) => ({ sessionId, events: [] }),
+    answer: () => {
+      throw new Error("answer is not used by the task tool");
+    },
     ...overrides,
   };
 }
@@ -91,8 +94,19 @@ describe("gethen_task tool", () => {
       limit: { type: "number", required: false },
       afterSeq: { type: "number", required: false },
       type: { type: "string", required: false },
+      kind: { type: "string", required: false },
+      option: { type: "string", required: false },
+      escalationId: { type: "string", required: false },
     });
-    expect([...TASK_ACTIONS]).toEqual(["status", "steer", "cancel", "logs", "sessions", "history"]);
+    expect([...TASK_ACTIONS]).toEqual([
+      "status",
+      "steer",
+      "cancel",
+      "logs",
+      "sessions",
+      "history",
+      "answer",
+    ]);
     const schema = tool.output.schema as {
       properties: Record<string, Record<string, unknown>>;
       required: string[];
@@ -106,9 +120,31 @@ describe("gethen_task tool", () => {
         "count",
         "sessions",
         "sessionId",
+        "escalation",
       ]),
     );
     expect(schema.required).toEqual(["action"]);
+  });
+
+  it("builds an answer request for a parked escalation", async () => {
+    const { taskRequest } = await import("./task-tool");
+    expect(
+      taskRequest({
+        action: "answer",
+        assignmentId: "assignment-1",
+        text: "allow it",
+        option: "allow",
+        kind: "answer",
+      }),
+    ).toEqual({
+      action: "answer",
+      assignmentId: "assignment-1",
+      resolution: { kind: "answer", text: "allow it", option: "allow" },
+    });
+    expect(() => taskRequest({ action: "answer", assignmentId: "assignment-1" })).toThrow(/text/);
+    expect(() =>
+      taskRequest({ action: "answer", assignmentId: "assignment-1", text: "x", kind: "bad" }),
+    ).toThrow(/kind/);
   });
 
   it("rejects an unknown action and missing per-action identifiers", async () => {

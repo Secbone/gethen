@@ -8,7 +8,15 @@
 import type { ControlPlane, ControlTaskRequest } from "@gethen/master-runtime";
 import type { DshContext, DshToolDefinition } from "./index";
 
-export const TASK_ACTIONS = ["status", "steer", "cancel", "logs", "sessions", "history"] as const;
+export const TASK_ACTIONS = [
+  "status",
+  "steer",
+  "cancel",
+  "logs",
+  "sessions",
+  "history",
+  "answer",
+] as const;
 export type TaskAction = (typeof TASK_ACTIONS)[number];
 
 /** Register `gethen_task` against the shared control surface. */
@@ -19,14 +27,15 @@ export function registerTaskTool(ctx: DshContext, control: Pick<ControlPlane, "t
       "Inspect, observe or control one live Worker assignment via the mailbox runtime: " +
       "action=status (cached state first, then ask the Worker) | steer (send a text " +
       "instruction) | cancel (ask the Worker to stop) | logs (cached task events) | " +
-      "sessions (Worker session directory) | history (one session's persisted events). " +
+      "sessions (Worker session directory) | history (one session's persisted events) | " +
+      "answer (answer a parked escalation and let its late result update the ticket). " +
       "Not available with the fake launch.",
     parameters: {
       action: {
         type: "string",
         required: true,
         enum: [...TASK_ACTIONS],
-        description: "status | steer | cancel | logs | sessions | history",
+        description: "status | steer | cancel | logs | sessions | history | answer",
       },
       assignmentId: {
         type: "string",
@@ -70,6 +79,22 @@ export function registerTaskTool(ctx: DshContext, control: Pick<ControlPlane, "t
         required: false,
         description: "Only events of this type (action=logs).",
       },
+      kind: {
+        type: "string",
+        required: false,
+        enum: ["answer", "escalate", "drop"],
+        description: "Escalation resolution kind for action=answer (default answer).",
+      },
+      option: {
+        type: "string",
+        required: false,
+        description: "One of the escalation's declared option ids (action=answer).",
+      },
+      escalationId: {
+        type: "string",
+        required: false,
+        description: "Target a specific escalation (action=answer).",
+      },
     },
     output: {
       schema: objectSchema(
@@ -89,6 +114,7 @@ export function registerTaskTool(ctx: DshContext, control: Pick<ControlPlane, "t
           sessions: { type: "array", items: { type: "object" } },
           sessionId: { type: "string" },
           at: { type: "string" },
+          escalation: { type: "object", description: "Resolved escalation record." },
         },
         ["action"],
       ),
@@ -132,6 +158,9 @@ interface RawTaskArgs {
   limit?: unknown;
   afterSeq?: unknown;
   type?: unknown;
+  kind?: unknown;
+  option?: unknown;
+  escalationId?: unknown;
 }
 
 /** Validate tool arguments and turn them into one control request. */
@@ -184,6 +213,26 @@ export function taskRequest(raw: unknown): ControlTaskRequest {
       const timeoutMs = optionalTimeout(args.timeoutMs);
       return { action, ...(timeoutMs === undefined ? {} : { timeoutMs }) };
     }
+    case "answer": {
+      const assignmentId = requireText(
+        args.assignmentId,
+        'gethen_task answer requires "assignmentId"',
+      );
+      const text = requireText(args.text, 'gethen_task answer requires a non-empty "text"');
+      const kind = optionalKind(args.kind);
+      const option = optionalOption(args.option);
+      const escalationId = optionalOption(args.escalationId);
+      return {
+        action,
+        assignmentId,
+        resolution: {
+          kind,
+          text,
+          ...(option === undefined ? {} : { option }),
+        },
+        ...(escalationId === undefined ? {} : { escalationId }),
+      };
+    }
     case "history": {
       const sessionId = requireText(args.sessionId, 'gethen_task history requires "sessionId"');
       const timeoutMs = optionalTimeout(args.timeoutMs);
@@ -203,6 +252,17 @@ function requireText(value: unknown, label: string): string {
     throw new Error(`${label} must be a non-empty string`);
   }
   return value;
+}
+
+function optionalKind(value: unknown): "answer" | "escalate" | "drop" {
+  if (value === undefined) return "answer";
+  if (value === "answer" || value === "escalate" || value === "drop") return value;
+  throw new Error('gethen_task "kind" must be "answer", "escalate" or "drop"');
+}
+
+function optionalOption(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  return requireText(value, 'gethen_task "option"');
 }
 
 function optionalReason(value: unknown): string | undefined {

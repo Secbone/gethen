@@ -18,7 +18,10 @@
  * - in  `gethen.task.ask`      → escalation record + resolver → answer;
  * - out `gethen.task.answer`   → the ask's `replyTo` (worker mailbox);
  * - in  `gethen.task.result`   → report + receipt (LaunchResult), final state,
- *   plus a synthetic `gethen.result` event in the stream;
+ *   plus a synthetic `gethen.result` event in the stream; after a parked
+ *   launch already resolved it is delivered through `onLateResult`;
+ * - out `gethen.task.answer`   → a person answering a parked escalation
+ *   (`answer()`), keeping the pending entry until the late result arrives;
  * - out `gethen.task.status`   → request/response liveness probe (status.result);
  * - out `gethen.task.steer` / `gethen.task.cancel` → live control messages;
  * - out `gethen.session.list` / `gethen.session.history` → worker mailbox
@@ -229,7 +232,10 @@ export type MailboxLaunchErrorCode =
   | "MAILBOX_RESOLUTION_FAILED"
   | "MAILBOX_CLOSED"
   | "MAILBOX_STATUS_TIMEOUT"
-  | "MAILBOX_SEND_FAILED";
+  | "MAILBOX_SEND_FAILED"
+  | "MAILBOX_UNKNOWN_ASSIGNMENT"
+  | "MAILBOX_NO_PARKED_ESCALATION"
+  | "MAILBOX_INVALID_RESOLUTION";
 
 /** The same codes as a runtime list, for callers that classify failures. */
 export const MAILBOX_LAUNCH_ERROR_CODES: readonly MailboxLaunchErrorCode[] = [
@@ -239,6 +245,9 @@ export const MAILBOX_LAUNCH_ERROR_CODES: readonly MailboxLaunchErrorCode[] = [
   "MAILBOX_CLOSED",
   "MAILBOX_STATUS_TIMEOUT",
   "MAILBOX_SEND_FAILED",
+  "MAILBOX_UNKNOWN_ASSIGNMENT",
+  "MAILBOX_NO_PARKED_ESCALATION",
+  "MAILBOX_INVALID_RESOLUTION",
 ];
 
 /** A launch failure; `message` is prefixed with `code` for log-grep-ability. */
@@ -271,6 +280,14 @@ export interface MailboxClientLike {
   readonly pollIntervalMs?: number;
 }
 
+/** A result produced after the original launch had already returned `waiting`. */
+export interface LateLaunchResult {
+  request: LaunchRequest;
+  report: Report;
+  receipt: AssignmentReceipt;
+  escalations?: EscalationRecord[];
+}
+
 export interface MailboxLaunchOptions {
   /** Shared mailbox client (memory/sqlite store or a mailbox link). */
   client: MailboxClientLike;
@@ -284,6 +301,11 @@ export interface MailboxLaunchOptions {
   onResolution?: (record: EscalationRecord) => void;
   /** Observer fired whenever a progress/result update changes a TaskState. */
   onTaskState?: (assignmentId: string, state: TaskState) => void;
+  /**
+   * Observer fired when a result arrives after the launch promise already
+   * settled with a parked `waiting` report (answered escalation resumed).
+   */
+  onLateResult?: (input: LateLaunchResult) => void;
   /** Per-launch timeout; defaults to {@link DEFAULT_MAILBOX_LAUNCH_TIMEOUT_MS}. */
   timeoutMs?: number;
   now?: () => Date;
@@ -330,6 +352,17 @@ export interface MailboxLaunchBridge {
   /** Send `gethen.task.cancel`; the launch keeps waiting for its `result`. */
   cancel(assignmentId: string, reason?: string): Promise<void>;
   /**
+   * Answer the escalation that parked a launch for a person and send
+   * `gethen.task.answer` to the Worker. The launch promise already resolved
+   * with a `waiting` report; the resumed Worker's eventual result is delivered
+   * through `onLateResult`.
+   */
+  answer(
+    assignmentId: string,
+    resolution: EscalationResolutionInput,
+    options?: { escalationId?: string },
+  ): EscalationRecord;
+  /**
    * Cached events for one assignment, oldest first. Without `afterSeq` the
    * newest `limit` events are returned (tail); with `afterSeq` a forward page
    * of the events after that sequence is returned.
@@ -362,8 +395,14 @@ interface PendingLaunch {
   readonly escalations: EscalationRecord[];
   readonly seenEscalations: Set<string>;
   events: number;
+  /** The launch promise has settled (waiting) but the Worker may still report. */
+  launchSettled: boolean;
   settled: boolean;
   timer: ReturnType<typeof setTimeout> | undefined;
+  /** The escalation currently parked for a person, when there is one. */
+  parkedEscalation?: EscalationRecord;
+  /** The Worker's ask envelope; answers route back to its replyTo. */
+  parkedAsk?: Envelope;
   resolve(result: LaunchResult): void;
   reject(error: Error): void;
 }
@@ -562,6 +601,7 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
       escalations: [],
       seenEscalations: new Set(),
       events: 0,
+      launchSettled: false,
       settled: false,
       timer: undefined,
       resolve: resolvePromise,
@@ -589,9 +629,27 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
     return result;
   }
 
-  function park(pending: PendingLaunch, record: EscalationRecord): void {
+  /** Mark one escalation parked (clearing the silence timer) for later answer. */
+  function markParked(pending: PendingLaunch, record: EscalationRecord, ask?: Envelope): void {
     record.status = "parked";
+    if (pending.timer !== undefined) {
+      clearTimeout(pending.timer);
+      pending.timer = undefined;
+    }
+    pending.parkedEscalation = record;
+    if (ask !== undefined) pending.parkedAsk = ask;
     notify(() => options.onResolution?.(record));
+  }
+
+  /**
+   * Park a launch for a person. The launch promise resolves once with the
+   * `waiting` report, but the pending entry is kept so `answer()` and a later
+   * Worker result can still be handled.
+   */
+  function park(pending: PendingLaunch, record: EscalationRecord, ask?: Envelope): void {
+    markParked(pending, record, ask);
+    if (pending.launchSettled) return;
+    pending.launchSettled = true;
     const at = nowIso();
     const report: Report = {
       kind: "waiting",
@@ -599,7 +657,7 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
       question: record.question,
       at,
     };
-    resolveWith(pending, resultFor(pending, report));
+    pending.resolve(resultFor(pending, report));
   }
 
   function handleResult(pending: PendingLaunch, envelope: Envelope): void {
@@ -618,11 +676,26 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
       data: { kind: report.kind, summary: report.summary },
     });
     finalizeTaskState(pending, report);
-    resolveWith(pending, resultFor(pending, report));
+    const result = resultFor(pending, report);
+    if (pending.launchSettled) {
+      notify(() =>
+        options.onLateResult?.({
+          request: pending.request,
+          report,
+          receipt: result.receipt,
+          ...(result.escalations === undefined ? {} : { escalations: result.escalations }),
+        }),
+      );
+      finish(pending);
+      return;
+    }
+    resolveWith(pending, result);
   }
 
   function handleProgress(pending: PendingLaunch, data: Record<string, unknown> | undefined): void {
-    armLaunchTimer(pending);
+    // A parked launch must not be killed by the silence timer: the Worker is
+    // blocked on a person, and late progress after the answer must not re-arm.
+    if (!pending.launchSettled) armLaunchTimer(pending);
     pending.events += 1;
     const assignmentId = pending.request.assignment.id;
 
@@ -700,8 +773,14 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
     pending.escalations.push(record);
     notify(() => options.onEscalation?.(record));
 
+    // A launch that already returned `waiting` parks any later ask for a
+    // person instead of resolving the (already settled) launch again.
+    if (pending.launchSettled) {
+      park(pending, record, envelope);
+      return;
+    }
     if (options.resolveEscalation === undefined) {
-      park(pending, record);
+      park(pending, record, envelope);
       return;
     }
     void resolveAsk(pending, record, envelope);
@@ -722,7 +801,7 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
     }
     if (pending.settled) return;
     if (resolution === undefined) {
-      park(pending, record);
+      park(pending, record, ask);
       return;
     }
 
@@ -855,6 +934,12 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
       timer = undefined;
     }
     for (const pending of [...pendingByAssignment.values()]) {
+      if (pending.launchSettled) {
+        // The launch promise already resolved with `waiting`; a parked entry
+        // is just bookkeeping, so drop it without touching the promise.
+        finish(pending);
+        continue;
+      }
       rejectWith(
         pending,
         new MailboxLaunchError(
@@ -912,7 +997,7 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
     pending: PendingLaunch,
     record: EscalationRecord,
     resolution: EscalationResolutionInput,
-    ask: Envelope,
+    ask: Envelope | undefined,
     at: string,
   ): Envelope {
     return newEnvelope({
@@ -929,9 +1014,9 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
           text: resolution.text,
         },
       },
-      to: ask.replyTo ?? workerMailbox,
+      to: ask?.replyTo ?? workerMailbox,
       correlationId: pending.request.assignment.id,
-      causationId: ask.id,
+      ...(ask === undefined ? {} : { causationId: ask.id }),
     });
   }
 
@@ -1167,6 +1252,68 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
     }
   }
 
+  /**
+   * Answer the escalation that parked an assignment for a person. The launch
+   * promise is already settled, so this only delivers the answer and updates
+   * the record; the Worker's eventual result arrives through `onLateResult`.
+   */
+  function answer(
+    assignmentId: string,
+    resolution: EscalationResolutionInput,
+    answerOptions: { escalationId?: string } = {},
+  ): EscalationRecord {
+    if (closed) {
+      throw new MailboxLaunchError(
+        "MAILBOX_CLOSED",
+        `assignment ${assignmentId}: answer after the mailbox bridge closed`,
+      );
+    }
+    const pending = pendingByAssignment.get(assignmentId);
+    if (pending === undefined) {
+      throw new MailboxLaunchError(
+        "MAILBOX_UNKNOWN_ASSIGNMENT",
+        `no pending assignment ${assignmentId} to answer`,
+      );
+    }
+    const parked = pending.parkedEscalation;
+    if (parked === undefined) {
+      throw new MailboxLaunchError(
+        "MAILBOX_NO_PARKED_ESCALATION",
+        `assignment ${assignmentId} has no parked escalation`,
+      );
+    }
+    const wanted = answerOptions.escalationId;
+    if (wanted !== undefined && wanted !== parked.id) {
+      throw new MailboxLaunchError(
+        "MAILBOX_NO_PARKED_ESCALATION",
+        `assignment ${assignmentId} has no parked escalation ${wanted} (parked: ${parked.id})`,
+      );
+    }
+    validateResolutionInput(resolution);
+
+    const at = nowIso();
+    try {
+      client.send(answerEnvelope(pending, parked, resolution, pending.parkedAsk, at));
+    } catch (error) {
+      throw new MailboxLaunchError(
+        "MAILBOX_SEND_FAILED",
+        `assignment ${assignmentId} answer failed: ${messageOf(error)}`,
+      );
+    }
+
+    parked.status = resolution.kind === "answer" ? "resolved" : "parked";
+    parked.resolution = {
+      kind: resolution.kind,
+      text: resolution.text,
+      ...(resolution.option === undefined ? {} : { option: resolution.option }),
+      at,
+    };
+    notify(() => options.onResolution?.(parked));
+    delete pending.parkedEscalation;
+    delete pending.parkedAsk;
+    return parked;
+  }
+
   if (options.autoStart ?? true) start();
 
   return {
@@ -1185,6 +1332,7 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
     requestStatus,
     steer,
     cancel,
+    answer,
     close,
   };
 }
@@ -1417,6 +1565,35 @@ function parseStatusResult(
 
 function isTaskPhase(value: string): value is TaskPhase {
   return (TASK_PHASES as readonly string[]).includes(value);
+}
+
+/** Validate an escalation answer before sending it to the Worker. */
+function validateResolutionInput(resolution: EscalationResolutionInput): void {
+  const record = asRecord(resolution);
+  if (record === undefined) {
+    throw new MailboxLaunchError("MAILBOX_INVALID_RESOLUTION", "resolution must be a JSON object");
+  }
+  const kind = record.kind;
+  if (kind !== "answer" && kind !== "escalate" && kind !== "drop") {
+    throw new MailboxLaunchError(
+      "MAILBOX_INVALID_RESOLUTION",
+      'resolution "kind" must be "answer", "escalate" or "drop"',
+    );
+  }
+  const text = record.text;
+  if (typeof text !== "string" || text.trim().length === 0) {
+    throw new MailboxLaunchError(
+      "MAILBOX_INVALID_RESOLUTION",
+      'resolution "text" must be a non-empty string',
+    );
+  }
+  const option = record.option;
+  if (option !== undefined && (typeof option !== "string" || option.length === 0)) {
+    throw new MailboxLaunchError(
+      "MAILBOX_INVALID_RESOLUTION",
+      'resolution "option" must be a non-empty string when present',
+    );
+  }
 }
 
 type TaskResultParse = { ok: true; report: Report } | { ok: false; reasons: string[] };

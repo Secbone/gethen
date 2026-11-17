@@ -111,6 +111,20 @@ describe("gethen ticket", () => {
     expect(() =>
       parseTicketArgs(["close", "ticket-1", "--outcome", "stopped", "--master", "http://m:1"]),
     ).toThrow(/--outcome/);
+    expect(
+      parseTicketArgs([
+        "answer",
+        "ticket-1",
+        "use main",
+        "--option",
+        "main",
+        "--master",
+        "http://m:1",
+      ]),
+    ).toMatchObject({ action: "answer", text: "use main", option: "main" });
+    expect(() => parseTicketArgs(["answer", "ticket-1", "--master", "http://m:1"])).toThrow(
+      /answer text/,
+    );
   });
 
   it("builds the ticket route", () => {
@@ -144,6 +158,33 @@ describe("gethen ticket", () => {
     expect(out.lines.join("\n")).toContain("close: ticket-1");
     expect(out.lines.join("\n")).toContain("lifecycle: closed");
     expect(out.lines.join("\n")).toContain("outcome: completed");
+  });
+
+  it("posts an escalation answer and renders the delivery state", async () => {
+    const { base, captured } = await stubMaster(() => ({
+      status: 200,
+      body: {
+        ok: true,
+        action: "answer",
+        ticket: summary({ lifecycle: "open", outcome: undefined, endedAt: undefined }),
+        escalation: { id: "esc-1", status: "resolved" },
+        delivered: true,
+      },
+    }));
+    const out = capture();
+
+    expect(
+      await ticketCommand(
+        ["answer", "ticket-1", "use main", "--option", "main", "--master", base],
+        { write: out.write },
+      ),
+    ).toBe(0);
+
+    expect(captured[0]?.url).toBe("/gethen/tickets/ticket-1/answer");
+    expect(JSON.parse(captured[0]?.body ?? "{}")).toEqual({ text: "use main", option: "main" });
+    expect(out.lines.join("\n")).toContain("answer: ticket-1");
+    expect(out.lines.join("\n")).toContain("escalation: esc-1  status: resolved");
+    expect(out.lines.join("\n")).toContain("delivered to worker: yes");
   });
 
   it("prints the raw JSON response with --json", async () => {

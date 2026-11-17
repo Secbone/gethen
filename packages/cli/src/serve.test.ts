@@ -622,6 +622,68 @@ describe("gethen serve", () => {
   });
 });
 
+describe("task escalation answers", () => {
+  it("answers a parked assignment over the task route and resumes the ticket", async () => {
+    const token = "answer-route-token";
+    const handle = await serve({
+      tokens: [{ workerId: "worker-1", token }],
+      mailboxPollIntervalMs: 10,
+      mailboxVisibilityTimeoutMs: 2_000,
+    });
+    const link = await attachRawWorker(handle, token);
+
+    const runResponse = postJson(handle, "/gethen/run", { text: "fix the failing test" });
+    const assign = await receiveEnvelope(link);
+    const assignData = assign.envelope.data as { assignmentId?: string };
+    const assignmentId = assignData.assignmentId;
+    if (assignmentId === undefined) throw new Error("assign envelope has no assignmentId");
+    await link.ack([assign.envelope.id]);
+    await link.send(
+      workerEnvelope({
+        type: "gethen.task.ask",
+        subject: assignmentId,
+        correlationId: assign.envelope.id,
+        data: {
+          assignmentId,
+          escalationId: "esc-1",
+          kind: "decision",
+          question: "Which branch?",
+          options: [{ id: "main", label: "main" }],
+          defaultOption: "main",
+        },
+        ...(assign.envelope.replyTo === undefined ? {} : { to: assign.envelope.replyTo }),
+      }),
+    );
+    const run = await runResponse;
+    const ticketId = String(run.ticket);
+
+    const answered = await postJson(handle, `/gethen/tasks/${assignmentId}/answer`, {
+      kind: "answer",
+      text: "use main",
+      option: "main",
+    });
+    expect(answered).toMatchObject({
+      action: "answer",
+      escalation: { id: "esc-1", status: "resolved" },
+    });
+
+    const answer = await receiveEnvelope(link);
+    expect(answer.envelope).toMatchObject({
+      type: "gethen.task.answer",
+      data: {
+        assignmentId,
+        escalationId: "esc-1",
+        resolution: { kind: "answer", text: "use main", option: "main" },
+      },
+    });
+    await link.ack([answer.envelope.id]);
+
+    expect(handle.service.store.tickets.get(ticketId)?.attention).toBeUndefined();
+    expect(handle.service.store.assignments.get(assignmentId)?.state).toBe("running");
+    expect((await getJson(handle, "/gethen/tickets")).tickets).toEqual([]);
+  });
+});
+
 describe("ticket lifecycle routes", () => {
   it("defaults overview to needs-action and serves ack/close/archive", async () => {
     const handle = await serve();
@@ -654,6 +716,47 @@ describe("ticket lifecycle routes", () => {
       archived: 1,
       needsAction: 0,
     });
+  });
+
+  it("answers a report-only escalation and maps a second answer to 409", async () => {
+    const handle = await serve();
+    const run = await postJson(handle, "/gethen/run", { text: "fix the failing test" });
+    const ticketId = String(run.ticket);
+    handle.service.engine.report(ticketId, {
+      kind: "waiting",
+      summary: "a person must choose",
+      question: "Which branch?",
+      at: new Date().toISOString(),
+    });
+
+    const answered = await postJson(handle, `/gethen/tickets/${ticketId}/answer`, {
+      text: "use main",
+      option: "main",
+    });
+    expect(answered).toMatchObject({
+      ok: true,
+      action: "answer",
+      delivered: false,
+      escalation: {
+        status: "resolved",
+        resolution: { kind: "answer", text: "use main", option: "main" },
+      },
+      ticket: { id: ticketId, needsAction: false },
+    });
+
+    const again = await fetch(`${baseUrl(handle)}/gethen/tickets/${ticketId}/answer`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: "again" }),
+    });
+    expect(again.status).toBe(409);
+
+    const empty = await fetch(`${baseUrl(handle)}/gethen/tickets/${ticketId}/answer`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: " " }),
+    });
+    expect(empty.status).toBe(400);
   });
 
   it("maps lifecycle conflicts to 409 and unknown tickets to 404", async () => {

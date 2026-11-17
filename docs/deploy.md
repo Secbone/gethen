@@ -113,6 +113,7 @@ HTTP 表面：
 | `GET` | `/gethen/tasks/:id/events?limit=&afterSeq=&type=` | 该 assignment 的事件时间线（worker 事件 + 合成 `gethen.result`，内存环形缓存） |
 | `GET` | `/gethen/sessions?timeoutMs=` | Worker 上的 DSH session 目录（config/state/lastActivity/eventCount 等，用于复用决策） |
 | `GET` | `/gethen/sessions/:id/history?limit=&afterSeq=&timeoutMs=` | 某个 session 的历史事件 |
+| `POST` | `/gethen/tasks/:id/answer` | 回答 parked escalation：`{"kind":"answer"|"escalate"|"drop","option?":"...","text":"..."}`；worker 恢复后的 late result 会更新 Ticket/receipt |
 | `GET`(upgrade) | `/gethen/worker` | `gethen.worker/v1` WS 端点（仅此路径；其它路径 404） |
 
 ### 1.3 TLS / 反向代理
@@ -369,6 +370,7 @@ gethen task logs <assignmentId> --master http://127.0.0.1:8080
 gethen session list --master http://127.0.0.1:8080
 gethen session history <sessionId> --master http://127.0.0.1:8080
 gethen run --reuse-key project-x "在已有会话里继续" --master http://127.0.0.1:8080
+gethen task answer <assignmentId> --option allow --text "允许执行" --master http://127.0.0.1:8080
 gethen worker ls --db /var/lib/gethen/master.sqlite
 gethen doctor --json
 ```
