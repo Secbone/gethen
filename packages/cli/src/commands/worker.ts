@@ -259,7 +259,7 @@ async function runMailboxWorker(config: WorkerConfig): Promise<number> {
       process.stderr.write(
         `worker: assign ${task.assignmentId} workspace=${task.workspace} cwd=${resolveWorkspace(task.workspace)}\n`,
       );
-      let execution;
+      let execution: Awaited<ReturnType<typeof baseHarness.start>>;
       try {
         execution = await baseHarness.start(task, {
           event: (event) => sink.event(event),
