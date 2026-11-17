@@ -164,4 +164,33 @@ describe("gethen worker config", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it("parses dnsOverrides from the config file and a flag", () => {
+    const dir = mkdtempSync(join(tmpdir(), "gethen-worker-"));
+    const path = join(dir, "worker.json");
+    writeFileSync(
+      path,
+      JSON.stringify({
+        masterUrl: "wss://gethen.example.com/gethen/worker",
+        token: "t",
+        workerId: "worker-1",
+        provider: "p",
+        model: "m",
+        dnsOverrides: { "gethen.example.com": "10.0.0.7" },
+      }),
+    );
+    const fromFile = parseWorkerConfig(["--config", path], { cwd: "/tmp" });
+    expect(fromFile.dnsOverrides).toEqual({ "gethen.example.com": "10.0.0.7" });
+    const fromFlag = parseWorkerConfig(
+      ["--config", path, "--dns-overrides", JSON.stringify({ "gethen.example.com": "10.0.0.8" })],
+      { cwd: "/tmp" },
+    );
+    expect(fromFlag.dnsOverrides).toEqual({ "gethen.example.com": "10.0.0.8" });
+    expect(() =>
+      parseWorkerConfig(["--config", path, "--dns-overrides", '{"host":"not-an-ip"}'], {
+        cwd: "/tmp",
+      }),
+    ).toThrow(/IP address/);
+    rmSync(dir, { recursive: true, force: true });
+  });
 });

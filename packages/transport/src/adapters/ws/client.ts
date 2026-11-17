@@ -11,6 +11,8 @@
  * `replyTo`, `contentType`, `at`) is transport-local in this adapter; envelope
  * metadata that must cross the wire belongs inside `payload` (L2's job).
  */
+import { lookup as dnsLookup } from "node:dns";
+import { isIP } from "node:net";
 import { WebSocket } from "ws";
 import {
   type TransportAuth,
@@ -91,10 +93,12 @@ async function connectWs(
   const headers: Record<string, string> = { ...endpoint.headers };
   if (auth.kind === "bearer") headers.Authorization = `Bearer ${auth.token}`;
 
+  const resolve = endpoint.resolve;
   const clientOptions = {
     headers,
     perMessageDeflate: false,
     maxPayload: options.maxPayloadBytes ?? DEFAULT_MAX_PAYLOAD_BYTES,
+    ...(resolve === undefined ? {} : { lookup: createResolveLookup(resolve) }),
   };
   const ws =
     options.protocols === undefined
@@ -116,6 +120,30 @@ async function connectWs(
     closeTimeoutMs: options.closeTimeoutMs,
     pingTimeoutMs: heartbeat === undefined ? undefined : heartbeat.timeoutMs,
   });
+}
+
+/** A `net`-compatible lookup that prefers the configured hostname overrides. */
+function createResolveLookup(
+  resolve: Record<string, string>,
+): (hostname: string, options: unknown, callback: (...args: unknown[]) => void) => void {
+  const table = new Map(
+    Object.entries(resolve).map(([host, address]) => [host.toLowerCase(), address]),
+  );
+  return (hostname, options, callback) => {
+    const address = table.get(hostname.toLowerCase());
+    if (address !== undefined) {
+      const family = isIP(address);
+      if (family === 0) {
+        callback(new Error(`invalid address for ${hostname}: ${address}`));
+        return;
+      }
+      const all = (options as { all?: boolean } | undefined)?.all === true;
+      if (all) callback(null, [{ address, family }]);
+      else callback(null, address, family);
+      return;
+    }
+    dnsLookup(hostname, options as never, callback as never);
+  };
 }
 
 function waitForOpen(ws: WebSocket, timeoutMs: number): Promise<void> {

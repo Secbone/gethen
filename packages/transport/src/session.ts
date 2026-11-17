@@ -65,6 +65,11 @@ export type TransportAuth = { kind: "bearer"; token: string } | { kind: "mtls" }
 export interface TransportEndpoint {
   url: string;
   headers?: Record<string, string>;
+  /**
+   * Optional hostname → IP overrides for private networks / split DNS. The URL
+   * keeps the real hostname, so TLS SNI and certificate checks are unaffected.
+   */
+  resolve?: Record<string, string>;
 }
 
 /** Stable failure codes; callers branch on the code, not the message text. */

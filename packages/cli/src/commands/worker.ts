@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { isIP } from "node:net";
 import { agentMailboxName, createMailboxAgent, type MailboxAgent } from "@gethen/agent";
 import { createSdkHarnessExecutor } from "@gethen/executor-sdk";
 import { createMailboxClientLink, type MailboxClientLink } from "@gethen/mailbox-link";
@@ -17,6 +18,8 @@ export interface WorkerConfig {
   quota?: number;
   dshCommand?: string;
   dshArgs?: string[];
+  /** hostname → IP overrides for private DNS/split-horizon setups. */
+  dnsOverrides?: Record<string, string>;
 }
 
 export interface WorkerConfigOptions {
@@ -35,6 +38,8 @@ interface WorkerConfigFile {
   quota?: number;
   dshCommand?: string;
   dshArgs?: string[];
+  /** hostname → IP overrides for private DNS/split-horizon setups. */
+  dnsOverrides?: Record<string, string>;
 }
 
 /**
@@ -73,6 +78,7 @@ export function parseWorkerConfig(argv: string[], options: WorkerConfigOptions =
   const dshArgs = flagDshArgs.length > 0 ? flagDshArgs : file.dshArgs;
   const quota = positiveInteger(flagValue(argv, "--quota") ?? file.quota, "quota");
   const machine = flagValue(argv, "--machine") ?? file.machine;
+  const dnsOverrides = parseDnsOverrides(flagValue(argv, "--dns-overrides"), file.dnsOverrides);
 
   return {
     masterUrl: normalizeMasterUrl(masterUrl),
@@ -85,7 +91,34 @@ export function parseWorkerConfig(argv: string[], options: WorkerConfigOptions =
     ...(quota === undefined ? {} : { quota }),
     ...(file.dshCommand === undefined ? {} : { dshCommand: file.dshCommand }),
     ...(dshArgs === undefined ? {} : { dshArgs }),
+    ...(dnsOverrides === undefined ? {} : { dnsOverrides }),
   };
+}
+
+/** Parse `{"host":"ip"}` from a flag or the config file; invalid values fail fast. */
+function parseDnsOverrides(
+  flag: string | undefined,
+  file: Record<string, string> | undefined,
+): Record<string, string> | undefined {
+  const raw = flag === undefined ? file : (JSON.parse(flag) as Record<string, string>);
+  if (raw === undefined) return undefined;
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    throw new Error('worker config: dnsOverrides must be a {"host":"ip"} object');
+  }
+  const entries = Object.entries(raw);
+  for (const [host, address] of entries) {
+    if (typeof host !== "string" || host.length === 0) {
+      throw new Error("worker config: dnsOverrides has an empty hostname");
+    }
+    if (typeof address !== "string" || netIsIP(address) === 0) {
+      throw new Error(`worker config: dnsOverrides["${host}"] must be an IP address`);
+    }
+  }
+  return entries.length === 0 ? undefined : Object.fromEntries(entries);
+}
+
+function netIsIP(value: string): number {
+  return isIP(value);
 }
 
 /**
@@ -328,6 +361,7 @@ function configFile(argv: string[]): WorkerConfigFile {
   const workspaces = optionalStringArray(parsed, "workspaces");
   const dshArgs = optionalStringArray(parsed, "dshArgs");
   const quota = optionalNumber(parsed, "quota");
+  const dnsOverrides = parsed.dnsOverrides;
   if (masterUrl !== undefined) file.masterUrl = masterUrl;
   if (token !== undefined) file.token = token;
   if (workerId !== undefined) file.workerId = workerId;
@@ -338,6 +372,7 @@ function configFile(argv: string[]): WorkerConfigFile {
   if (workspaces !== undefined) file.workspaces = workspaces;
   if (dshArgs !== undefined) file.dshArgs = dshArgs;
   if (quota !== undefined) file.quota = quota;
+  if (dnsOverrides !== undefined) file.dnsOverrides = dnsOverrides as Record<string, string>;
   return file;
 }
 

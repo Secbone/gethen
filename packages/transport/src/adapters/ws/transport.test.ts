@@ -251,6 +251,20 @@ async function rawUpgradeStatus(port: number, headers: Record<string, string>): 
 }
 
 describe("ws transport sessions", () => {
+  it("resolves a hostname override while keeping the URL hostname", async () => {
+    const harness = await startServer();
+    const session = await makeTransport().connect(
+      {
+        url: `ws://gethen.internal:${harness.port}/gethen`,
+        resolve: { "gethen.internal": "127.0.0.1" },
+      },
+      BEARER,
+    );
+    liveSessions.push(session);
+    await waitForState(session, "open");
+    expect(harness.sessions).toHaveLength(1);
+  });
+
   it("connects, echoes text messages and preserves order", async () => {
     const received: string[] = [];
     const harness = await startServer({
