@@ -453,10 +453,17 @@ const DEFAULTS = {
   leaseRenewIntervalMs: 10_000,
   retryDelayMs: 1_000,
   maxAttempts: 5,
-  dedupeWindowMs: 5 * 60_000,
+  // Long enough to replay a cached result for master retries instead of re-running.
+  dedupeWindowMs: 24 * 60 * 60_000,
   stopTimeoutMs: 5_000,
   progressHeartbeatMs: 15_000,
 } as const;
+
+/** Result kept for duplicate assign deliveries after the assignment completed. */
+interface CompletedAssignment {
+  expiresAt: number;
+  result?: TaskResultPayload;
+}
 
 interface Outgoing {
   envelope: Envelope;
@@ -521,7 +528,7 @@ class MailboxAgentImpl implements MailboxAgent {
     | undefined;
 
   private readonly executions = new Map<string, ExecutionEntry>();
-  private readonly completed = new Map<string, number>();
+  private readonly completed = new Map<string, CompletedAssignment>();
   private readonly outbox: Outgoing[] = [];
   private timer: NodeJS.Timeout | undefined;
   private unsubscribe: (() => void) | undefined;
@@ -709,8 +716,17 @@ class MailboxAgentImpl implements MailboxAgent {
     }
     const { task } = validation;
 
-    if (this.isDuplicate(task.assignmentId)) {
+    if (this.executions.has(task.assignmentId)) {
       await this.ack(envelope.id);
+      return;
+    }
+    const cached = this.completedResult(task.assignmentId);
+    if (cached !== undefined) {
+      // A master retry of an already-finished assignment must not re-run the
+      // work; replay the cached result instead.
+      if (cached.result !== undefined) this.replayResult(envelope, cached.result);
+      await this.ack(envelope.id);
+      void this.flush();
       return;
     }
     if (this.executions.size >= this.quota) {
@@ -1199,6 +1215,10 @@ class MailboxAgentImpl implements MailboxAgent {
     };
     if (normalized.question !== undefined) payload.question = normalized.question;
     if (normalized.usage !== undefined) payload.usage = normalized.usage;
+    this.completed.set(entry.task.assignmentId, {
+      expiresAt: this.now().getTime() + this.dedupeWindowMs,
+      result: payload,
+    });
     const sessionId = this.sessionIdOf(entry);
     if (sessionId !== undefined) payload.sessionId = sessionId;
     this.queue(entry, MESSAGE_TYPES.result, payload, undefined, async () => {
@@ -1257,7 +1277,12 @@ class MailboxAgentImpl implements MailboxAgent {
     this.stopProgressHeartbeat(entry);
     this.stopLeaseRenewal(entry);
     this.executions.delete(entry.task.assignmentId);
-    this.completed.set(entry.task.assignmentId, this.now().getTime() + this.dedupeWindowMs);
+    const cached = this.completed.get(entry.task.assignmentId);
+    if (cached === undefined) {
+      this.completed.set(entry.task.assignmentId, {
+        expiresAt: this.now().getTime() + this.dedupeWindowMs,
+      });
+    }
     this.resolveEntry(entry);
   }
 
@@ -1281,13 +1306,28 @@ class MailboxAgentImpl implements MailboxAgent {
     return undefined;
   }
 
-  private isDuplicate(assignmentId: string): boolean {
-    if (this.executions.has(assignmentId)) return true;
-    const expiresAt = this.completed.get(assignmentId);
-    if (expiresAt === undefined) return false;
-    if (expiresAt > this.now().getTime()) return true;
+  private completedResult(assignmentId: string): CompletedAssignment | undefined {
+    const cached = this.completed.get(assignmentId);
+    if (cached === undefined) return undefined;
+    if (cached.expiresAt > this.now().getTime()) return cached;
     this.completed.delete(assignmentId);
-    return false;
+    return undefined;
+  }
+
+  /** Re-send the cached result to the master for a retried assignment envelope. */
+  private replayResult(assign: Envelope, result: TaskResultPayload): void {
+    this.outbox.push({
+      envelope: newEnvelope({
+        source: `agent:${this.workerId}`,
+        type: MESSAGE_TYPES.result,
+        to: assign.replyTo ?? this.masterMailbox,
+        subject: String(result.assignmentId),
+        time: this.now().toISOString(),
+        correlationId: assign.id,
+        causationId: assign.id,
+        data: result,
+      }),
+    });
   }
 
   // --------------------------------------------------------------- leases

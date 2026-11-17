@@ -418,7 +418,9 @@ function registerTools(ctx: DshContext, deps: ToolDeps): void {
 
   ctx.tools.register({
     name: "gethen_escalations",
-    description: "List Worker escalations with their question, status and resolution.",
+    description:
+      "List Worker escalations with their question, status and resolution. Answer a waiting " +
+      "one with gethen_ticket action=answer (ticketId, text, optional option/escalationId).",
     parameters: {},
     output: {
       schema: objectSchema({ escalations: { type: "array", items: { type: "object" } } }, [

@@ -519,6 +519,22 @@ describe("escalations", () => {
     expect(ticketStage(ticket, facts())).toBe("person/answer");
   });
 
+  it("ends a waiting Assignment when its late report arrives", () => {
+    const ctx = setup();
+    const { ticket } = accepted(ctx);
+    const assignment = lastAssignment(ctx, ticket);
+    ctx.engine.assignmentStarted(ticket.id, assignment.id);
+    ctx.engine.escalate(ticket.id, escalationInput({ assignment: assignment.id }));
+    expect(assignment.state).toBe("waiting");
+
+    ctx.engine.report(ticket.id, report("ready"));
+
+    const saved = ctx.repos.assignments.get(assignment.id);
+    expect(saved?.state).toBe("ended");
+    expect(saved?.endedAt).toBe("2026-11-16T09:05:00.000Z");
+    expect(ctx.repos.tickets.get(ticket.id)?.latestReport).toBe("ready");
+  });
+
   it("prefers the named Assignment and otherwise waits the latest one", () => {
     const ctx = setup();
     const { ticket } = accepted(ctx);

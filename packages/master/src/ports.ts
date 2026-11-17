@@ -77,6 +77,22 @@ export interface ReceiptSink {
   append(receipt: AssignmentReceipt): void;
 }
 
+/**
+ * Code a `LaunchPort` rejects with when the Worker fell silent. The task was
+ * dispatched, so retrying would start a second Worker on the same Assignment;
+ * a later result for it is applied when it arrives.
+ */
+export const LAUNCH_TIMEOUT_CODE = "MAILBOX_LAUNCH_TIMEOUT";
+
+/** True when a launch rejection only means "stop waiting", not "retry". */
+export function isLaunchTimeout(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    (error as { code?: unknown }).code === LAUNCH_TIMEOUT_CODE
+  );
+}
+
 export interface LaunchRequest {
   assignment: Assignment;
   ticket: Ticket;

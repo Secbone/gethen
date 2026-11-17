@@ -38,6 +38,8 @@
  *    runtime.
  */
 
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { DshSessionStore, type SessionSummary } from "@gethen/dsh-sessions";
 import type {
   HarnessEscalation,
@@ -124,6 +126,11 @@ export interface SdkHarnessExecutorOptions {
   sessionStore?: DshSessionStore;
   /** Cap for `sessions()` entries (newest activity first). Default 100. */
   sessionListLimit?: number;
+  /**
+   * JSON file that persists the `key -> sessionId` registry across executor
+   * restarts. Absent keeps the registry in memory only (tests, short-lived).
+   */
+  sessionKeysFile?: string;
   /** Injectable clock (deadline scheduling, event timestamp fallback, state). */
   now?: () => Date;
 }
@@ -271,7 +278,8 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
   private readonly clients = new Map<string, WorkspaceClient>();
   private readonly creating = new Map<string, Promise<WorkspaceClient>>();
   private readonly sessionRecords = new Map<string, SessionRecord>();
-  private readonly sessionKeys = new Map<string, string>();
+  private readonly sessionKeys: Map<string, string>;
+  private readonly sessionKeysFile: string | undefined;
   private readonly sessionStore: DshSessionStore;
   private readonly sessionListLimit: number;
   private sessionCache: SessionSummary[] = [];
@@ -288,6 +296,8 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
     this.maxLogChars = Math.max(0, options.maxLogChars ?? DEFAULT_MAX_LOG_CHARS);
     this.sessionStore = options.sessionStore ?? new DshSessionStore();
     this.sessionListLimit = Math.max(1, options.sessionListLimit ?? DEFAULT_SESSION_LIST_LIMIT);
+    this.sessionKeysFile = options.sessionKeysFile;
+    this.sessionKeys = loadSessionKeys(options.sessionKeysFile);
   }
 
   async start(task: HarnessTask, sink: HarnessSink): Promise<HarnessExecution> {
@@ -536,6 +546,7 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
     if (plan.key !== undefined) {
       record.key = plan.key;
       this.sessionKeys.set(plan.key, plan.sessionId);
+      persistSessionKeys(this.sessionKeysFile, this.sessionKeys);
     }
     this.sessionRecords.set(plan.sessionId, record);
   }
@@ -1505,6 +1516,41 @@ function toError(error: unknown): Error {
 
 function activityKey(info: HarnessSessionInfo): string {
   return info.lastActivityAt ?? info.lastUsedAt;
+}
+
+/** Load the persisted `key -> sessionId` registry; a missing/corrupt file is empty. */
+function loadSessionKeys(file: string | undefined): Map<string, string> {
+  const keys = new Map<string, string>();
+  if (file === undefined) return keys;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(file, "utf8"));
+  } catch {
+    return keys;
+  }
+  const record = asRecord(parsed);
+  if (record === undefined) return keys;
+  for (const [key, sessionId] of Object.entries(record)) {
+    if (typeof sessionId === "string" && sessionId.length > 0) keys.set(key, sessionId);
+  }
+  return keys;
+}
+
+/**
+ * Persist the registry atomically (temp + rename). A write failure must not
+ * fail the assignment: the in-memory map still serves this process, and the
+ * next successful claim rewrites the file.
+ */
+function persistSessionKeys(file: string | undefined, keys: Map<string, string>): void {
+  if (file === undefined) return;
+  const temp = `${file}.tmp`;
+  try {
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(temp, `${JSON.stringify(Object.fromEntries(keys), null, 2)}\n`, "utf8");
+    renameSync(temp, file);
+  } catch {
+    // Best effort; see the doc comment.
+  }
 }
 
 function requireSessionKey(value: string, label = 'session "key"'): void {

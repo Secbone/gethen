@@ -255,7 +255,10 @@ export class Engine {
       delete ticket.attention;
     }
     this.repos.tickets.save(ticket);
-    this.endRunningAssignments(ticket, report.at);
+    // A `waiting` report parks the work for a person: the Assignment must stay
+    // waiting so the eventual answer can resume it. Every other report settles
+    // live work, including an Assignment parked on an escalation.
+    this.endLiveAssignments(ticket, report.at, report.kind !== "waiting");
   }
 
   /**
@@ -680,10 +683,15 @@ export class Engine {
     });
   }
 
-  private endRunningAssignments(ticket: Ticket, at: string): void {
+  /**
+   * End every Assignment the report can settle: `running`, and (outside a
+   * `waiting` report) `waiting` — a parked escalation's late result.
+   */
+  private endLiveAssignments(ticket: Ticket, at: string, settleWaiting: boolean): void {
     for (const assignmentId of ticket.assignments) {
       const assignment = this.repos.assignments.get(assignmentId);
-      if (assignment?.state !== "running") continue;
+      if (assignment?.state === "waiting" && !settleWaiting) continue;
+      if (assignment?.state !== "running" && assignment?.state !== "waiting") continue;
       assignment.state = "ended";
       assignment.endedAt = at;
       this.repos.assignments.save(assignment);

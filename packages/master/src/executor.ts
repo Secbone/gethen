@@ -17,6 +17,7 @@ import type { Engine, LaunchEffectPayload } from "./engine";
 import type { Assignment, Ticket } from "./model";
 import type { OutboxHandler } from "./outbox";
 import type { Clock, LaunchPort, LaunchRequest, LaunchResult, ReceiptSink } from "./ports";
+import { isLaunchTimeout } from "./ports";
 import { buildAssignmentPrompt } from "./prompts";
 
 /** Dependencies of the launch handler. */
@@ -76,11 +77,25 @@ export function createLaunchHandler(deps: LaunchHandlerDeps): LaunchHandler {
     try {
       result = await deps.launch.launch(request);
     } catch (error) {
-      deps.engine.report(ticket.id, {
-        kind: "failed",
-        summary: String(error),
-        at: clock.now().toISOString(),
-      });
+      const at = clock.now().toISOString();
+      deps.engine.report(ticket.id, { kind: "failed", summary: String(error), at });
+      // A silence timeout still leaves the dispatched task running. Retrying the
+      // effect would launch a second Worker on the same Assignment, so settle it
+      // here; a later result for it supersedes the provisional failure.
+      if (isLaunchTimeout(error)) {
+        deps.receipts.append({
+          assignment: assignment.id,
+          ticket: ticket.id,
+          worker: assignment.worker,
+          workspace: assignment.workspace,
+          packDigest,
+          at,
+          outcome: "failed",
+          summary: String(error),
+          events: 0,
+        });
+        return;
+      }
       throw error;
     }
 

@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { zstdCompressSync } from "node:zlib";
@@ -1017,6 +1017,30 @@ describe("session selection", () => {
     });
   });
 
+  it("persists a new-mode key so a restarted executor can reuse it", async () => {
+    const file = join(mkdtempSync(join(tmpdir(), "gethen-exec-keys-")), "state", "keys.json");
+    const first = setup({ sessionKeysFile: file });
+    await first.executor.start(
+      task({ assignmentId: "a1", session: { mode: "new", key: "build" } }),
+      first.sink,
+    );
+    expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ build: "a1" });
+    first.client.emitSessionEvent("a1", "turn/end", { turn: 1 });
+    await tick();
+    await first.executor.close();
+
+    // A fresh process keeps no in-memory state; the registry comes from disk.
+    const second = setup({ sessionKeysFile: file });
+    await second.executor.start(
+      task({ assignmentId: "a2", session: { mode: "reuse", key: "build" } }),
+      second.sink,
+    );
+    expect(second.sink.reports.filter((report) => report.kind === "failed")).toEqual([]);
+    expect(second.client.resumeCalls).toEqual(["a1"]);
+    expect(second.client.prompts.at(-1)).toEqual({ sessionId: "a1", text: "do the work" });
+    expect(second.executor.sessions()[0]).toMatchObject({ sessionId: "a1", key: "build" });
+  });
+
   it("fails a reuse-by-key request when the key was never created", async () => {
     const { sink, executor } = setup();
     await executor.start(
@@ -1025,6 +1049,26 @@ describe("session selection", () => {
     );
     expect(sink.reports[0]).toMatchObject({ kind: "failed" });
     expect(sink.reports[0]?.summary).toMatch(/unknown/i);
+  });
+
+  it("persists the key -> sessionId registry across executor restarts", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "gethen-exec-keys-"));
+    const sessionKeysFile = join(dir, "keys.json");
+    const first = setup({ sessionKeysFile });
+    await first.executor.start(
+      task({ assignmentId: "a1", session: { mode: "new", key: "build" } }),
+      first.sink,
+    );
+    first.client.emitSessionEvent("a1", "turn/end", { turn: 1 });
+    await tick();
+
+    const second = setup({ sessionKeysFile });
+    await second.executor.start(
+      task({ assignmentId: "a2", session: { mode: "reuse", key: "build" } }),
+      second.sink,
+    );
+    expect(second.client.resumeCalls).toEqual(["a1"]);
+    expect(second.client.prompts.at(-1)?.sessionId).toBe("a1");
   });
 
   it("registers a key chosen by an explicit new-mode task", async () => {

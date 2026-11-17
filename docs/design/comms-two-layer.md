@@ -306,6 +306,12 @@ GETHEN_E2E=1 node scripts/e2e-sdk.mjs   # legacy + 真实 dsh
 
 不再使用"总时长超时"判失败。
 
+### 静默超时后的结算
+
+- 超时只表示"本轮不再等待"：bridge 保留 pending，迟到的 `gethen.task.result` 仍经 `onLateResult` 结算；
+- executor 不对超时 effect 重试（任务已派发，重试会再起一个 Worker）：写 `failed` report + 临时 receipt，Assignment 结束；
+- 迟到 result 更新 `ticket.latestReport` 并追加最终 receipt；重复 result 因 pending 已结算而被丢弃，report 只结算一次。
+
 ### 任务状态消息
 
 ```ts
@@ -328,7 +334,7 @@ interface TaskState { assignmentId; phase; step; lastTool?: {name,startedAt};
 - Assignment 携带 `SessionSpec {mode:"new"|"reuse", sessionId?, key?}`，由 Master 入口（gethen_run / POST /gethen/run）传入；
 - Worker executor 通过 `DshSessionStore` 读取 DSH 本地 session 目录：配置（cwd/model/sandbox/title）、状态（running/idle）、最近活动、事件数、token usage、是否有日志；
 - `session.list` / `session.history`（mailbox request/reply）把目录与历史暴露给 Master；
-- 复用语义：`reuse + sessionId` 直接 `resume`；`reuse + key` 由 worker 维护 key→sessionId 映射；`resume` 失败即 failed，不静默新建；并发同 session/key 时第二条被拒绝；
+- 复用语义：`reuse + sessionId` 直接 `resume`；`reuse + key` 由 worker 维护 key→sessionId 映射（`--state-dir` 下的 `<workerId>.sessions.json`，重启后可复用）；`resume` 失败即 failed，不静默新建；并发同 session/key 时第二条被拒绝；
 - session 目录是决策依据：Master 先 list/history，再选择 new 或 reuse，而不是每个任务都新建 session。
 
 ### 升级回答闭环

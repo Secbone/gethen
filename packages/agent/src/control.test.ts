@@ -404,6 +404,29 @@ describe("concurrent assignments", () => {
   });
 });
 
+describe("duplicate assignment replay", () => {
+  it("replays the cached result instead of re-running the assignment", async () => {
+    const { agent, mailbox, harness } = setup();
+    mailbox.enqueue(MAILBOX, assignEnvelope("env-assign-1", "a1"));
+    await agent.runOnce();
+    harness.report(0, { kind: "ready", summary: "done" });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(mailbox.sentByType(MESSAGE_TYPES.result)).toHaveLength(1);
+    expect(harness.tasks).toHaveLength(1);
+
+    mailbox.enqueue(MAILBOX, assignEnvelope("env-assign-2", "a1"));
+    await agent.runOnce();
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(harness.tasks).toHaveLength(1);
+    expect(mailbox.sentByType(MESSAGE_TYPES.result)).toHaveLength(2);
+    expect(mailbox.sentByType(MESSAGE_TYPES.result).at(-1)?.data).toMatchObject({
+      assignmentId: "a1",
+      kind: "ready",
+      summary: "done",
+    });
+  });
+});
+
 describe("progress heartbeat", () => {
   it("sends periodic progress while an execution is running and stops after it settles", async () => {
     const { agent, mailbox, harness } = setup(

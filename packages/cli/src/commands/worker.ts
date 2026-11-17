@@ -1,5 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { isIP } from "node:net";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { agentMailboxName, createMailboxAgent, type MailboxAgent } from "@gethen/agent";
 import { createSdkHarnessExecutor } from "@gethen/executor-sdk";
 import { createMailboxClientLink, type MailboxClientLink } from "@gethen/mailbox-link";
@@ -26,6 +28,8 @@ export interface WorkerConfig {
   requestTimeoutMs?: number;
   /** Process model: shared workspace runtime (default) or one runtime per assignment. */
   isolation?: "shared" | "process";
+  /** Directory for durable worker state (session key registry). */
+  stateDir?: string;
 }
 
 export interface WorkerConfigOptions {
@@ -52,6 +56,8 @@ interface WorkerConfigFile {
   requestTimeoutMs?: number;
   /** Process model: shared workspace runtime (default) or one runtime per assignment. */
   isolation?: "shared" | "process";
+  /** Directory for durable worker state (session key registry). */
+  stateDir?: string;
 }
 
 /**
@@ -97,6 +103,7 @@ export function parseWorkerConfig(argv: string[], options: WorkerConfigOptions =
     "requestTimeoutMs",
   );
   const isolation = parseIsolation(flagValue(argv, "--isolation") ?? file.isolation);
+  const stateDir = flagValue(argv, "--state-dir") ?? file.stateDir;
 
   return {
     masterUrl: normalizeMasterUrl(masterUrl),
@@ -113,6 +120,7 @@ export function parseWorkerConfig(argv: string[], options: WorkerConfigOptions =
     ...(workspaceMap === undefined ? {} : { workspaceMap }),
     ...(requestTimeoutMs === undefined ? {} : { requestTimeoutMs }),
     ...(isolation === undefined ? {} : { isolation }),
+    ...(stateDir === undefined ? {} : { stateDir }),
   };
 }
 
@@ -274,6 +282,12 @@ async function runMailboxWorker(config: WorkerConfig): Promise<number> {
     requestTimeoutMs: config.requestTimeoutMs ?? 600_000,
     ...(config.isolation === undefined ? {} : { isolation: config.isolation }),
     cwdFor: resolveWorkspace,
+    // Durable key -> sessionId registry: a restarted worker must still answer
+    // session.mode "reuse" by key (it used to forget every key).
+    sessionKeysFile: join(
+      config.stateDir ?? join(homedir(), ".gethen", "worker"),
+      `${workerId}.sessions.json`,
+    ),
     ...(config.dshCommand === undefined ? {} : { dshCommand: config.dshCommand }),
     ...(config.dshArgs === undefined ? {} : { dshArgs: config.dshArgs }),
   });
@@ -311,6 +325,7 @@ async function runMailboxWorker(config: WorkerConfig): Promise<number> {
     ) => baseHarness.sessionHistory(sessionId, options),
     close: () => baseHarness.close(),
   };
+  let lastReceiveErrorAt = 0;
   const agent: MailboxAgent = createMailboxAgent({
     workerId,
     mailbox: link,
@@ -318,8 +333,17 @@ async function runMailboxWorker(config: WorkerConfig): Promise<number> {
     quota: config.quota ?? 1,
     mailboxName: mailbox,
     masterMailbox: MASTER_MAILBOX,
-    onError: (error, context) =>
-      process.stderr.write(`gethen worker: mailbox ${context.phase} error: ${messageOf(error)}\n`),
+    onError: (error, context) => {
+      const text = messageOf(error);
+      // A flapping transport emits the same "disconnected" error hundreds of
+      // times while reconnecting; keep the log readable.
+      if (context.phase === "receive" && text.includes("disconnected")) {
+        const now = Date.now();
+        if (now - lastReceiveErrorAt < 10_000) return;
+        lastReceiveErrorAt = now;
+      }
+      process.stderr.write(`gethen worker: mailbox ${context.phase} error: ${text}\n`);
+    },
   });
   agent.start();
   process.stdout.write(
@@ -410,7 +434,7 @@ const WORKER_USAGE = `Usage:
   gethen worker --config <file>
   gethen worker --master-url <url> --token <token> --worker-id <id> \\
                 --provider <provider> --model <model> [--workspace <dir>]...
-                [--dsh-args <arg>]...
+                [--dsh-args <arg>]... [--state-dir <dir>]
 
 Without a subcommand the worker daemon starts: it dials the master's ws
 transport, attaches to mailbox:<worker-id> and executes dispatched assignments
@@ -422,6 +446,8 @@ $GETHEN_STATE_DIR/master.sqlite or ~/.gethen/master.sqlite).
 comma-separated, e.g.
   --dsh-args "--patch,/tmp/overlay.yml"   or
   --dsh-args --patch --dsh-args /tmp/overlay.yml
+--state-dir keeps durable worker state (session key registry) there; default
+~/.gethen/worker, one file per worker id.
 A daemon config file is JSON:
   { "masterUrl": "wss://master/gethen/worker", "token": "...", "workerId": "...",
     "provider": "...", "model": "...", "workspaces": ["/srv/project"],

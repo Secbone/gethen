@@ -576,15 +576,29 @@ describe("createMailboxLaunchPort", () => {
 
   it("fails with MAILBOX_LAUNCH_TIMEOUT when no result arrives", async () => {
     const client = new FakeMailbox();
-    const bridge = makeBridge(client, { timeoutMs: 10 });
+    const late: LateLaunchResult[] = [];
+    const bridge = makeBridge(client, {
+      timeoutMs: 10,
+      onLateResult: (result) => late.push(result),
+    });
     const failure = await bridge.launchPort.launch(launchRequest()).then(
       () => undefined,
       (error: unknown) => error,
     );
     expect(failure).toBeInstanceOf(MailboxLaunchError);
     expect((failure as MailboxLaunchError).code).toBe("MAILBOX_LAUNCH_TIMEOUT");
-    // A late result for the timed-out assignment is ignored rather than throwing.
+
+    // The dispatched task may still finish: its late result settles the
+    // assignment through onLateResult exactly once.
     expect(() => bridge.handleEnvelope(resultEnvelope("assignment-1"))).not.toThrow();
+    expect(late).toHaveLength(1);
+    expect(late[0]?.report).toMatchObject({ kind: "ready", summary: "done" });
+    expect(late[0]?.receipt).toMatchObject({ assignment: "assignment-1", outcome: "completed" });
+    expect(late[0]?.request.ticket.id).toBe("ticket-1");
+
+    bridge.handleEnvelope(resultEnvelope("assignment-1"));
+    expect(late).toHaveLength(1);
+    expect(bridge.taskState("assignment-1")?.phase).toBe("done");
   });
 
   it("fails with MAILBOX_DISPATCH_FAILED when the mailbox send throws", async () => {

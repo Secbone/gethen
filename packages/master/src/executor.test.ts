@@ -174,6 +174,36 @@ describe("createLaunchHandler", () => {
     });
   });
 
+  it("settles a silence timeout without retrying and files a provisional receipt", async () => {
+    const { repos, engine, ticket, assignment, payload } = harness();
+    const receipts = new MemoryReceipts();
+    const timeout = Object.assign(
+      new Error("MAILBOX_LAUNCH_TIMEOUT: assignment-1 produced no activity within 100ms"),
+      { code: "MAILBOX_LAUNCH_TIMEOUT" },
+    );
+
+    await expect(
+      createLaunchHandler({
+        engine,
+        launch: failingLaunch(timeout),
+        receipts,
+        clock: { now: () => new Date(NOW) },
+      })(payload),
+    ).resolves.toBeUndefined();
+
+    expect(repos.assignments.get(assignment.id)?.state).toBe("ended");
+    expect(repos.tickets.get(ticket.id)?.latestReport).toBe("failed");
+    expect(receipts.rows).toEqual([
+      expect.objectContaining({
+        assignment: "assignment-1",
+        ticket: "ticket-1",
+        outcome: "failed",
+        events: 0,
+        at: NOW,
+      }),
+    ]);
+  });
+
   it("uses a caller-supplied objective in the envelope", async () => {
     const { engine, assignment, payload } = harness();
     const { launch, requests } = readyLaunch(

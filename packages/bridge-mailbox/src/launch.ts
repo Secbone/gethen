@@ -50,6 +50,7 @@ import type {
   Report,
   ReportKind,
 } from "@gethen/master";
+import { LAUNCH_TIMEOUT_CODE } from "@gethen/master";
 
 /** Application message types carried by the mailbox (mirrors `@gethen/agent`). */
 export const MESSAGE_TYPES = {
@@ -459,14 +460,19 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
    * window: progress/ask traffic keeps a long task alive, while a genuinely
    * stuck worker still fails. A fixed total-duration timeout used to kill
    * legitimate 10-minute tasks.
+   *
+   * A timeout rejects the launch but keeps the pending entry: the task was
+   * dispatched and may still report, so its late result is delivered through
+   * `onLateResult` instead of being dropped.
    */
   function armLaunchTimer(pending: PendingLaunch): void {
     if (pending.timer !== undefined) clearTimeout(pending.timer);
     pending.timer = setTimeout(() => {
-      rejectWith(
-        pending,
+      pending.timer = undefined;
+      pending.launchSettled = true;
+      pending.reject(
         new MailboxLaunchError(
-          "MAILBOX_LAUNCH_TIMEOUT",
+          LAUNCH_TIMEOUT_CODE,
           `assignment ${pending.request.assignment.id} produced no activity within ${timeoutMs}ms`,
         ),
       );
@@ -742,7 +748,9 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
   }
 
   function handleAsk(pending: PendingLaunch, envelope: Envelope): void {
-    armLaunchTimer(pending);
+    // A launch that already timed out keeps its entry only to receive the late
+    // result/ask; do not restart the silence timer for it.
+    if (!pending.launchSettled) armLaunchTimer(pending);
     const data = asRecord(envelope.data);
     if (data === undefined) return;
     const escalationId = stringValue(data.escalationId);
