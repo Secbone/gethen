@@ -20,6 +20,8 @@ export interface WorkerConfig {
   dshArgs?: string[];
   /** hostname → IP overrides for private DNS/split-horizon setups. */
   dnsOverrides?: Record<string, string>;
+  /** Master-side workspace path → local path (cross-machine workers). */
+  workspaceMap?: Record<string, string>;
 }
 
 export interface WorkerConfigOptions {
@@ -40,6 +42,8 @@ interface WorkerConfigFile {
   dshArgs?: string[];
   /** hostname → IP overrides for private DNS/split-horizon setups. */
   dnsOverrides?: Record<string, string>;
+  /** Master-side workspace path → local path (cross-machine workers). */
+  workspaceMap?: Record<string, string>;
 }
 
 /**
@@ -79,6 +83,7 @@ export function parseWorkerConfig(argv: string[], options: WorkerConfigOptions =
   const quota = positiveInteger(flagValue(argv, "--quota") ?? file.quota, "quota");
   const machine = flagValue(argv, "--machine") ?? file.machine;
   const dnsOverrides = parseDnsOverrides(flagValue(argv, "--dns-overrides"), file.dnsOverrides);
+  const workspaceMap = parseWorkspaceMap(flagValue(argv, "--workspace-map"), file.workspaceMap);
 
   return {
     masterUrl: normalizeMasterUrl(masterUrl),
@@ -92,6 +97,7 @@ export function parseWorkerConfig(argv: string[], options: WorkerConfigOptions =
     ...(file.dshCommand === undefined ? {} : { dshCommand: file.dshCommand }),
     ...(dshArgs === undefined ? {} : { dshArgs }),
     ...(dnsOverrides === undefined ? {} : { dnsOverrides }),
+    ...(workspaceMap === undefined ? {} : { workspaceMap }),
   };
 }
 
@@ -112,6 +118,30 @@ function parseDnsOverrides(
     }
     if (typeof address !== "string" || netIsIP(address) === 0) {
       throw new Error(`worker config: dnsOverrides["${host}"] must be an IP address`);
+    }
+  }
+  return entries.length === 0 ? undefined : Object.fromEntries(entries);
+}
+
+/** Parse `{"masterPath":"localPath"}` from a flag or the config file. */
+function parseWorkspaceMap(
+  flag: string | undefined,
+  file: Record<string, string> | undefined,
+): Record<string, string> | undefined {
+  const raw = flag === undefined ? file : (JSON.parse(flag) as Record<string, string>);
+  if (raw === undefined) return undefined;
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    throw new Error('worker config: workspaceMap must be a {"masterPath":"localPath"} object');
+  }
+  const entries = Object.entries(raw);
+  for (const [from, to] of entries) {
+    if (
+      typeof from !== "string" ||
+      from.length === 0 ||
+      typeof to !== "string" ||
+      to.length === 0
+    ) {
+      throw new Error("worker config: workspaceMap keys and values must be non-empty strings");
     }
   }
   return entries.length === 0 ? undefined : Object.fromEntries(entries);
@@ -183,8 +213,12 @@ async function runMailboxWorker(config: WorkerConfig): Promise<number> {
   const workerId = config.workerId;
   const mailbox = agentMailboxName(workerId);
   const transport = createWsTransport({ heartbeat: true });
+  const endpoint = {
+    url: config.masterUrl,
+    ...(config.dnsOverrides === undefined ? {} : { resolve: config.dnsOverrides }),
+  };
   const connect = (): Promise<TransportSession> =>
-    transport.connect({ url: config.masterUrl }, { kind: "bearer", token: config.token });
+    transport.connect(endpoint, { kind: "bearer", token: config.token });
 
   let session: TransportSession;
   try {
@@ -200,7 +234,7 @@ async function runMailboxWorker(config: WorkerConfig): Promise<number> {
   const harness = createSdkHarnessExecutor({
     provider: config.provider,
     model: config.model,
-    cwdFor: (workspace) => workspace,
+    cwdFor: (workspace) => config.workspaceMap?.[workspace] ?? workspace,
     ...(config.dshCommand === undefined ? {} : { dshCommand: config.dshCommand }),
     ...(config.dshArgs === undefined ? {} : { dshArgs: config.dshArgs }),
   });
@@ -362,6 +396,7 @@ function configFile(argv: string[]): WorkerConfigFile {
   const dshArgs = optionalStringArray(parsed, "dshArgs");
   const quota = optionalNumber(parsed, "quota");
   const dnsOverrides = parsed.dnsOverrides;
+  const workspaceMap = parsed.workspaceMap;
   if (masterUrl !== undefined) file.masterUrl = masterUrl;
   if (token !== undefined) file.token = token;
   if (workerId !== undefined) file.workerId = workerId;
@@ -373,6 +408,7 @@ function configFile(argv: string[]): WorkerConfigFile {
   if (dshArgs !== undefined) file.dshArgs = dshArgs;
   if (quota !== undefined) file.quota = quota;
   if (dnsOverrides !== undefined) file.dnsOverrides = dnsOverrides as Record<string, string>;
+  if (workspaceMap !== undefined) file.workspaceMap = workspaceMap as Record<string, string>;
   return file;
 }
 

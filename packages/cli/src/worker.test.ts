@@ -193,4 +193,26 @@ describe("gethen worker config", () => {
     ).toThrow(/IP address/);
     rmSync(dir, { recursive: true, force: true });
   });
+
+  it("maps master-side workspaces to local paths", () => {
+    const dir = mkdtempSync(join(tmpdir(), "gethen-worker-"));
+    const path = join(dir, "worker.json");
+    writeFileSync(
+      path,
+      JSON.stringify({
+        masterUrl: "wss://gethen.example.com/gethen/worker",
+        token: "t",
+        workerId: "worker-1",
+        provider: "p",
+        model: "m",
+        workspaceMap: { "/srv/projects": "/home/me/projects" },
+      }),
+    );
+    const config = parseWorkerConfig(["--config", path], { cwd: "/tmp" });
+    expect(config.workspaceMap).toEqual({ "/srv/projects": "/home/me/projects" });
+    expect(() =>
+      parseWorkerConfig(["--config", path, "--workspace-map", '{"a":""}'], { cwd: "/tmp" }),
+    ).toThrow(/workspaceMap/);
+    rmSync(dir, { recursive: true, force: true });
+  });
 });

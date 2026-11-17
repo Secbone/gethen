@@ -238,6 +238,8 @@ agent 用 `gethen_run` 工具派活，`/gethen/worker` 由 DSH 的 webServer 托
 |---|---|---|
 | `masterUrl` | ✅ | Worker WS 地址；也接受 `https://host:port`（自动变 `wss` 并补 `/gethen/worker`） |
 | `token` | ✅ | 与 Master tokens 文件中该 `workerId` 的 token 一致 |
+| `dnsOverrides` | 可选 | `{"master.example.com":"203.0.113.10"}`，DNS 分流/伪造时保留真实域名与 TLS SNI |
+| `workspaceMap` | 可选 | `{"/srv/projects":"/home/me/project"}`，Master 下发路径映射到本机路径 |
 | `workerId` | ✅ | 必须与 token 绑定的 id 一致（hello 校验） |
 | `provider` / `model` | ✅ | 传给 `dsh --profile sdk` 的 initialize 参数 |
 | `workspaces` | 建议 | Worker 本机允许的工作区绝对路径；缺省为启动目录 |

@@ -131,7 +131,11 @@ curl -s http://127.0.0.1:8080/health    # 期望 workers:0, launch:"ws"
   "model": "deepseek-v4.1-flash",
   "workspaces": ["/srv/projects"],
   "quota": 1,
-  "dshArgs": ["--profile", "sdk", "--patch", "/etc/gethen/sdk-profile.patch.yml"]
+  "dshArgs": ["--profile", "sdk", "--patch", "/etc/gethen/sdk-profile.patch.yml"],
+  // 可选：本机 DNS 不可用/分流时，直接覆盖主机解析（TLS SNI 仍是原域名）
+  "dnsOverrides": { "gethen.example.com": "203.0.113.10" },
+  // 可选：Master 侧路径 → 本机路径（跨机 worker）
+  "workspaceMap": { "/srv/projects": "/home/me/Code/project" }
 }
 ```
 
