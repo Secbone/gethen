@@ -14,7 +14,7 @@ import type {
   UserQuestionRequest,
   UserQuestionResult,
 } from "@gethen/sdk-driver";
-import type { SdkClientLike } from "./executor";
+import type { SdkClientLike } from "./harness-adapter";
 
 interface Deferred<T> {
   promise: Promise<T>;

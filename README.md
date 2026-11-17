@@ -19,7 +19,7 @@ gethen worker add --db /var/lib/gethen/master.sqlite --worker-id build-1 \
 gethen worker --config /etc/gethen/worker.json
 
 # 本地确定性验证（不花模型钱）
-pnpm verify:ws
+pnpm verify:mailbox
 GETHEN_E2E=1 node scripts/e2e-sdk.mjs               # 真实 dsh SDK + 模型
 ```
 

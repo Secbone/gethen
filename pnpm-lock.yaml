@@ -68,24 +68,6 @@ importers:
         specifier: workspace:*
         version: link:../master
 
-  packages/bridge-remote:
-    dependencies:
-      '@gethen/worker-bridge':
-        specifier: workspace:*
-        version: link:../worker-bridge
-
-  packages/bridge-ws:
-    dependencies:
-      '@gethen/master':
-        specifier: workspace:*
-        version: link:../master
-      '@gethen/transport-ws':
-        specifier: workspace:*
-        version: link:../transport-ws
-      '@gethen/worker-protocol':
-        specifier: workspace:*
-        version: link:../worker-protocol
-
   packages/cli:
     dependencies:
       '@gethen/agent':
@@ -106,15 +88,6 @@ importers:
       '@gethen/transport':
         specifier: workspace:*
         version: link:../transport
-      '@gethen/transport-ws':
-        specifier: workspace:*
-        version: link:../transport-ws
-      '@gethen/worker-agent':
-        specifier: workspace:*
-        version: link:../worker-agent
-      '@gethen/worker-protocol':
-        specifier: workspace:*
-        version: link:../worker-protocol
 
   packages/core: {}
 
@@ -122,9 +95,6 @@ importers:
 
   packages/dsh:
     dependencies:
-      '@gethen/bridge-remote':
-        specifier: workspace:*
-        version: link:../bridge-remote
       '@gethen/master':
         specifier: workspace:*
         version: link:../master
@@ -195,15 +165,8 @@ importers:
       '@gethen/sdk-driver':
         specifier: workspace:*
         version: link:../sdk-driver
-      '@gethen/worker-agent':
-        specifier: workspace:*
-        version: link:../worker-agent
 
-  packages/fleet:
-    dependencies:
-      '@gethen/worker-protocol':
-        specifier: workspace:*
-        version: link:../worker-protocol
+  packages/fleet: {}
 
   packages/harness: {}
 
@@ -231,9 +194,6 @@ importers:
       '@gethen/bridge-mailbox':
         specifier: workspace:*
         version: link:../bridge-mailbox
-      '@gethen/bridge-ws':
-        specifier: workspace:*
-        version: link:../bridge-ws
       '@gethen/fleet':
         specifier: workspace:*
         version: link:../fleet
@@ -252,12 +212,6 @@ importers:
       '@gethen/transport':
         specifier: workspace:*
         version: link:../transport
-      '@gethen/transport-ws':
-        specifier: workspace:*
-        version: link:../transport-ws
-      '@gethen/worker-protocol':
-        specifier: workspace:*
-        version: link:../worker-protocol
 
   packages/pack:
     dependencies:
@@ -300,41 +254,13 @@ importers:
         specifier: ^8.18.2
         version: 8.18.2
 
-  packages/transport-ws:
-    dependencies:
-      '@gethen/worker-protocol':
-        specifier: workspace:*
-        version: link:../worker-protocol
-      ws:
-        specifier: ^8.23.0
-        version: 8.23.0
-    devDependencies:
-      '@types/ws':
-        specifier: ^8.18.2
-        version: 8.18.2
-
   packages/worker:
     dependencies:
       '@gethen/worker-bridge':
         specifier: workspace:*
         version: link:../worker-bridge
 
-  packages/worker-agent:
-    dependencies:
-      '@gethen/worker-protocol':
-        specifier: workspace:*
-        version: link:../worker-protocol
-      ws:
-        specifier: ^8.23.0
-        version: 8.23.0
-    devDependencies:
-      '@types/ws':
-        specifier: ^8.18.2
-        version: 8.18.2
-
   packages/worker-bridge: {}
-
-  packages/worker-protocol: {}
 
   packages/workspace:
     dependencies:

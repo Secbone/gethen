@@ -15,7 +15,7 @@ import { createWsTransport, type TransportSession } from "@gethen/transport";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createMasterRuntime, type MasterRuntime, type MasterRuntimeOptions } from "./runtime";
 
-const NOW = new Date("2026-11-17T06:00:00.000Z");
+const NOW = new Date("2026-11-17T08:00:00.000Z");
 const AT = NOW.toISOString();
 const WORKER = "worker-1";
 const TOKEN = "secret-1";
@@ -110,14 +110,11 @@ async function startHarness(options: HarnessOptions = {}): Promise<Harness> {
     tokens: options.tokens ?? [{ workerId: WORKER, token: TOKEN }],
     workspace: "/ws",
     now: () => NOW,
-    comms: {
-      mode: "mailbox",
-      ...(options.workerId === undefined ? {} : { workerId: options.workerId }),
-      mailboxDbPath: join(dir, `mailbox-${sequence}.sqlite`),
-      pollIntervalMs: 5,
-      visibilityTimeoutMs: 1_000,
-      ...(options.masterMailbox === undefined ? {} : { masterMailbox: options.masterMailbox }),
-    },
+    mailboxDbPath: join(dir, `mailbox-${sequence}.sqlite`),
+    pollIntervalMs: 5,
+    visibilityTimeoutMs: 1_000,
+    ...(options.workerId === undefined ? {} : { workerId: options.workerId }),
+    ...(options.masterMailbox === undefined ? {} : { masterMailbox: options.masterMailbox }),
     ...(options.verifyToken === undefined ? {} : { verifyToken: options.verifyToken }),
     ...(options.resolveEscalation === undefined
       ? {}
@@ -240,38 +237,15 @@ async function waitFor(predicate: () => boolean, timeoutMs = 2_000): Promise<voi
   }
 }
 
-describe("master-runtime comms", () => {
-  it("keeps the legacy stack by default", () => {
-    const runtime = createMasterRuntime({
-      dbPath: join(dir, "legacy.sqlite"),
-      now: () => NOW,
-    });
-    harnesses.push({ runtime });
-    expect(runtime.comms).toBe("legacy");
-    expect(runtime.mailboxBridge).toBeUndefined();
-    expect(runtime.health()).toEqual({
-      launch: "fake",
-      comms: "legacy",
-      workers: 0,
-      tickets: 0,
-      open: 0,
-      receipts: 0,
-      escalations: 0,
-    });
-  });
-
-  it("assembles the L1 transport + L2 mailbox stack in mailbox mode", async () => {
+describe("createMasterRuntime mailbox stack", () => {
+  it("assembles the L1 transport + L2 mailbox stack", async () => {
     const harness = await startHarness({ withServer: false });
     const runtime = harness.runtime;
-    expect(runtime.comms).toBe("mailbox");
-    expect(runtime.gateway).toBeUndefined();
-    expect(runtime.mailboxBridge).toBeDefined();
-    expect(runtime.bridge).toBe(runtime.mailboxBridge);
     expect(runtime.launch).toBe("ws");
+    expect(runtime.bridge).toBeDefined();
     expect(runtime.handleUpgrade).toBeTypeOf("function");
     expect(runtime.health()).toEqual({
       launch: "ws",
-      comms: "mailbox",
       workers: 0,
       tickets: 0,
       open: 0,
@@ -279,8 +253,8 @@ describe("master-runtime comms", () => {
       escalations: 0,
       mailbox: { pending: 0, leased: 0, dead: 0 },
     });
-    expect(runtime.mailboxBridge?.workerMailbox).toBe(WORKER_MAILBOX);
-    expect(runtime.mailboxBridge?.masterMailbox).toBe(MASTER_MAILBOX);
+    expect(runtime.bridge?.workerMailbox).toBe(WORKER_MAILBOX);
+    expect(runtime.bridge?.masterMailbox).toBe(MASTER_MAILBOX);
   });
 
   it("runs a launch through the real loopback ws transport and mailbox link", async () => {
@@ -288,7 +262,7 @@ describe("master-runtime comms", () => {
     const runtime = harness.runtime;
     const { link } = await attachWorker(harness);
 
-    const resultPromise = runtime.mailboxBridge?.launchPort.launch(launchRequest());
+    const resultPromise = runtime.bridge?.launchPort.launch(launchRequest());
     if (resultPromise === undefined) throw new Error("expected a mailbox bridge");
 
     const assign = await receiveOne(link);
@@ -314,13 +288,8 @@ describe("master-runtime comms", () => {
       outcome: "completed",
       events: 0,
     });
-    await waitFor(() => runtime.health().mailbox?.pending === 0);
-    expect(runtime.health()).toMatchObject({
-      comms: "mailbox",
-      workers: 1,
-      tickets: 0,
-      receipts: 0,
-    });
+    await waitFor(() => runtime.health().mailbox.pending === 0);
+    expect(runtime.health()).toMatchObject({ launch: "ws", workers: 1 });
   });
 
   it("closes the ask loop over the link: assign, ask, answer, result", async () => {
@@ -333,7 +302,7 @@ describe("master-runtime comms", () => {
     const runtime = harness.runtime;
     const { link } = await attachWorker(harness);
 
-    const resultPromise = runtime.mailboxBridge?.launchPort.launch(launchRequest());
+    const resultPromise = runtime.bridge?.launchPort.launch(launchRequest());
     if (resultPromise === undefined) throw new Error("expected a mailbox bridge");
 
     const assign = await receiveOne(link);
@@ -375,7 +344,7 @@ describe("master-runtime comms", () => {
     const runtime = harness.runtime;
     const { link } = await attachWorker(harness);
 
-    const resultPromise = runtime.mailboxBridge?.launchPort.launch(launchRequest());
+    const resultPromise = runtime.bridge?.launchPort.launch(launchRequest());
     if (resultPromise === undefined) throw new Error("expected a mailbox bridge");
 
     const assign = await receiveOne(link);
@@ -402,9 +371,11 @@ describe("master-runtime comms", () => {
     expect(runtime.health().workers).toBe(0);
     await attachWorker(harness);
     await waitFor(() => runtime.health().workers === 1);
-    const health = runtime.health();
-    expect(health.comms).toBe("mailbox");
-    expect(health.mailbox).toEqual({ pending: 0, leased: 0, dead: 0 });
+    expect(runtime.health()).toMatchObject({
+      launch: "ws",
+      workers: 1,
+      mailbox: { pending: 0, leased: 0, dead: 0 },
+    });
   });
 
   it("rejects a bad token and a token for another worker", async () => {
@@ -426,59 +397,13 @@ describe("master-runtime comms", () => {
     ).rejects.toThrow();
   });
 
-  it("infers the worker id from a single token and honours masterMailbox", async () => {
-    const runtime = createMasterRuntime({
-      dbPath: join(dir, "inferred.sqlite"),
-      tokens: [{ workerId: "worker-9", token: "token-9" }],
-      now: () => NOW,
-      comms: {
-        mode: "mailbox",
-        masterMailbox: "gethen:master",
-        mailboxDbPath: join(dir, "mb.sqlite"),
-      },
-    });
-    harnesses.push({ runtime });
-    expect(runtime.mailboxBridge?.workerMailbox).toBe("gethen:worker-9");
-    expect(runtime.mailboxBridge?.masterMailbox).toBe("gethen:master");
-  });
-
-  it("fails fast on incomplete mailbox configuration", () => {
-    expect(() =>
-      createMasterRuntime({
-        dbPath: join(dir, "bad-1.sqlite"),
-        verifyToken: async () => ({ workerId: WORKER }),
-        comms: { mode: "mailbox", mailboxDbPath: join(dir, "bad-1-mb.sqlite") },
-      }),
-    ).toThrow(/comms.workerId/);
-
-    expect(() =>
-      createMasterRuntime({
-        dbPath: join(dir, "bad-2.sqlite"),
-        comms: { mode: "mailbox", workerId: WORKER, mailboxDbPath: join(dir, "bad-2-mb.sqlite") },
-      }),
-    ).toThrow(/tokens or verifyToken/);
-
-    expect(() =>
-      createMasterRuntime({
-        dbPath: join(dir, "bad-3.sqlite"),
-        tokens: [{ workerId: WORKER, token: TOKEN }],
-        comms: {
-          mode: "mailbox",
-          workerId: WORKER,
-          masterMailbox: "mailbox:main",
-          mailboxDbPath: join(dir, "bad-3-mb.sqlite"),
-        },
-      }),
-    ).toThrow(/masterMailbox/);
-  });
-
   it("closes the transport stack before the service and rejects in-flight launches", async () => {
     const harness = await startHarness();
     const runtime = harness.runtime;
     const { link } = await attachWorker(harness);
     await waitFor(() => runtime.health().workers === 1);
 
-    const pending = runtime.mailboxBridge?.launchPort.launch(launchRequest("assignment-c"));
+    const pending = runtime.bridge?.launchPort.launch(launchRequest("assignment-c"));
     if (pending === undefined) throw new Error("expected a mailbox bridge");
     const settled = pending.then(
       () => undefined,
@@ -490,9 +415,13 @@ describe("master-runtime comms", () => {
 
     await runtime.close();
     expect(await settled).toMatchObject({ code: "MAILBOX_CLOSED" });
-    expect(runtime.health()).toMatchObject({
-      comms: "mailbox",
+    expect(runtime.health()).toEqual({
+      launch: "ws",
       workers: 0,
+      tickets: 0,
+      open: 0,
+      receipts: 0,
+      escalations: 0,
       mailbox: { pending: 0, leased: 0, dead: 0 },
     });
     await expect(runtime.close()).resolves.toBeUndefined();
@@ -506,17 +435,5 @@ describe("master-runtime comms", () => {
       ),
     ).rejects.toThrow();
     expect(() => runtime.service.store.tickets.list()).toThrow();
-  });
-});
-
-describe("MasterRuntimeOptions comms types", () => {
-  it("accepts explicit legacy mode", () => {
-    const runtime = createMasterRuntime({
-      dbPath: join(dir, "explicit-legacy.sqlite"),
-      comms: { mode: "legacy" },
-      now: () => NOW,
-    });
-    harnesses.push({ runtime });
-    expect(runtime.comms).toBe("legacy");
   });
 });

@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 // Deterministic C3 mailbox verification: real L1 ws transport + L2 mailbox
-// stack between `startServe({comms:"mailbox"})` and a worker-side mailbox
+// stack between `startServe` (mailbox transport) and a worker-side mailbox
 // consumer, with an inline FakeHarness so no DSH runtime or model is needed.
 //
 // Usage: node scripts/verify-mailbox.mjs
 //
 // Covers: mailbox attach/auth, gethen.task.assign -> harness -> result, ready
-// report plus receipt persisted on the master, /health comms/mailbox counters,
+// report plus receipt persisted on the master, /health mailbox counters,
 // and the mailboxes draining afterwards. Exits non-zero on any failure.
 
 import { mkdtempSync, rmSync } from "node:fs";
@@ -92,7 +92,6 @@ try {
     dbPath: join(dir, "master.sqlite"),
     port: 0,
     tokens: [{ workerId, token }],
-    comms: "mailbox",
     workerId,
     mailboxDbPath: join(dir, "mailbox.sqlite"),
     mailboxPollIntervalMs: 10,
@@ -125,7 +124,7 @@ try {
   await waitFor(
     async () => {
       const current = await health();
-      return current.workers === 1 && current.comms === "mailbox";
+      return current.workers === 1;
     },
     5_000,
     "worker did not attach to the mailbox transport",
@@ -154,7 +153,6 @@ try {
 
   const finalHealth = await health();
   check(finalHealth.workers === 1, `expected workers=1, got ${finalHealth.workers}`);
-  check(finalHealth.comms === "mailbox", `expected comms="mailbox", got ${finalHealth.comms}`);
   check(finalHealth.launch === "ws", `expected launch="ws", got ${finalHealth.launch}`);
   check(finalHealth.tickets === 1, `expected tickets=1, got ${finalHealth.tickets}`);
   check(finalHealth.receipts === 1, `expected receipts=1, got ${finalHealth.receipts}`);

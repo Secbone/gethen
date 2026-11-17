@@ -1,17 +1,16 @@
 /**
  * DSH mount for the self-built Gethen master.
  *
- * Two assembly shapes share one tool surface:
+ * The plugin is a thin host around `@gethen/master-runtime`, the same assembly
+ * the standalone `gethen serve` uses. One `createMasterRuntime` call wires the
+ * control plane on the L1/L2 communication stack:
  *
- * - default (no `ws` config): the plugin builds a `MasterService` itself and
- *   launches Assignments through the DSH Remote client (`config.remote`) or the
- *   deterministic fake worker — the P1/P3 behaviour, unchanged;
- * - `config.ws`: the plugin uses `@gethen/master-runtime`, the same assembly the
- *   standalone `gethen serve` uses: `MasterService` + `gethen.worker.v1`
- *   `WorkerGateway` + `WsLaunchPort`. When the DSH `webServer` service is
- *   present the plugin exposes the endpoint at `/gethen/worker` through
- *   `webServer.registerUpgrade`; the gateway authenticates bearer tokens and
- *   the bridge dispatches to connected outward-only Worker agents.
+ * - no `ws` config / no worker tokens: a deterministic fake LaunchPort (dev and
+ *   tests), no HTTP route;
+ * - with worker tokens: the durable L2 mailbox + ws transport server, exposed
+ *   at `/gethen/worker` through the DSH `webServer` upgrade route when that
+ *   service is mounted. Worker agents dial outward and exchange mailbox
+ *   envelopes; the master side is `@gethen/bridge-mailbox`.
  *
  * DSH itself is not imported: the narrow `DshContext` below is the whole
  * integration contract.
@@ -21,13 +20,10 @@ import { readFileSync } from "node:fs";
 import type { IncomingMessage } from "node:http";
 import { join } from "node:path";
 import type { Duplex } from "node:stream";
-import type { RemoteClientLike } from "@gethen/bridge-remote";
 import {
-  createFakeLaunch,
   type EscalationRecord,
   type EscalationResolutionInput,
-  type LaunchPort,
-  MasterService,
+  type MasterService,
   type Policy,
   type Trigger,
   ticketStage,
@@ -35,10 +31,9 @@ import {
 import {
   createMasterRuntime,
   DEFAULT_MASTER_POLICY,
+  type MailboxHealth,
   type MasterRuntime,
 } from "@gethen/master-runtime";
-import { createScriptedRemoteClient } from "./dev/fake-remote";
-import { createRemoteLaunchPort, type RemoteLaunchConfig } from "./remote-launch";
 
 /** The narrow DSH surface this plugin uses; no DSH package is imported. */
 export interface DshToolDefinition {
@@ -67,22 +62,24 @@ export interface DshContext {
   provide(name: string, value: unknown): () => void;
   tools: { register(definition: DshToolDefinition): () => void };
   effect?(setup: () => (() => void) | void): () => void;
-  /** Present when the DSH Remote client plugin is mounted in this profile. */
+  /** Present when the DSH webServer service is available in this profile. */
   get?(name: string): unknown;
   /** Register a sub-plugin that runs once its injected services are available. */
   inject?(deps: string[], callback: (scope: DshContext) => (() => void) | void): unknown;
   logger?: { error?(message: string): void };
 }
 
-/** Worker credentials in the `gethen.worker.v1` gateway format. */
+/** Worker credentials in the mailbox transport token format. */
 export interface WorkerToken {
   workerId: string;
   token: string;
 }
 
 /**
- * Experimental WS control plane: with this config the plugin hosts the worker
- * endpoint instead of launching through the DSH Remote client.
+ * Mailbox control plane: with this config the plugin hosts the worker
+ * transport and dispatches through the durable mailbox instead of the fake
+ * launch. Without tokens the runtime keeps the fake launch and exposes no
+ * route, which is the dev/test shape.
  */
 export interface GethenWsConfig {
   /** JSON file with `[{"workerId":"...","token":"..."}]`. Wins over tokensJson. */
@@ -93,48 +90,39 @@ export interface GethenWsConfig {
   workspace?: string;
   /** Pack digest recorded for dispatches; defaults to the runtime's constant. */
   packDigest?: string;
+  /** Worker served by this runtime; defaults to the only configured token. */
+  workerId?: string;
+  /** mailbox sqlite file; defaults to `<dirname(dbPath)>/mailbox.sqlite`. */
+  mailboxDbPath?: string;
+  /** Master mailbox name, `<prefix>master`; defaults to `mailbox:master`. */
+  masterMailbox?: string;
 }
 
 export interface GethenConfig {
   /** State directory; defaults to `$GETHEN_STATE_DIR` or `<cwd>/.gethen/master`. */
   dir?: string;
-  /**
-   * Dispatch through the DSH Remote client to a Worker host. Requires the
-   * `dshRemoteClient` service; without it the fake launch is used.
-   */
-  remote?: RemoteLaunchConfig;
+  /** Mailbox control-plane config; absent means the fake launch (no route). */
+  ws?: GethenWsConfig;
   /**
    * Temporary deterministic resolver for verification: answers every Worker
    * escalation with this text. Without it an escalation is parked for a person.
    */
   escalation?: { answer?: string };
-  /** Dev only: use the bundled scripted Remote client instead of a real one. */
-  devRemote?: boolean;
-  /** WS control plane: host `/gethen/worker` and dispatch to `worker-agent`s. */
-  ws?: GethenWsConfig;
 }
 
-/** The WS worker endpoint registered on the DSH web server. */
+/** The worker transport endpoint registered on the DSH web server. */
 export const WORKER_PATH = "/gethen/worker";
 
 export const name = "gethen";
 export const inject = ["tools"];
 
 /**
- * Single-operator P1 policy: the local source admits `local-user` and the
- * master accepts automatically. The fake LaunchPort keeps P1 self-contained.
+ * Single-operator local policy: the local source admits `local-user` and the
+ * master accepts automatically (shared with the CLI runtime).
  */
 export const DEFAULT_POLICY: Policy = DEFAULT_MASTER_POLICY;
 
 const DEFAULT_TOKENS_SOURCE = "worker tokens";
-
-function createMasterService(dir: string, launch: LaunchPort): MasterService {
-  return new MasterService({
-    dbPath: join(dir, "master.sqlite"),
-    policy: DEFAULT_POLICY,
-    launch,
-  });
-}
 
 function text(value: unknown): Array<{ type: "text"; text: string }> {
   return [{ type: "text", text: JSON.stringify(value) }];
@@ -150,7 +138,7 @@ function objectSchema(
 /**
  * Parse the worker credential JSON: `[{"workerId":"...","token":"..."}]`.
  * Structural validation only; duplicate or empty entries are rejected later by
- * the gateway's token store.
+ * the transport token store.
  */
 export function parseWorkerTokens(
   raw: string,
@@ -194,9 +182,8 @@ export function readWorkerTokens(config: GethenWsConfig): WorkerToken[] {
 }
 
 /**
- * Persist escalation lifecycle into the master store. The same hooks serve the
- * Remote launch (P3) and the WS launch (R5): the adapters own the protocol, the
- * plugin owns the audit trail.
+ * Persist escalation lifecycle into the master store: the mailbox bridge owns
+ * the protocol, the plugin owns the audit trail.
  */
 function escalationHooks(serviceOf: () => MasterService | undefined): {
   onEscalation(record: EscalationRecord): void;
@@ -232,10 +219,12 @@ function escalationHooks(serviceOf: () => MasterService | undefined): {
 
 interface ToolDeps {
   service: MasterService;
-  /** What the launch port currently is: remote (P3), WS (R5) or the fake. */
-  launch(): "fake" | "remote" | "ws";
-  /** Connected workers (from the runtime for the WS path, 0 otherwise). */
+  /** What the launch port currently is: mailbox transport or the fake. */
+  launch(): "ws" | "fake";
+  /** Connected workers reported by the runtime (0 in fake mode). */
   workers(): number;
+  /** Mailbox queue counters; `undefined` in fake mode. */
+  mailbox?(): MailboxHealth | undefined;
 }
 
 /** Register the read/write tool surface against one master service. */
@@ -245,7 +234,8 @@ function registerTools(ctx: DshContext, deps: ToolDeps): void {
   ctx.tools.register({
     name: "gethen_status",
     description:
-      "Return master counts: tickets, open tickets, receipts, running Assignments and workers.",
+      "Return master counts: tickets, open tickets, receipts, running Assignments, " +
+      "workers and mailbox counters.",
     parameters: {},
     output: {
       schema: objectSchema(
@@ -255,8 +245,17 @@ function registerTools(ctx: DshContext, deps: ToolDeps): void {
           receipts: { type: "number" },
           running: { type: "number" },
           escalations: { type: "number" },
-          launch: { type: "string", enum: ["fake", "remote", "ws"] },
+          launch: { type: "string", enum: ["fake", "ws"] },
           workers: { type: "number" },
+          mailbox: {
+            type: "object",
+            properties: {
+              pending: { type: "number" },
+              leased: { type: "number" },
+              dead: { type: "number" },
+            },
+            required: ["pending", "leased", "dead"],
+          },
         },
         ["tickets", "open", "receipts", "running", "escalations", "launch", "workers"],
       ),
@@ -264,6 +263,7 @@ function registerTools(ctx: DshContext, deps: ToolDeps): void {
     },
     async execute() {
       const tickets = service.store.tickets.list();
+      const mailbox = deps.mailbox?.();
       return {
         tickets: tickets.length,
         open: tickets.filter((ticket) => ticket.endedAt === undefined).length,
@@ -274,6 +274,7 @@ function registerTools(ctx: DshContext, deps: ToolDeps): void {
         escalations: service.store.listEscalations().length,
         launch: deps.launch(),
         workers: deps.workers(),
+        ...(mailbox === undefined ? {} : { mailbox }),
       };
     },
   });
@@ -379,30 +380,45 @@ function registerTools(ctx: DshContext, deps: ToolDeps): void {
   });
 }
 
-/** Mount the WS control plane: runtime service plus the `/gethen/worker` route. */
-function applyWs(
-  ctx: DshContext,
-  config: GethenConfig & { ws: GethenWsConfig },
-  dir: string,
-  resolution:
-    | ((record: EscalationRecord) => Promise<EscalationResolutionInput | undefined>)
-    | undefined,
-): void {
+/**
+ * Mount the master service and its tools into DSH.
+ *
+ * Always assembled through `createMasterRuntime`: no `ws` config (or no worker
+ * tokens) keeps the fake launch and registers no route; otherwise the mailbox
+ * stack is attached and `/gethen/worker` is exposed when the DSH webServer
+ * service is available.
+ */
+export function apply(ctx: DshContext, config: GethenConfig = {}): void {
+  const dir =
+    config.dir ?? process.env.GETHEN_STATE_DIR ?? join(process.cwd(), ".gethen", "master");
   const ws = config.ws;
-  const tokens = readWorkerTokens(ws);
+  const tokens = ws === undefined ? [] : readWorkerTokens(ws);
+  const answer = config.escalation?.answer;
+  const resolveEscalation =
+    answer === undefined
+      ? undefined
+      : async (_record: EscalationRecord): Promise<EscalationResolutionInput> => ({
+          kind: "answer",
+          text: answer,
+        });
+
   let runtime: MasterRuntime | undefined;
   runtime = createMasterRuntime({
     dbPath: join(dir, "master.sqlite"),
     policy: DEFAULT_POLICY,
-    workspace: ws.workspace ?? process.cwd(),
-    ...(ws.packDigest === undefined ? {} : { packDigest: ws.packDigest }),
+    workspace: ws?.workspace ?? process.cwd(),
+    ...(ws?.packDigest === undefined ? {} : { packDigest: ws.packDigest }),
+    ...(ws?.workerId === undefined ? {} : { workerId: ws.workerId }),
+    ...(ws?.mailboxDbPath === undefined ? {} : { mailboxDbPath: ws.mailboxDbPath }),
+    ...(ws?.masterMailbox === undefined ? {} : { masterMailbox: ws.masterMailbox }),
     ...(tokens.length === 0 ? {} : { tokens }),
-    ...(resolution === undefined ? {} : { resolveEscalation: resolution }),
+    ...(resolveEscalation === undefined ? {} : { resolveEscalation }),
     ...escalationHooks(() => runtime?.service),
   });
   const mounted = runtime;
 
   ctx.provide("gethen", mounted.service);
+
   const handleUpgrade = mounted.handleUpgrade;
   const mountRoute = (scope: DshContext): (() => void) | void => {
     const webServer = scope.get?.("webServer") as DshWebServer | undefined;
@@ -417,13 +433,13 @@ function applyWs(
   // register through an injected sub-plugin instead of a one-shot ctx.get.
   if (ctx.inject !== undefined) {
     ctx.inject(["webServer"], mountRoute);
-  } else if (ctx.get?.("webServer") === undefined) {
+  } else if (ctx.get?.("webServer") !== undefined) {
+    mountRoute(ctx);
+  } else if (handleUpgrade !== undefined) {
     ctx.logger?.error?.(
-      "gethen: ws config is set but the DSH webServer service is not mounted; " +
+      "gethen: mailbox config is set but the DSH webServer service is not mounted; " +
         `${WORKER_PATH} is not exposed and no worker can connect`,
     );
-  } else {
-    mountRoute(ctx);
   }
 
   ctx.effect?.(() => () => {
@@ -435,62 +451,7 @@ function applyWs(
     service: mounted.service,
     launch: () => mounted.launch,
     workers: () => mounted.health().workers,
-  });
-}
-
-/**
- * Mount the master service and its tools into DSH.
- *
- * `config.ws` selects the WS control plane; otherwise the legacy
- * Remote/fake launch path is used exactly as before.
- */
-export function apply(ctx: DshContext, config: GethenConfig = {}): void {
-  const dir =
-    config.dir ?? process.env.GETHEN_STATE_DIR ?? join(process.cwd(), ".gethen", "master");
-  const answer = config.escalation?.answer;
-  const resolveEscalation =
-    answer === undefined
-      ? undefined
-      : async (_record: EscalationRecord): Promise<EscalationResolutionInput> => ({
-          kind: "answer",
-          text: answer,
-        });
-
-  if (config.ws !== undefined) {
-    applyWs(ctx, { ...config, ws: config.ws }, dir, resolveEscalation);
-    return;
-  }
-
-  const clientService = config.remote?.clientService ?? "dshRemoteClient";
-  const devClient =
-    config.devRemote === true || process.env.GETHEN_DEV_REMOTE === "1"
-      ? createScriptedRemoteClient()
-      : undefined;
-  const remoteConfig =
-    config.remote ??
-    (devClient === undefined ? undefined : { hostId: "dev-local", workspaceId: "ws-dev" });
-  const useRemote = remoteConfig !== undefined;
-  const launchMode: "fake" | "remote" = useRemote ? "remote" : "fake";
-  let service: MasterService | undefined;
-  const hooks = escalationHooks(() => service);
-  const launch: LaunchPort =
-    useRemote && remoteConfig !== undefined
-      ? createRemoteLaunchPort({
-          ...remoteConfig,
-          clientProvider: () =>
-            devClient ?? (ctx.get?.(clientService) as RemoteClientLike | undefined),
-          ...(resolveEscalation === undefined ? {} : { resolveEscalation }),
-          ...hooks,
-        })
-      : createFakeLaunch();
-  service = createMasterService(dir, launch);
-  service.start();
-  ctx.provide("gethen", service);
-  ctx.effect?.(() => () => service.stop());
-  registerTools(ctx, {
-    service,
-    launch: () => launchMode,
-    workers: () => 0,
+    mailbox: () => (mounted.launch === "ws" ? mounted.health().mailbox : undefined),
   });
 }
 

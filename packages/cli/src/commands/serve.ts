@@ -7,9 +7,8 @@ import type {
   MasterService,
   Trigger,
 } from "@gethen/master";
-import { type CommsMode, type CommsOptions, createMasterRuntime } from "@gethen/master-runtime";
-import type { WorkerTokenRecord } from "@gethen/transport-ws";
-import { PROTOCOL_NAME } from "@gethen/worker-protocol";
+import { createMasterRuntime } from "@gethen/master-runtime";
+import type { TokenRecord } from "@gethen/transport";
 import { defaultMasterDbPath } from "../paths";
 
 /** The only upgrade path this host accepts for the worker control plane. */
@@ -23,10 +22,10 @@ export interface ServeConfig {
   /** Port; defaults to an ephemeral port (0). */
   port?: number;
   /**
-   * Worker credentials served by the WS gateway. Absent or empty keeps the
-   * fake launch and does not expose the worker endpoint (legacy mode).
+   * Worker credentials served by the transport server. Absent or empty keeps
+   * the fake launch (dev/tests) and does not expose the worker endpoint.
    */
-  tokens?: readonly WorkerTokenRecord[];
+  tokens?: readonly TokenRecord[];
   /**
    * Answers a worker escalation. Without it, an escalation is parked and the
    * launch reports `waiting` (a person has to decide), which is the safe default.
@@ -40,17 +39,15 @@ export interface ServeConfig {
   workspace?: string;
   /** Pack digest recorded for dispatches without one. */
   packDigest?: string;
-  /** Communication stack; defaults to `"legacy"` (the pre-mailbox behavior). */
-  comms?: CommsMode;
-  /** Mailbox mode: the single worker served; defaults to the only token's id. */
+  /** The single worker served; defaults to the only configured token's id. */
   workerId?: string;
-  /** Mailbox mode: mailbox sqlite file; defaults to `<db dir>/mailbox.sqlite`. */
+  /** Mailbox sqlite file; defaults to `<db dir>/mailbox.sqlite`. */
   mailboxDbPath?: string;
-  /** Mailbox mode: full master mailbox name; defaults to `mailbox:master`. */
+  /** Full master mailbox name; defaults to `mailbox:master`. */
   masterMailbox?: string;
-  /** Mailbox mode: bridge/link poll interval (tests and verify scripts). */
+  /** Bridge/link poll interval (tests and verify scripts). */
   mailboxPollIntervalMs?: number;
-  /** Mailbox mode: lease/visibility timeout (tests and verify scripts). */
+  /** Lease/visibility timeout for mailbox deliveries (tests and verify scripts). */
   mailboxVisibilityTimeoutMs?: number;
 }
 
@@ -58,10 +55,8 @@ export interface ServeHandle {
   server: Server;
   service: MasterService;
   port: number;
-  /** `"ws"` when a launch bridge is attached, else the fake launch. */
+  /** `"ws"` when the mailbox transport stack is attached, else the fake launch. */
   launch: "ws" | "fake";
-  /** The assembled communication stack. */
-  comms: CommsMode;
   close(): Promise<void>;
 }
 
@@ -135,9 +130,24 @@ export function autoEscalationResolver(): (
   };
 }
 
-function mailboxOptions(config: ServeConfig): CommsOptions {
-  return {
-    mode: "mailbox",
+/**
+ * Start the master control plane through `@gethen/master-runtime`: sqlite store
+ * + outbox + L1 ws transport + L2 mailbox stack (or the fake launch when no
+ * worker tokens are configured), plus a small HTTP surface for health and local
+ * dispatch. The worker upgrade path is `/gethen/worker`.
+ */
+export async function startServe(config: ServeConfig = {}): Promise<ServeHandle> {
+  const dbPath = config.dbPath ?? defaultMasterDbPath();
+  mkdirSync(dirname(dbPath), { recursive: true });
+
+  const runtime = createMasterRuntime({
+    dbPath,
+    workspace: config.workspace ?? process.cwd(),
+    ...(config.tokens === undefined ? {} : { tokens: config.tokens }),
+    ...(config.packDigest === undefined ? {} : { packDigest: config.packDigest }),
+    ...(config.resolveEscalation === undefined
+      ? {}
+      : { resolveEscalation: config.resolveEscalation }),
     ...(config.workerId === undefined ? {} : { workerId: config.workerId }),
     ...(config.mailboxDbPath === undefined ? {} : { mailboxDbPath: config.mailboxDbPath }),
     ...(config.masterMailbox === undefined ? {} : { masterMailbox: config.masterMailbox }),
@@ -147,29 +157,6 @@ function mailboxOptions(config: ServeConfig): CommsOptions {
     ...(config.mailboxVisibilityTimeoutMs === undefined
       ? {}
       : { visibilityTimeoutMs: config.mailboxVisibilityTimeoutMs }),
-  };
-}
-
-/**
- * Start the master control plane: the `@gethen/master-runtime` assembly (sqlite
- * store + outbox + launch bridge, either the legacy WS gateway/bridge or the L1
- * transport + L2 mailbox stack), plus a small HTTP surface for health and local
- * dispatch. The worker upgrade path is `/gethen/worker` in both comms modes.
- */
-export async function startServe(config: ServeConfig = {}): Promise<ServeHandle> {
-  const dbPath = config.dbPath ?? defaultMasterDbPath();
-  mkdirSync(dirname(dbPath), { recursive: true });
-
-  const comms: CommsMode = config.comms ?? "legacy";
-  const runtime = createMasterRuntime({
-    dbPath,
-    workspace: config.workspace ?? process.cwd(),
-    ...(config.tokens === undefined ? {} : { tokens: config.tokens }),
-    ...(config.packDigest === undefined ? {} : { packDigest: config.packDigest }),
-    ...(config.resolveEscalation === undefined
-      ? {}
-      : { resolveEscalation: config.resolveEscalation }),
-    ...(comms === "mailbox" ? { comms: mailboxOptions(config) } : {}),
   });
   const service = runtime.service;
   const startedAt = Date.now();
@@ -183,7 +170,6 @@ export async function startServe(config: ServeConfig = {}): Promise<ServeHandle>
             ok: true,
             uptimeMs: Date.now() - startedAt,
             ...runtime.health(),
-            protocol: PROTOCOL_NAME,
           });
           return;
         }
@@ -236,21 +222,13 @@ export async function startServe(config: ServeConfig = {}): Promise<ServeHandle>
     service,
     port,
     launch: runtime.launch,
-    comms: runtime.comms,
     async close() {
       if (closed) return;
       closed = true;
-      if (runtime.comms === "legacy") {
-        // Legacy close order stays explicit: gateway -> HTTP server -> service.
-        await runtime.gateway?.close();
-        await new Promise<void>((resolve) => server.close(() => resolve()));
-        service.stop();
-      } else {
-        // Mailbox mode: stop accepting upgrades first, then let the runtime
-        // close the bridge, session links, ws server, mailbox store and service.
-        await new Promise<void>((resolve) => server.close(() => resolve()));
-        await runtime.close();
-      }
+      // Stop accepting upgrades first, then let the runtime close the bridge,
+      // session links, transport server, mailbox store and service.
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await runtime.close();
     },
   };
 }
@@ -258,9 +236,9 @@ export async function startServe(config: ServeConfig = {}): Promise<ServeHandle>
 /**
  * Parse the worker credential JSON: `[{"workerId":"...","token":"..."}]`.
  * Structural validation only; duplicate/invalid entries are rejected by the
- * token store when the worker gateway starts.
+ * token store when the transport server starts.
  */
-export function parseWorkerTokens(raw: string): WorkerTokenRecord[] {
+export function parseWorkerTokens(raw: string): TokenRecord[] {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -270,7 +248,7 @@ export function parseWorkerTokens(raw: string): WorkerTokenRecord[] {
   if (!Array.isArray(parsed)) {
     throw new Error("worker tokens must be a JSON array of { workerId, token }");
   }
-  return parsed.map((entry: unknown, index: number): WorkerTokenRecord => {
+  return parsed.map((entry: unknown, index: number): TokenRecord => {
     if (!isRecord(entry)) throw new Error(`worker token entry ${index} must be an object`);
     const workerId = entry.workerId;
     const token = entry.token;
@@ -295,17 +273,16 @@ export async function serveCommand(
     write(
       "Usage: gethen serve [--db <file>] [--host <addr>] [--port <n>]\n" +
         "                    [--tokens <file>] [--workspace <dir>]\n" +
-        "                    [--escalation auto|park]\n" +
-        "                    [--comms legacy|mailbox] [--worker-id <id>]\n" +
-        "                    [--mailbox-db <file>] [--master-mailbox <name>]\n" +
-        "Starts the master control plane.\n" +
+        "                    [--worker-id <id>] [--mailbox-db <file>]\n" +
+        "                    [--master-mailbox <name>] [--escalation auto|park]\n" +
+        "Starts the master control plane (L1 ws transport + L2 mailbox).\n" +
         "Worker tokens come from --tokens <file> or GETHEN_WORKER_TOKENS_JSON\n" +
-        `([{"workerId":"...","token":"..."}]); with them the ${PROTOCOL_NAME} endpoint is\n` +
-        `served at ${WORKER_PATH}. Without them the fake launch is used.\n` +
-        "--comms selects the communication stack (default legacy): legacy uses the\n" +
-        "gethen.worker/v1 gateway; mailbox uses the L1 transport + L2 mailbox stack\n" +
-        "for a single worker (requires worker tokens; --worker-id defaults to the\n" +
-        "only token, --mailbox-db defaults to <db dir>/mailbox.sqlite).\n" +
+        '([{"workerId":"...","token":"..."}]); with them the /gethen/worker endpoint is\n' +
+        "served and assignments are dispatched over the mailbox stack. Without them the\n" +
+        "fake launch is used (dev convenience).\n" +
+        "--worker-id is the single worker served (defaults to the only token);\n" +
+        "--mailbox-db defaults to <db dir>/mailbox.sqlite and --master-mailbox to\n" +
+        "mailbox:master.\n" +
         "--workspace is the worker-side path dispatched assignments run in\n" +
         "(the engine has no per-assignment workspace yet).\n" +
         "--escalation auto|park (default park): park waits for a person (the run\n" +
@@ -325,13 +302,8 @@ export async function serveCommand(
     writeError(`gethen serve: --escalation must be "auto" or "park", got "${escalation}"`);
     return 1;
   }
-  const comms = option("--comms") ?? "legacy";
-  if (comms !== "legacy" && comms !== "mailbox") {
-    writeError(`gethen serve: --comms must be "legacy" or "mailbox", got "${comms}"`);
-    return 1;
-  }
 
-  let tokens: WorkerTokenRecord[] | undefined;
+  let tokens: TokenRecord[] | undefined;
   const tokensPath = option("--tokens");
   try {
     const raw =
@@ -339,13 +311,6 @@ export async function serveCommand(
     if (raw !== undefined && raw.trim().length > 0) tokens = parseWorkerTokens(raw);
   } catch (error) {
     writeError(`gethen serve: ${messageOf(error)}`);
-    return 1;
-  }
-  if (comms === "mailbox" && (tokens === undefined || tokens.length === 0)) {
-    writeError(
-      "gethen serve: --comms mailbox requires worker tokens (--tokens <file> or " +
-        "GETHEN_WORKER_TOKENS_JSON)",
-    );
     return 1;
   }
 
@@ -365,7 +330,6 @@ export async function serveCommand(
       ...(workspace === undefined ? {} : { workspace }),
       ...(tokens === undefined ? {} : { tokens }),
       ...(escalation === "auto" ? { resolveEscalation: autoEscalationResolver() } : {}),
-      ...(comms === "legacy" ? {} : { comms: "mailbox" }),
       ...(workerId === undefined ? {} : { workerId }),
       ...(mailboxDbPath === undefined ? {} : { mailboxDbPath }),
       ...(masterMailbox === undefined ? {} : { masterMailbox }),
@@ -379,15 +343,16 @@ export async function serveCommand(
   if (escalation === "auto") {
     write("escalations: auto (answering the default/first option)");
   }
-  if (handle.comms === "mailbox") {
+  if (handle.launch === "ws") {
     const served =
       workerId ?? (tokens !== undefined && tokens.length === 1 ? tokens[0]?.workerId : undefined);
-    write(`comms: mailbox${served === undefined ? "" : ` (worker: ${served})`}`);
-  }
-  if (handle.launch === "ws") {
     write(
-      `worker endpoint: ws://${host}:${handle.port}${WORKER_PATH} (comms: ${handle.comms}, launch: ws)`,
+      `worker endpoint: ws://${host}:${handle.port}${WORKER_PATH} (launch: ws${
+        served === undefined ? "" : `, worker: ${served}`
+      })`,
     );
+  } else {
+    write("launch: fake (no worker tokens configured)");
   }
   await new Promise<void>((resolve) => {
     const shutdown = (): void => {

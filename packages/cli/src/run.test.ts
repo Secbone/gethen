@@ -1,4 +1,5 @@
 import { mkdtempSync, rmSync } from "node:fs";
+import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -6,10 +7,15 @@ import { runCommand, runEndpoint } from "./commands/run";
 import { type ServeConfig, type ServeHandle, startServe } from "./commands/serve";
 
 const handles: ServeHandle[] = [];
+const servers: Server[] = [];
 const dirs: string[] = [];
 
 afterEach(async () => {
   while (handles.length > 0) await handles.pop()?.close();
+  while (servers.length > 0) {
+    const server = servers.pop();
+    if (server !== undefined) await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
@@ -105,13 +111,31 @@ describe("gethen run", () => {
   });
 
   it("exits non-zero when the worker report is failed", async () => {
-    // Tokens configured but no worker connected: the launch fails and the
-    // ticket records a failed report.
-    const handle = await serve({ tokens: [{ workerId: "w1", token: "t" }] });
-    const out = capture();
+    // A master that stores the run but whose worker reported failure.
+    const server = createServer((_request, response) => {
+      const body = JSON.stringify({
+        stored: "stored",
+        outcome: "accept",
+        ticket: "ticket-1",
+        report: "failed",
+        receipt: false,
+      });
+      response.writeHead(200, {
+        "content-type": "application/json",
+        "content-length": Buffer.byteLength(body),
+      });
+      response.end(body);
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+    const address = server.address();
+    const port = typeof address === "object" && address !== null ? address.port : 0;
 
+    const out = capture();
     expect(
-      await runCommand(["--master", baseUrl(handle), "needs a worker"], { write: out.write }),
+      await runCommand(["--master", `http://127.0.0.1:${port}`, "needs a worker"], {
+        write: out.write,
+      }),
     ).toBe(1);
     expect(JSON.parse(out.lines.join("\n"))).toMatchObject({ report: "failed" });
   });

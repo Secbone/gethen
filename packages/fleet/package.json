@@ -11,8 +11,6 @@
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
-  "dependencies": {
-    "@gethen/worker-protocol": "workspace:*"
-  },
+  "dependencies": {},
   "description": "Pure fleet resource model and desired-state reconciler: nodes, runtimes and slots"
 }

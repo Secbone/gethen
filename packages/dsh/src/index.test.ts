@@ -19,8 +19,9 @@ interface StatusResult {
   receipts: number;
   running: number;
   escalations: number;
-  launch: "fake" | "remote" | "ws";
+  launch: "fake" | "ws";
   workers: number;
+  mailbox?: { pending: number; leased: number; dead: number };
 }
 
 interface OverviewResult {
@@ -36,8 +37,10 @@ interface OverviewResult {
 /** Cleanups registered through the fake `ctx.effect`, run after every test. */
 const cleanups: Array<() => void> = [];
 
-afterEach(() => {
+afterEach(async () => {
   for (const cleanup of cleanups.splice(0)) cleanup();
+  // runtime.close() is started by the effect cleanup; let it settle.
+  await new Promise((resolve) => setTimeout(resolve, 20));
 });
 
 function context() {
@@ -80,7 +83,7 @@ function serviceOf(services: Map<string, unknown>): MasterService {
 }
 
 describe("Gethen DSH plugin", () => {
-  it("provides the master service and registers the three tools", () => {
+  it("provides the master service and registers the four tools", () => {
     const { ctx, services, tools } = context();
     apply(ctx, { dir: stateDir() });
     serviceOf(services);
@@ -110,7 +113,7 @@ describe("Gethen DSH plugin", () => {
     expect(service.store.listReceipts()).toHaveLength(1);
   });
 
-  it("reports status counts and stages the ticket for review", async () => {
+  it("reports status counts and stages the ticket for review (fake launch)", async () => {
     const { ctx, tools } = context();
     apply(ctx, { dir: stateDir() });
     await tool(tools, "gethen_run").execute({ text: "fix the failing test" }, {});
@@ -131,25 +134,13 @@ describe("Gethen DSH plugin", () => {
     expect(ticket?.stage).toBe("person/review");
   });
 
-  it("keeps the Remote fallback without a ws config", async () => {
+  it("keeps escalation history available through gethen_escalations", async () => {
     const { ctx, tools } = context();
-    apply(ctx, { dir: stateDir(), devRemote: true, escalation: { answer: "rebase onto main" } });
-    const status = (await tool(tools, "gethen_status").execute({}, {})) as StatusResult;
-    expect(status).toMatchObject({ launch: "remote", workers: 0 });
-    const result = (await tool(tools, "gethen_run").execute(
-      { text: "fix the failing test" },
-      {},
-    )) as RunResult;
-    expect(result.outcome).toBe("accept");
-    expect(result.report).toBe("ready");
-    const escalations = [
-      ...(
-        (await tool(tools, "gethen_escalations").execute({}, {})) as {
-          escalations: Array<{ status: string }>;
-        }
-      ).escalations,
-    ];
-    expect(escalations).toHaveLength(1);
-    expect(escalations[0]?.status).toBe("resolved");
+    apply(ctx, { dir: stateDir() });
+    await tool(tools, "gethen_run").execute({ text: "fix the failing test" }, {});
+    const result = (await tool(tools, "gethen_escalations").execute({}, {})) as {
+      escalations: unknown[];
+    };
+    expect(result.escalations).toEqual([]);
   });
 });

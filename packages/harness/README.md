@@ -60,7 +60,7 @@ thin adapter that maps the worker-agent types to these:
 | `ResolutionBody` | `HarnessResolution` |
 | `ExecutorReport` | `HarnessReport` |
 
-Suggested report mapping while worker-protocol still has six kinds:
+Historical report mapping from the removed worker-protocol kinds:
 `ready → ready`, `waiting → waiting`, `blocked → waiting` (with `question`),
 `failed → failed`, `dropped → ready`, `progress → event` (not a report).
 `executor-sdk`'s DSH-specific pieces (JSON-RPC client, transcript scanning,

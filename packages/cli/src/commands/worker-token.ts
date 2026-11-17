@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync 
 import { homedir } from "node:os";
 import { dirname } from "node:path";
 import { SqliteStore, type WorkerRecord } from "@gethen/master";
-import { hashWorkerToken, type WorkerTokenRecord } from "@gethen/transport-ws";
+import { hashToken, type TokenRecord } from "@gethen/transport";
 import { defaultMasterDbPath } from "../paths";
 import { formatTable } from "../table";
 import { parseWorkerTokens } from "./serve";
@@ -96,7 +96,7 @@ export function workerAdd(argv: string[], options: WorkerTokenOptions = {}): num
         return 1;
       }
       replaced = existing !== undefined;
-      store.saveWorker({ id, name, tokenHash: hashWorkerToken(token), createdAt });
+      store.saveWorker({ id, name, tokenHash: hashToken(token), createdAt });
     } finally {
       store.close();
     }
@@ -234,7 +234,7 @@ function listEntry(worker: WorkerRecord): WorkerListEntry {
   };
 }
 
-function readTokensFile(path: string): WorkerTokenRecord[] {
+function readTokensFile(path: string): TokenRecord[] {
   if (!existsSync(path)) return [];
   const raw = readFileSync(path, "utf8");
   if (raw.trim().length === 0) return [];
@@ -243,15 +243,12 @@ function readTokensFile(path: string): WorkerTokenRecord[] {
 }
 
 /** Replace the entry for one worker and keep every other credential. */
-function mergeWorkerToken(
-  records: readonly WorkerTokenRecord[],
-  next: WorkerTokenRecord,
-): WorkerTokenRecord[] {
+function mergeWorkerToken(records: readonly TokenRecord[], next: TokenRecord): TokenRecord[] {
   return [...records.filter((record) => record.workerId !== next.workerId), next];
 }
 
 /** Atomic write (same-directory temp file + rename), mode 0600. */
-function writeTokensFile(path: string, records: readonly WorkerTokenRecord[]): void {
+function writeTokensFile(path: string, records: readonly TokenRecord[]): void {
   mkdirSync(dirname(path), { recursive: true });
   const temporary = `${path}.tmp-${process.pid}-${randomUUID()}`;
   try {

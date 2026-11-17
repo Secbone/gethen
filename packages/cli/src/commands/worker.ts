@@ -1,11 +1,8 @@
 import { readFileSync } from "node:fs";
-import { hostname } from "node:os";
 import { agentMailboxName, createMailboxAgent, type MailboxAgent } from "@gethen/agent";
-import { createSdkExecutor, createSdkHarnessExecutor } from "@gethen/executor-sdk";
+import { createSdkHarnessExecutor } from "@gethen/executor-sdk";
 import { createMailboxClientLink, type MailboxClientLink } from "@gethen/mailbox-link";
-import type { CommsMode } from "@gethen/master-runtime";
 import { createWsTransport, type TransportSession } from "@gethen/transport";
-import { createWorkerAgent, type WorkerAgent } from "@gethen/worker-agent";
 import { WORKER_PATH } from "./serve";
 import { workerTokenCommand } from "./worker-token";
 
@@ -20,8 +17,6 @@ export interface WorkerConfig {
   quota?: number;
   dshCommand?: string;
   dshArgs?: string[];
-  /** Communication stack; absent means `"legacy"`. */
-  comms?: CommsMode;
 }
 
 export interface WorkerConfigOptions {
@@ -40,8 +35,6 @@ interface WorkerConfigFile {
   quota?: number;
   dshCommand?: string;
   dshArgs?: string[];
-  /** Raw config-file value; validated by {@link parseWorkerConfig}. */
-  comms?: string;
 }
 
 /**
@@ -80,7 +73,6 @@ export function parseWorkerConfig(argv: string[], options: WorkerConfigOptions =
   const dshArgs = flagDshArgs.length > 0 ? flagDshArgs : file.dshArgs;
   const quota = positiveInteger(flagValue(argv, "--quota") ?? file.quota, "quota");
   const machine = flagValue(argv, "--machine") ?? file.machine;
-  const comms = parseComms(flagValue(argv, "--comms") ?? file.comms);
 
   return {
     masterUrl: normalizeMasterUrl(masterUrl),
@@ -93,7 +85,6 @@ export function parseWorkerConfig(argv: string[], options: WorkerConfigOptions =
     ...(quota === undefined ? {} : { quota }),
     ...(file.dshCommand === undefined ? {} : { dshCommand: file.dshCommand }),
     ...(dshArgs === undefined ? {} : { dshArgs }),
-    ...(comms === undefined ? {} : { comms }),
   };
 }
 
@@ -125,7 +116,7 @@ export function normalizeMasterUrl(input: string): string {
 /** `gethen worker --config <file>` (or simple flags): run the outbound worker daemon. */
 export async function workerCommand(argv: string[]): Promise<number> {
   // `add|ls|revoke` manage worker tokens; without a subcommand, the flags below
-  // start the daemon (the pre-subcommand behavior stays unchanged).
+  // start the daemon.
   if (argv[0] === "add" || argv[0] === "ls" || argv[0] === "revoke") {
     return workerTokenCommand(argv);
   }
@@ -140,92 +131,20 @@ export async function workerCommand(argv: string[]): Promise<number> {
     process.stderr.write(`gethen worker: ${messageOf(error)}\n`);
     return 1;
   }
-
-  const comms: CommsMode = config.comms ?? "legacy";
-  if (comms === "mailbox") {
-    return runMailboxWorker(config);
-  }
-
-  const executor = createSdkExecutor({
-    provider: config.provider,
-    model: config.model,
-    cwdFor: (workspace) => workspace,
-    ...(config.dshCommand === undefined ? {} : { dshCommand: config.dshCommand }),
-    ...(config.dshArgs === undefined ? {} : { dshArgs: config.dshArgs }),
-  });
-  const agent: WorkerAgent = createWorkerAgent({
-    masterUrl: config.masterUrl,
-    token: config.token,
-    workerId: config.workerId,
-    machine: config.machine ?? hostname(),
-    platform: process.platform,
-    runtimes: ["dsh"],
-    workspaces: [...config.workspaces],
-    models: [config.model],
-    // Advertise nothing extra: the Master must not assume approvals/tools are
-    // pre-granted. Escalations are negotiated per assignment through the SDK.
-    capabilities: {},
-    quota: config.quota ?? 1,
-    executor,
-    logger: { error: (message) => process.stderr.write(`gethen worker: ${message}\n`) },
-  });
-
-  process.stdout.write(`worker ${config.workerId} connecting to ${config.masterUrl}\n`);
-  await waitForSignal();
-  await agent.close();
-  await executor.close();
-  process.stdout.write(`worker ${config.workerId} stopped\n`);
-  return 0;
+  return runMailboxWorker(config);
 }
-
-const WORKER_USAGE = `Usage:
-  gethen worker add --worker-id <id> [--name <name>] [--tokens-file <file>] [--force]
-  gethen worker ls [--json]
-  gethen worker revoke --id <id>
-
-  gethen worker --config <file>
-  gethen worker --master-url <url> --token <token> --worker-id <id> \\
-                --provider <provider> --model <model> [--workspace <dir>]...
-                [--dsh-args <arg>]... [--comms legacy|mailbox]
-
-Without a subcommand the worker daemon starts and connects out to a master; the
-daemon executes dispatched assignments through the DSH SDK executor.
---comms selects the communication stack (default legacy): legacy speaks
-gethen.worker/v1 through the worker-agent; mailbox attaches to the master's L1
-transport + L2 mailbox stack, runs a mailbox consumer and reconnects with
-exponential backoff.
-add/ls/revoke manage worker tokens persisted in the master sqlite (--db,
-default $GETHEN_STATE_DIR/master.sqlite or ~/.gethen/master.sqlite).
-
---dsh-args adds arguments for "dsh --profile sdk" and is repeatable or
-comma-separated, e.g.
-  --dsh-args "--patch,/tmp/overlay.yml"   or
-  --dsh-args --patch --dsh-args /tmp/overlay.yml
-A daemon config file is JSON:
-  { "masterUrl": "wss://master/gethen/worker", "token": "...", "workerId": "...",
-    "provider": "...", "model": "...", "workspaces": ["/srv/project"],
-    "machine": "...", "quota": 1, "dshCommand": "dsh", "dshArgs": ["--profile", "sdk"],
-    "comms": "legacy|mailbox" }
-Flags win over the file. SIGINT/SIGTERM shut the worker down gracefully.
-`;
 
 /** Master mailbox the worker replies to (matches the L2 mailbox default). */
 const MASTER_MAILBOX = "mailbox:master";
 const RECONNECT_INITIAL_MS = 500;
 const RECONNECT_MAX_MS = 30_000;
 
-function parseComms(value: string | undefined): CommsMode | undefined {
-  if (value === undefined) return undefined;
-  if (value === "legacy" || value === "mailbox") return value;
-  throw new Error(`worker config: comms must be "legacy" or "mailbox", got "${value}"`);
-}
-
 /**
- * Mailbox-mode daemon (C3): dial the master's L1 ws transport, attach the L2
- * mailbox link for `mailbox:<workerId>` and let the mailbox agent drive the DSH
- * SDK harness. Disconnects reconnect with exponential backoff and re-attach the
+ * The worker daemon: dial the master's L1 ws transport, attach the L2 mailbox
+ * link for `mailbox:<workerId>` and let the mailbox agent drive the DSH SDK
+ * harness. Disconnects reconnect with exponential backoff and re-attach the
  * same link; SIGTERM/SIGINT drain the agent, then close link, session and
- * harness. The legacy worker-agent path above is untouched.
+ * harness.
  */
 async function runMailboxWorker(config: WorkerConfig): Promise<number> {
   const workerId = config.workerId;
@@ -239,7 +158,7 @@ async function runMailboxWorker(config: WorkerConfig): Promise<number> {
     session = await connect();
   } catch (error) {
     process.stderr.write(
-      `gethen worker: mailbox connect to ${config.masterUrl} failed: ${messageOf(error)}\n`,
+      `gethen worker: connect to ${config.masterUrl} failed: ${messageOf(error)}\n`,
     );
     return 1;
   }
@@ -264,7 +183,7 @@ async function runMailboxWorker(config: WorkerConfig): Promise<number> {
   });
   agent.start();
   process.stdout.write(
-    `worker ${workerId} connected to ${config.masterUrl} (comms: mailbox, mailbox: ${mailbox})\n`,
+    `worker ${workerId} connected to ${config.masterUrl} (mailbox: ${mailbox})\n`,
   );
 
   let currentSession = session;
@@ -312,7 +231,7 @@ async function runMailboxWorker(config: WorkerConfig): Promise<number> {
       attempt = 0;
       process.stdout.write(`worker ${workerId} reconnected (mailbox: ${mailbox})\n`);
     } catch (error) {
-      process.stderr.write(`gethen worker: mailbox reconnect failed: ${messageOf(error)}\n`);
+      process.stderr.write(`gethen worker: reconnect failed: ${messageOf(error)}\n`);
       scheduleReconnect();
     } finally {
       reconnecting = false;
@@ -338,11 +257,37 @@ async function runMailboxWorker(config: WorkerConfig): Promise<number> {
   return 0;
 }
 
+const WORKER_USAGE = `Usage:
+  gethen worker add --worker-id <id> [--name <name>] [--tokens-file <file>] [--force]
+  gethen worker ls [--json]
+  gethen worker revoke --id <id>
+
+  gethen worker --config <file>
+  gethen worker --master-url <url> --token <token> --worker-id <id> \\
+                --provider <provider> --model <model> [--workspace <dir>]...
+                [--dsh-args <arg>]...
+
+Without a subcommand the worker daemon starts: it dials the master's ws
+transport, attaches to mailbox:<worker-id> and executes dispatched assignments
+through the DSH SDK harness (dsh --profile sdk). add/ls/revoke manage worker
+tokens persisted in the master sqlite (--db, default
+$GETHEN_STATE_DIR/master.sqlite or ~/.gethen/master.sqlite).
+
+--dsh-args adds arguments for "dsh --profile sdk" and is repeatable or
+comma-separated, e.g.
+  --dsh-args "--patch,/tmp/overlay.yml"   or
+  --dsh-args --patch --dsh-args /tmp/overlay.yml
+A daemon config file is JSON:
+  { "masterUrl": "wss://master/gethen/worker", "token": "...", "workerId": "...",
+    "provider": "...", "model": "...", "workspaces": ["/srv/project"],
+    "machine": "...", "quota": 1, "dshCommand": "dsh", "dshArgs": ["--profile", "sdk"] }
+Flags win over the file. SIGINT/SIGTERM shut the worker down gracefully.
+`;
+
 function waitForSignal(): Promise<void> {
   return new Promise<void>((resolve) => {
-    // The agent's reconnect timer is unref'd, so the daemon keeps itself alive
-    // with one ref'd interval; without it a failed first connect would let the
-    // process exit instead of retrying (systemd would restart-loop).
+    // The reconnect timer is unref'd, so the daemon keeps itself alive with one
+    // ref'd interval; without it a failed reconnect could let the process exit.
     const keepAlive = setInterval(() => undefined, 60_000);
     const shutdown = (): void => {
       clearInterval(keepAlive);
@@ -382,7 +327,6 @@ function configFile(argv: string[]): WorkerConfigFile {
   const dshCommand = optionalString(parsed, "dshCommand");
   const workspaces = optionalStringArray(parsed, "workspaces");
   const dshArgs = optionalStringArray(parsed, "dshArgs");
-  const comms = optionalString(parsed, "comms");
   const quota = optionalNumber(parsed, "quota");
   if (masterUrl !== undefined) file.masterUrl = masterUrl;
   if (token !== undefined) file.token = token;
@@ -393,7 +337,6 @@ function configFile(argv: string[]): WorkerConfigFile {
   if (dshCommand !== undefined) file.dshCommand = dshCommand;
   if (workspaces !== undefined) file.workspaces = workspaces;
   if (dshArgs !== undefined) file.dshArgs = dshArgs;
-  if (comms !== undefined) file.comms = comms;
   if (quota !== undefined) file.quota = quota;
   return file;
 }

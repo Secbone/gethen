@@ -11,9 +11,6 @@
       "@gethen/storage-file/lock": [
         "packages/storage-file/src/lock.mjs"
       ],
-      "@gethen/worker-protocol": [
-        "packages/worker-protocol/src/index.ts"
-      ],
       "@gethen/benchmark-file": [
         "packages/benchmark-file/src/index.ts"
       ],
@@ -22,9 +19,6 @@
       ],
       "@gethen/master-runtime": [
         "packages/master-runtime/src/index.ts"
-      ],
-      "@gethen/bridge-remote": [
-        "packages/bridge-remote/src/index.ts"
       ],
       "@gethen/worker-bridge": [
         "packages/worker-bridge/src/index.ts"
@@ -41,12 +35,6 @@
       "@gethen/storage-file": [
         "packages/storage-file/src/index.ts"
       ],
-      "@gethen/transport-ws": [
-        "packages/transport-ws/src/index.ts"
-      ],
-      "@gethen/worker-agent": [
-        "packages/worker-agent/src/index.ts"
-      ],
       "@gethen/dsh-client": [
         "packages/dsh-client/index.js"
       ],
@@ -58,9 +46,6 @@
       ],
       "@gethen/benchmark": [
         "packages/benchmark/src/index.ts"
-      ],
-      "@gethen/bridge-ws": [
-        "packages/bridge-ws/src/index.ts"
       ],
       "@gethen/evolution": [
         "packages/evolution/src/index.ts"

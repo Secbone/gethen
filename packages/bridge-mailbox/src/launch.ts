@@ -1,7 +1,7 @@
 /**
  * Master-side `LaunchPort` over the L2 mailbox.
  *
- * This is the mailbox twin of `@gethen/bridge-ws`: the Master engine still only
+ * This replaces the removed `@gethen/bridge-ws` adapter: the Master engine still only
  * sees `LaunchPort.launch(request)`; the adapter turns it into one
  * `gethen.task.assign` envelope, then waits for the correlated
  * `gethen.task.result` on its own mailbox. Blocking `gethen.task.ask` envelopes

@@ -265,7 +265,7 @@ gethen worker \
 - `~/.dsh` 已存在（先手工跑一次 `dsh` 让 DSH 初始化）；
 - Worker 不给外部开端口；只需出站访问 Master。
 
-> 注意：当前独立 `gethen serve` 的 WS launch 选择**第一个已连接的 Worker**
+> 注意：C3 的 mailbox link 是**单 Worker**（`--worker-id`）；多 Worker 调度属于后续 C5。
 > （`bridge-ws` 的默认策略）；多机调度（fleet/router）尚未接入独立 serve。
 
 ### 2.3 systemd unit（Worker）
@@ -319,7 +319,7 @@ Worker 断线会自动重连（指数退避 1s→30s），进行中的 assignmen
 不接真实模型的确定性验证（WS + FakeExecutor，无需 dsh/凭证）：
 
 ```bash
-pnpm verify:ws
+pnpm verify:mailbox
 ```
 
 真实 `dsh --profile sdk` + 模型的 e2e（opt-in，需要 dsh、模型凭证与额度）：

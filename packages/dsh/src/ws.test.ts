@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import type { IncomingMessage } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -22,20 +22,21 @@ interface StatusResult {
   receipts: number;
   running: number;
   escalations: number;
-  launch: "fake" | "remote" | "ws";
+  launch: "fake" | "ws";
   workers: number;
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  mailbox?: { pending: number; leased: number; dead: number };
 }
 
 function stateDir(): string {
   return mkdtempSync(join(tmpdir(), "gethen-dsh-ws-"));
 }
 
-function tokensJson(): string {
-  return JSON.stringify([{ workerId: "worker-1", token: "token-1" }]);
+function tokensJson(
+  entries: ReadonlyArray<{ workerId: string; token: string }> = [
+    { workerId: "worker-1", token: "token-1" },
+  ],
+): string {
+  return JSON.stringify(entries);
 }
 
 interface FakeWebServer extends DshWebServer {
@@ -60,13 +61,13 @@ function webServer(): FakeWebServer {
   };
 }
 
-/** Cleanups registered through fake `ctx.effect`, run after every test. */
+/** Cleanups registered through fake `ctx.effect`/`ctx.inject`, from every test. */
 const cleanups: Array<() => void> = [];
 
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0)) cleanup();
   // runtime.close() is started by the effect cleanup; let it settle.
-  await delay(20);
+  await new Promise((resolve) => setTimeout(resolve, 20));
 });
 
 function context(options: { webServer?: FakeWebServer; listen?: boolean; log?: string[] } = {}) {
@@ -156,7 +157,7 @@ function fakeSocket(): FakeSocket {
 const TOOL_NAMES = ["gethen_status", "gethen_run", "gethen_overview", "gethen_escalations"];
 
 describe("worker token config", () => {
-  it("parses the gateway token format and rejects malformed input", () => {
+  it("parses the worker token format and rejects malformed input", () => {
     expect(parseWorkerTokens(tokensJson())).toEqual([{ workerId: "worker-1", token: "token-1" }]);
     expect(() => parseWorkerTokens("{not json")).toThrow(/invalid worker tokens JSON/);
     expect(() => parseWorkerTokens("{}")).toThrow(/JSON array/);
@@ -183,8 +184,8 @@ describe("worker token config", () => {
   });
 });
 
-describe("WS control-plane mount", () => {
-  it("mounts the runtime service and registers the /gethen/worker upgrade route", async () => {
+describe("mailbox control-plane mount", () => {
+  it("mounts the mailbox runtime and registers the /gethen/worker route", async () => {
     const server = webServer();
     const { ctx, services, tools } = context({ webServer: server });
     apply(ctx, { dir: stateDir(), ws: { tokensJson: tokensJson() } });
@@ -193,10 +194,16 @@ describe("WS control-plane mount", () => {
     expect(tools.map((entry) => entry.name)).toEqual(TOOL_NAMES);
     expect(server.routes.map((route) => route.path)).toEqual([WORKER_PATH]);
     const status = (await tool(tools, "gethen_status").execute({}, {})) as StatusResult;
-    expect(status).toMatchObject({ launch: "ws", workers: 0, tickets: 0, receipts: 0 });
+    expect(status).toMatchObject({
+      launch: "ws",
+      workers: 0,
+      tickets: 0,
+      receipts: 0,
+      mailbox: { pending: 0, leased: 0, dead: 0 },
+    });
   });
 
-  it("forwards the upgrade to the gateway (unauthenticated upgrades get 401)", async () => {
+  it("forwards the upgrade to the mailbox transport (unauthenticated gets 401)", async () => {
     const server = webServer();
     const { ctx } = context({ webServer: server });
     apply(ctx, { dir: stateDir(), ws: { tokensJson: tokensJson() } });
@@ -205,7 +212,7 @@ describe("WS control-plane mount", () => {
     if (route === undefined) throw new Error("worker upgrade route was not registered");
     const pending = fakeSocket();
     route.handler(fakeRequest(), pending.socket, Buffer.alloc(0));
-    await delay(20);
+    await new Promise((resolve) => setTimeout(resolve, 20));
 
     expect(pending.writes.join("")).toContain("401 Unauthorized");
     expect(pending.isDestroyed()).toBe(true);
@@ -218,26 +225,36 @@ describe("WS control-plane mount", () => {
 
     expect(server.routes).toHaveLength(1);
     expect(cleanups).toHaveLength(2);
+    // Route disposer first, then the runtime close effect.
     cleanups[0]?.();
     expect(server.routes).toHaveLength(0);
     expect(server.disposed).toEqual([WORKER_PATH]);
   });
 
-  it("reads worker credentials from ws.tokensFile", async () => {
+  it("passes workerId, mailboxDbPath and masterMailbox to the runtime", async () => {
     const dir = stateDir();
-    const file = join(dir, "tokens.json");
-    writeFileSync(file, JSON.stringify([{ workerId: "file-worker", token: "file-token" }]));
+    const tokensFile = join(dir, "tokens.json");
+    const mailboxDbPath = join(dir, "custom-mailbox.sqlite");
+    writeFileSync(tokensFile, tokensJson());
     const server = webServer();
     const { ctx, services, tools } = context({ webServer: server });
-    apply(ctx, { dir, ws: { tokensFile: file, workspace: dir } });
+    apply(ctx, {
+      dir,
+      ws: {
+        tokensFile,
+        workerId: "worker-1",
+        mailboxDbPath,
+        masterMailbox: "custom:master",
+      },
+    });
 
     serviceOf(services);
-    expect(server.routes.map((route) => route.path)).toEqual([WORKER_PATH]);
+    expect(existsSync(mailboxDbPath)).toBe(true);
     const status = (await tool(tools, "gethen_status").execute({}, {})) as StatusResult;
     expect(status.launch).toBe("ws");
   });
 
-  it("falls back to the fake launch when ws has no worker tokens", async () => {
+  it("falls back to the fake launch when the ws config has no tokens", async () => {
     const server = webServer();
     const { ctx, services, tools } = context({ webServer: server });
     apply(ctx, { dir: stateDir(), ws: {} });
@@ -246,6 +263,17 @@ describe("WS control-plane mount", () => {
     expect(server.routes).toHaveLength(0);
     const status = (await tool(tools, "gethen_status").execute({}, {})) as StatusResult;
     expect(status).toMatchObject({ launch: "fake", workers: 0 });
+    expect(status.mailbox).toBeUndefined();
+  });
+
+  it("uses the fake launch and registers no route without any ws config", async () => {
+    const server = webServer();
+    const { ctx, tools } = context({ webServer: server });
+    apply(ctx, { dir: stateDir() });
+
+    expect(server.routes).toHaveLength(0);
+    const status = (await tool(tools, "gethen_status").execute({}, {})) as StatusResult;
+    expect(status.launch).toBe("fake");
   });
 
   it("degrades safely when the webServer service is absent", async () => {
@@ -257,18 +285,36 @@ describe("WS control-plane mount", () => {
     expect(tools.map((entry) => entry.name)).toEqual(TOOL_NAMES);
     expect(log.some((message) => message.includes("webServer"))).toBe(true);
     const status = (await tool(tools, "gethen_status").execute({}, {})) as StatusResult;
-    expect(status).toMatchObject({ launch: "ws", workers: 0 });
+    expect(status.launch).toBe("ws");
   });
 
-  it("rejects invalid worker credentials before mounting", () => {
+  it("rejects invalid credentials and invalid mailbox names before mounting", () => {
     const server = webServer();
     const { ctx } = context({ webServer: server });
     expect(() => apply(ctx, { dir: stateDir(), ws: { tokensJson: "{not json" } })).toThrow(
       /invalid ws.tokensJson JSON/,
     );
     expect(server.routes).toHaveLength(0);
-    // Empty credentials are valid and keep the fake launch (no gateway).
-    apply(ctx, { dir: stateDir(), ws: { tokensJson: "[]" } });
+    expect(() =>
+      apply(ctx, {
+        dir: stateDir(),
+        ws: { tokensJson: tokensJson(), masterMailbox: "mailbox:main" },
+      }),
+    ).toThrow(/masterMailbox must be/);
     expect(server.routes).toHaveLength(0);
+  });
+
+  it("requires an explicit workerId when several tokens are configured", () => {
+    const server = webServer();
+    const { ctx } = context({ webServer: server });
+    const tokens = tokensJson([
+      { workerId: "worker-1", token: "token-1" },
+      { workerId: "worker-2", token: "token-2" },
+    ]);
+    expect(() => apply(ctx, { dir: stateDir(), ws: { tokensJson: tokens } })).toThrow(
+      /workerId is required/,
+    );
+    apply(ctx, { dir: stateDir(), ws: { tokensJson: tokens, workerId: "worker-2" } });
+    expect(server.routes.map((route) => route.path)).toEqual([WORKER_PATH]);
   });
 });

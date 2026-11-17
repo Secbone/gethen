@@ -211,6 +211,13 @@ GETHEN_E2E=1 node scripts/e2e-sdk.mjs   # 真实 dsh --profile sdk + 模型
 CLI serve 的升级默认 parked（后续加 `--escalation`）；worker-agent 重连定时器 unref，
 `gethen worker` 用 ref 的 interval 保活。
 
+### 2026-11-17 更新：删除旧通讯协议
+
+C1/C2/C3 完成后，按"不向后兼容"删除 legacy 通讯栈（worker-protocol 帧、
+transport-ws、bridge-ws、worker-agent、bridge-remote），Master/Worker/DSH/CLI
+统一走 L1 transport + L2 mailbox；`ControlOp` 归入 fleet，token 哈希归入 transport。
+见 [comms-two-layer.md](comms-two-layer.md) 的 C7 说明。
+
 ### 2026-11-16 收尾完成
 
 - **DSH 形态 Master 已接 WS**：`packages/dsh` 通过 `@gethen/master-runtime` 装配，

@@ -17,12 +17,9 @@
     "@gethen/mailbox-link": "workspace:*",
     "@gethen/master": "workspace:*",
     "@gethen/master-runtime": "workspace:*",
-    "@gethen/transport": "workspace:*",
-    "@gethen/transport-ws": "workspace:*",
-    "@gethen/worker-agent": "workspace:*",
-    "@gethen/worker-protocol": "workspace:*"
+    "@gethen/transport": "workspace:*"
   },
-  "description": "Operations CLI: init, doctor, help, master serve (legacy/mailbox comms) and worker daemon",
+  "description": "Operations CLI: init, doctor, help, master serve (mailbox transport) and worker daemon",
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json"
   }

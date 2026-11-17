@@ -10,7 +10,7 @@
  * Boundaries:
  * - no IO, no clock, no Node builtins, no DSH/`@deepseek-ai` imports;
  * - no Gethen domain types: this package defines its own JSON vocabulary, so a
- *   harness implementation never imports `@gethen/master` or `@gethen/worker-agent`;
+ *   harness implementation never imports `@gethen/master`, DSH or a transport;
  * - everything here is a value or a type: functions are pure and only validate
  *   or interpret the data the mailbox already received.
  *

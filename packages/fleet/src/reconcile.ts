@@ -21,7 +21,7 @@
  * The same inputs therefore always produce the same plan (idempotent), and a
  * converged fleet produces an empty plan.
  */
-import type { ControlOp } from "@gethen/worker-protocol";
+import type { ControlOp } from "./control";
 
 import type {
   DesiredRuntime,

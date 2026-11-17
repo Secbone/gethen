@@ -275,6 +275,14 @@ legacy 保留一个版本周期。
 
 剩余：C5（agent 间消息/人工 mailbox/面板时间线/DLQ 运维）、C6（ssh-stdio 传输 adapter 验证可替换性）。
 
+### 2026-11-17 C7：删除旧协议（不向后兼容）
+
+- 删除 `@gethen/worker-protocol`、`@gethen/transport-ws`、`@gethen/bridge-ws`、`@gethen/worker-agent`、`@gethen/bridge-remote`；
+- `master-runtime`、`@gethen/dsh`、CLI 只剩 mailbox 栈（L1 transport + L2 mailbox）；
+- `ControlOp` 词汇表移入 `@gethen/fleet`；token 哈希/内存 token store 移入 `@gethen/transport`；
+- 旧的 `devRemote`/`remote`/`comms` 配置、`--comms` 参数、`worker-protocol` 帧全部移除；
+- 验证：`pnpm verify:mailbox`、`GETHEN_E2E=1 node scripts/e2e-sdk.mjs`（真实 dsh+模型，mailbox 路径）。
+
 本地验证：
 
 ```bash

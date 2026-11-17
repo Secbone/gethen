@@ -5,7 +5,7 @@
  * from its own mailbox (`mailbox:<workerId>`), starts one `HarnessExecutor`
  * execution per assignment, and turns that execution's observations into
  * mailbox messages. DSH is only one possible harness behind the `HarnessExecutor`
- * port; nothing here imports DSH, `worker-protocol` or a transport.
+ * port; nothing here imports DSH, a legacy frame protocol or a transport.
  *
  * Message flow (application types are plain strings; see `MESSAGE_TYPES`):
  *

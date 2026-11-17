@@ -2,8 +2,10 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createMailboxAgent, type MailboxAgent } from "@gethen/agent";
+import { createMailboxClientLink, type MailboxClientLink } from "@gethen/mailbox-link";
 import type { EscalationRecord } from "@gethen/master";
-import { createWorkerAgent, FakeExecutor, type WorkerAgent } from "@gethen/worker-agent";
+import { createWsTransport, type TransportSession } from "@gethen/transport";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   autoEscalationResolver,
@@ -12,15 +14,24 @@ import {
   type ServeHandle,
   serveCommand,
   startServe,
+  WORKER_PATH,
 } from "./commands/serve";
 
+type MailboxHarness = Parameters<typeof createMailboxAgent>[0]["harness"];
+
 const handles: ServeHandle[] = [];
-const agents: WorkerAgent[] = [];
+const agents: MailboxAgent[] = [];
+const links: MailboxClientLink[] = [];
+const sessions: TransportSession[] = [];
 const dirs: string[] = [];
 
 afterEach(async () => {
   vi.restoreAllMocks();
-  for (const agent of agents.splice(0)) await agent.close();
+  for (const agent of agents.splice(0)) await agent.stop();
+  for (const link of links.splice(0)) link.close();
+  for (const session of sessions.splice(0)) {
+    await session.close("test_cleanup").catch(() => undefined);
+  }
   while (handles.length > 0) await handles.pop()?.close();
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
@@ -51,6 +62,63 @@ async function serve(config: Partial<ServeConfig> = {}) {
   return handle;
 }
 
+/**
+ * A scripted harness (no DSH). Observations arrive after start() resolved, and
+ * the event/report are separated so the mailbox consumer flushes one outbox
+ * envelope at a time.
+ */
+function readyHarness(): MailboxHarness {
+  return {
+    async start(task, sink) {
+      let settled = false;
+      setTimeout(() => {
+        if (settled) return;
+        sink.event({
+          type: "message",
+          at: new Date().toISOString(),
+          data: { text: `harness ran ${task.assignmentId}` },
+        });
+      }, 10);
+      setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        sink.report({ kind: "ready", summary: `harness finished ${task.assignmentId}` });
+      }, 50);
+      return {
+        sendResolution: async () => undefined,
+        cancel: async (reason?: string) => {
+          if (settled) return;
+          settled = true;
+          sink.report({ kind: "failed", summary: reason ?? "cancelled" });
+        },
+      };
+    },
+  };
+}
+
+async function attachWorker(
+  handle: ServeHandle,
+  options: { workerId?: string; token: string },
+): Promise<void> {
+  const workerId = options.workerId ?? "worker-1";
+  const session = await createWsTransport({ heartbeat: true }).connect(
+    { url: `ws://127.0.0.1:${handle.port}${WORKER_PATH}` },
+    { kind: "bearer", token: options.token },
+  );
+  sessions.push(session);
+  const link = await createMailboxClientLink({ session, mailbox: `mailbox:${workerId}` });
+  links.push(link);
+  const agent = createMailboxAgent({
+    workerId,
+    mailbox: link,
+    harness: readyHarness(),
+    quota: 1,
+    pollIntervalMs: 10,
+  });
+  agents.push(agent);
+  agent.start();
+}
+
 function baseUrl(handle: ServeHandle): string {
   return `http://127.0.0.1:${handle.port}`;
 }
@@ -73,14 +141,18 @@ async function postJson(
   return (await response.json()) as Record<string, unknown>;
 }
 
-/** Poll `/health` until the gateway has registered `expected` workers. */
-async function waitForWorkers(handle: ServeHandle, expected: number): Promise<void> {
+/** Poll `/health` until `predicate` is true. */
+async function waitForHealth(
+  handle: ServeHandle,
+  predicate: (health: Record<string, unknown>) => boolean,
+  message: string,
+): Promise<Record<string, unknown>> {
   const deadline = Date.now() + 5_000;
   for (;;) {
     const health = await getJson(handle, "/health");
-    if (health.workers === expected) return;
+    if (predicate(health)) return health;
     if (Date.now() > deadline) {
-      throw new Error(`timed out waiting for ${expected} worker(s): ${JSON.stringify(health)}`);
+      throw new Error(`${message}: ${JSON.stringify(health)}`);
     }
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
@@ -133,7 +205,7 @@ describe("gethen serve", () => {
       tickets: 0,
       workers: 0,
       launch: "fake",
-      comms: "legacy",
+      mailbox: { pending: 0, leased: 0, dead: 0 },
     });
 
     const run = await postJson(handle, "/gethen/run", { text: "standalone smoke" });
@@ -148,34 +220,20 @@ describe("gethen serve", () => {
     expect(after).toMatchObject({ tickets: 1, open: 1, receipts: 1, workers: 0, launch: "fake" });
   });
 
-  it("runs an assignment through a real worker agent over ws", async () => {
+  it("runs an assignment through a mailbox worker over the ws transport", async () => {
     const token = "test-worker-token";
     const handle = await serve({
       tokens: [{ workerId: "worker-1", token }],
       workspace: "/tmp/gethen-test-workspace",
-      resolveEscalation: autoEscalationResolver(),
+      mailboxPollIntervalMs: 10,
+      mailboxVisibilityTimeoutMs: 2_000,
     });
     expect(handle.launch).toBe("ws");
 
-    const agent = createWorkerAgent({
-      masterUrl: `ws://127.0.0.1:${handle.port}/gethen/worker`,
-      token,
-      workerId: "worker-1",
-      machine: "test-machine",
-      platform: "linux",
-      runtimes: ["dsh"],
-      workspaces: ["/tmp/gethen-test-workspace"],
-      models: ["fake-model"],
-      capabilities: {},
-      quota: 1,
-      executor: new FakeExecutor(),
-      reconnect: { initialDelayMs: 10, maxDelayMs: 50, jitter: 0 },
-    });
-    agents.push(agent);
-    await agent.whenConnected();
-    await waitForWorkers(handle, 1);
+    await attachWorker(handle, { token });
+    await waitForHealth(handle, (health) => health.workers === 1, "worker did not attach");
 
-    const run = await postJson(handle, "/gethen/run", { text: "ws smoke" });
+    const run = await postJson(handle, "/gethen/run", { text: "mailbox smoke" });
     expect(run).toMatchObject({
       stored: "stored",
       outcome: "accept",
@@ -183,43 +241,30 @@ describe("gethen serve", () => {
       receipt: true,
     });
 
-    const health = await getJson(handle, "/health");
+    const health = await waitForHealth(
+      handle,
+      (current) => {
+        const mailbox = current.mailbox as { pending: number; leased: number } | undefined;
+        return mailbox !== undefined && mailbox.pending === 0 && mailbox.leased === 0;
+      },
+      "mailboxes did not drain",
+    );
     expect(health).toMatchObject({ workers: 1, launch: "ws", tickets: 1, receipts: 1 });
   }, 15_000);
 
-  it("parks escalations by default and reports waiting", async () => {
-    const token = "park-worker-token";
+  it("reports the mailbox transport stack and rejects unauthenticated upgrades", async () => {
     const handle = await serve({
-      tokens: [{ workerId: "worker-1", token }],
-      workspace: "/tmp/gethen-test-workspace",
+      tokens: [{ workerId: "worker-1", token: "mailbox-token" }],
+      mailboxPollIntervalMs: 10,
+      mailboxVisibilityTimeoutMs: 2_000,
     });
 
-    const agent = createWorkerAgent({
-      masterUrl: `ws://127.0.0.1:${handle.port}/gethen/worker`,
-      token,
-      workerId: "worker-1",
-      machine: "test-machine",
-      platform: "linux",
-      runtimes: ["dsh"],
-      workspaces: ["/tmp/gethen-test-workspace"],
-      models: ["fake-model"],
-      capabilities: {},
-      quota: 1,
-      executor: new FakeExecutor(),
-      reconnect: { initialDelayMs: 10, maxDelayMs: 50, jitter: 0 },
-    });
-    agents.push(agent);
-    await agent.whenConnected();
-    await waitForWorkers(handle, 1);
-
-    const run = await postJson(handle, "/gethen/run", { text: "needs a decision" });
-    expect(run.report).toBe("waiting");
-
-    // The bridge parks locally: the ticket records "waiting" and nothing is
-    // auto-resolved. (WS escalations are not persisted by the CLI host yet.)
+    expect(handle.launch).toBe("ws");
     const health = await getJson(handle, "/health");
-    expect(health).toMatchObject({ workers: 1, launch: "ws", tickets: 1, open: 1 });
-  }, 15_000);
+    expect(health).toMatchObject({ ok: true, launch: "ws", workers: 0, tickets: 0 });
+    expect(health.mailbox).toEqual({ pending: 0, leased: 0, dead: 0 });
+    expect(await upgradeStatus(handle.port, WORKER_PATH)).toBe("HTTP/1.1 401 Unauthorized");
+  });
 
   it("auto-answers with the declared default or first option", async () => {
     const resolver = autoEscalationResolver();
@@ -240,43 +285,14 @@ describe("gethen serve", () => {
     expect(stderr.mock.calls.map((call) => String(call[0])).join("")).toContain("--escalation");
   });
 
-  it("serves the mailbox stack when comms is mailbox", async () => {
-    const mailboxDir = mkdtempSync(join(tmpdir(), "gethen-serve-mailbox-"));
-    dirs.push(mailboxDir);
-    const handle = await serve({
-      comms: "mailbox",
-      workerId: "worker-1",
-      tokens: [{ workerId: "worker-1", token: "mailbox-token" }],
-      mailboxDbPath: join(mailboxDir, "mailbox.sqlite"),
-      mailboxPollIntervalMs: 10,
-      mailboxVisibilityTimeoutMs: 2_000,
-    });
+  it("documents the mailbox transport without a --comms switch", async () => {
+    const lines: string[] = [];
 
-    expect(handle.comms).toBe("mailbox");
-    expect(handle.launch).toBe("ws");
-    const health = await getJson(handle, "/health");
-    expect(health).toMatchObject({
-      ok: true,
-      comms: "mailbox",
-      launch: "ws",
-      workers: 0,
-      tickets: 0,
-    });
-    expect(health.mailbox).toEqual({ pending: 0, leased: 0, dead: 0 });
-    expect(await upgradeStatus(handle.port, "/gethen/worker")).toBe("HTTP/1.1 401 Unauthorized");
-  });
+    expect(await serveCommand(["--help"], { write: (line) => lines.push(line) })).toBe(0);
 
-  it("rejects unknown --comms values and mailbox mode without tokens", async () => {
-    const errors: string[] = [];
-    const error = (line: string) => errors.push(line);
-    const write = () => undefined;
-
-    expect(await serveCommand(["--comms", "bogus"], { env: {}, write, error })).toBe(1);
-    expect(errors.join("\n")).toContain("--comms");
-
-    errors.length = 0;
-    expect(await serveCommand(["--comms", "mailbox"], { env: {}, write, error })).toBe(1);
-    expect(errors.join("\n")).toContain("mailbox requires worker tokens");
+    const output = lines.join("\n");
+    expect(output).toContain("mailbox");
+    expect(output).not.toContain("--comms");
   });
 
   it("rejects upgrades on other paths and without a bearer token", async () => {
@@ -285,7 +301,7 @@ describe("gethen serve", () => {
     });
 
     expect(await upgradeStatus(handle.port, "/nope")).toBe("HTTP/1.1 404 Not Found");
-    expect(await upgradeStatus(handle.port, "/gethen/worker")).toBe("HTTP/1.1 401 Unauthorized");
+    expect(await upgradeStatus(handle.port, WORKER_PATH)).toBe("HTTP/1.1 401 Unauthorized");
   });
 
   it("parses the worker token JSON and rejects malformed entries", () => {

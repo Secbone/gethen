@@ -156,7 +156,7 @@ gethen run --master https://<master> --json "…"     # 原样响应
 gethen status --db /var/lib/gethen/master.sqlite
 
 # 本地不花钱的两级验证
-pnpm verify:ws
+pnpm verify:mailbox
 GETHEN_E2E=1 node scripts/e2e-sdk.mjs               # 真实 dsh SDK + 模型
 ```
 

@@ -8,16 +8,14 @@ import type {
 import { afterEach, describe, expect, it } from "vitest";
 import {
   createSdkHarnessExecutor,
-  mapExecutorReport,
-  mapHarnessResolution,
+  harnessReportKind,
+  mapSessionEvent,
   type SdkHarnessExecutor,
   type SdkHarnessExecutorOptions,
-  toExecutorTask,
 } from "./harness-adapter";
 import { FakeSdkClient } from "./test-doubles";
 
 const AT = "2026-11-17T00:00:00.000Z";
-const FUTURE = "2026-11-17T01:00:00.000Z";
 
 class RecordingSink implements HarnessSink {
   readonly events: HarnessEvent[] = [];
@@ -71,49 +69,27 @@ function reportBlock(body: Record<string, unknown>): string {
   return `[GETHEN-REPORT]\n${JSON.stringify(body)}\n[/GETHEN-REPORT]`;
 }
 
+function escalationBlock(body: Record<string, unknown>): string {
+  return `[GETHEN-ESCALATION]\n${JSON.stringify(body)}\n[/GETHEN-ESCALATION]`;
+}
+
+function toolResultEvent(sessionId: string, text: string) {
+  return {
+    sessionId,
+    event: { type: "tool/result", data: { content: [{ type: "text", text }] } },
+  };
+}
+
 async function tick(): Promise<void> {
   await new Promise((resolve) => setImmediate(resolve));
 }
 
-describe("toExecutorTask", () => {
-  it("folds the prompt into the envelope and maps packDigest/model/deadline", () => {
-    expect(
-      toExecutorTask(
-        task({
-          envelope: { proto: "gethen/assignment/v1", ticket: { id: "t1" } },
-          metadata: { packDigest: "sha256:pack", origin: "master" },
-          model: "deepseek-v4.1-flash",
-          deadlineAt: FUTURE,
-        }),
-      ),
-    ).toEqual({
-      assignmentId: "a1",
-      ticketId: "t1",
-      workspace: "/work/ws",
-      packDigest: "sha256:pack",
-      envelope: {
-        proto: "gethen/assignment/v1",
-        ticket: { id: "t1" },
-        prompt: "do the work",
-      },
-      model: "deepseek-v4.1-flash",
-      deadlineAt: FUTURE,
-    });
-
-    expect(toExecutorTask(task()).packDigest).toBe("");
-    expect(toExecutorTask(task()).envelope).toEqual({ prompt: "do the work" });
-  });
-});
-
-describe("createSdkHarnessExecutor", () => {
-  it("starts the DSH session for a harness task and prompts it", async () => {
+describe("createSdkHarnessExecutor runtime pool", () => {
+  it("starts one runtime, initializes it and prompts the assignment session", async () => {
     const { client, sink, executor } = setup();
-    const handle = await executor.start(
-      task({ metadata: { packDigest: "sha256:pack" }, model: "m1" }),
-      sink,
-    );
+    const execution = await executor.start(task(), sink);
 
-    expect(handle).toBeDefined();
+    expect(execution).toBeDefined();
     expect(client.startCalls).toEqual([{ cwd: "/work/ws" }]);
     expect(client.initializeCalls).toEqual([
       {
@@ -129,6 +105,42 @@ describe("createSdkHarnessExecutor", () => {
     expect(sink.reports).toEqual([]);
   });
 
+  it("passes the command, args and timeout, and derives the cwd per workspace", async () => {
+    const { client, sink, executor } = setup({
+      dshCommand: "/opt/dsh",
+      dshArgs: ["--profile", "sdk-test"],
+      requestTimeoutMs: 1_234,
+      cwdFor: (workspace) => `/repos${workspace}`,
+    });
+
+    await executor.start(task({ workspace: "/project" }), sink);
+
+    expect(client.startCalls).toEqual([
+      {
+        cwd: "/repos/project",
+        command: "/opt/dsh",
+        args: ["--profile", "sdk-test"],
+        requestTimeoutMs: 1_234,
+      },
+    ]);
+    expect(client.initializeCalls[0]?.cwd).toBe("/repos/project");
+  });
+
+  it("reuses the workspace runtime and releases it on close", async () => {
+    const { client, sink, executor } = setup();
+    await executor.start(task({ assignmentId: "a1" }), sink);
+    await executor.start(task({ assignmentId: "a2" }), sink);
+
+    expect(client.startCalls).toHaveLength(1);
+    expect(client.initializeCalls).toHaveLength(1);
+    expect(client.prompts.map((prompt) => prompt.sessionId)).toEqual(["a1", "a2"]);
+
+    await executor.close();
+    expect(client.closeCount).toBe(1);
+  });
+});
+
+describe("createSdkHarnessExecutor events and reports", () => {
   it("forwards session events as harness events with RFC 3339 timestamps", async () => {
     const { client, sink, executor } = setup();
     await executor.start(task(), sink);
@@ -144,14 +156,123 @@ describe("createSdkHarnessExecutor", () => {
       { type: "tool/start", at: AT, data: { name: "bash" } },
       { type: "message", at: AT, data: { text: "hi" } },
     ]);
+    expect(
+      mapSessionEvent({ type: "message", at: "2026-11-16T00:00:00.000Z" }, new Date(AT)),
+    ).toEqual({
+      type: "message",
+      at: "2026-11-16T00:00:00.000Z",
+      data: { type: "message", at: "2026-11-16T00:00:00.000Z" },
+    });
   });
 
-  it("maps approval requests to escalations and resolutions back", async () => {
+  it("reports a ready report parsed from assistant text", async () => {
     const { client, sink, executor } = setup();
-    const handle = await executor.start(task(), sink);
+    await executor.start(task(), sink);
 
-    const approval = client.askApproval({ sessionId: "a1", toolName: "shell" });
-    expect(sink.escalations).toHaveLength(1);
+    client.emitAssistantText("a1", reportBlock({ kind: "ready", summary: "done", at: AT }));
+    client.resolveWait("a1");
+    await tick();
+
+    expect(sink.reports).toEqual([{ kind: "ready", summary: "done" }]);
+  });
+
+  it("reads a report from a gethen_report tool result", async () => {
+    const { client, sink, executor } = setup();
+    await executor.start(task(), sink);
+
+    client.emitEvent(
+      toolResultEvent("a1", reportBlock({ kind: "ready", summary: "file written", at: AT })),
+    );
+    client.resolveWait("a1");
+    await tick();
+
+    expect(sink.reports).toEqual([{ kind: "ready", summary: "file written" }]);
+  });
+
+  it("uses the last complete report block across events", async () => {
+    const { client, sink, executor } = setup();
+    await executor.start(task(), sink);
+
+    client.emitAssistantText("a1", reportBlock({ kind: "ready", summary: "first", at: AT }));
+    client.emitEvent(
+      toolResultEvent("a1", reportBlock({ kind: "progress", summary: "second", at: AT })),
+    );
+    client.resolveWait("a1");
+    await tick();
+
+    expect(sink.reports).toEqual([{ kind: "waiting", summary: "second" }]);
+  });
+
+  it("reports waiting when no report is produced or only a marker is mentioned", async () => {
+    const missing = setup();
+    await missing.executor.start(task(), missing.sink);
+    missing.client.emitAssistantText("a1", "some work without a report");
+    missing.client.resolveWait("a1");
+    await tick();
+    expect(missing.sink.reports).toEqual([
+      { kind: "waiting", summary: "worker produced no report" },
+    ]);
+
+    const markerOnly = setup();
+    await markerOnly.executor.start(task(), markerOnly.sink);
+    markerOnly.client.emitAssistantText("a1", "I will send [GETHEN-REPORT] later");
+    markerOnly.client.emitAssistantText("a1", "and [GETHEN-REPORT] never closes");
+    markerOnly.client.resolveWait("a1");
+    await tick();
+    expect(markerOnly.sink.reports).toEqual([
+      { kind: "waiting", summary: "worker produced no report" },
+    ]);
+  });
+
+  it("reports failed for an invalid report block or a failed wait", async () => {
+    const broken = setup();
+    await broken.executor.start(task(), broken.sink);
+    broken.client.emitAssistantText("a1", "[GETHEN-REPORT]\n{not json\n[/GETHEN-REPORT]");
+    broken.client.resolveWait("a1");
+    await tick();
+    expect(broken.sink.reports).toHaveLength(1);
+    expect(broken.sink.reports[0]?.kind).toBe("failed");
+    expect(broken.sink.reports[0]?.summary).toMatch(/invalid/i);
+
+    const down = setup();
+    await down.executor.start(task(), down.sink);
+    down.client.rejectWait("a1", new Error("transport down"));
+    await tick();
+    expect(down.sink.reports).toEqual([
+      { kind: "failed", summary: "DSH SDK wait failed: transport down" },
+    ]);
+  });
+
+  it("narrows blocked to waiting with the question and keeps ready/failed terminal", () => {
+    expect(harnessReportKind("ready")).toBe("ready");
+    expect(harnessReportKind("dropped")).toBe("ready");
+    expect(harnessReportKind("failed")).toBe("failed");
+    expect(harnessReportKind("waiting")).toBe("waiting");
+    expect(harnessReportKind("progress")).toBe("waiting");
+    expect(harnessReportKind("blocked")).toBe("waiting");
+    expect(harnessReportKind("unknown-kind")).toBe("waiting");
+  });
+
+  it("reports a blocked worker report as waiting with its question", async () => {
+    const { client, sink, executor } = setup();
+    await executor.start(task(), sink);
+    client.emitAssistantText(
+      "a1",
+      reportBlock({ kind: "blocked", summary: "blocked", question: "which env?", at: AT }),
+    );
+    client.resolveWait("a1");
+    await tick();
+
+    expect(sink.reports).toEqual([{ kind: "waiting", summary: "blocked", question: "which env?" }]);
+  });
+});
+
+describe("createSdkHarnessExecutor escalations", () => {
+  it("maps approval requests to permission escalations and back", async () => {
+    const { client, sink, executor } = setup();
+    const execution = await executor.start(task(), sink);
+
+    const allowed = client.askApproval({ sessionId: "a1", toolName: "shell" });
     expect(sink.escalations[0]).toMatchObject({
       kind: "permission",
       question: "allow shell?",
@@ -162,116 +283,189 @@ describe("createSdkHarnessExecutor", () => {
       blocking: true,
     });
     expect(sink.escalations[0]?.id).toMatch(/^a1:approval:/);
+    await execution.sendResolution({ kind: "answer", option: "allow", text: "go ahead" });
+    await expect(allowed).resolves.toBe("allowed-once");
 
-    expect(mapHarnessResolution({ kind: "answer", option: "allow" })).toEqual({
-      kind: "answer",
-      option: "allow",
-      text: "",
-    });
-    await handle.sendResolution({ kind: "answer", option: "allow", text: "go ahead" });
-    await expect(approval).resolves.toBe("allowed-once");
+    const rejected = client.askApproval({ sessionId: "a1", toolName: "write" });
+    await execution.sendResolution({ kind: "answer", option: "reject", text: "no" });
+    await expect(rejected).resolves.toBe("rejected");
+
+    const escalated = client.askApproval({ sessionId: "a1", toolName: "shell" });
+    await execution.sendResolution({ kind: "escalate", text: "a person decides" });
+    await expect(escalated).resolves.toBe("rejected");
   });
 
-  it.each([
-    ["ready", { kind: "ready", summary: "done" }, { kind: "ready", summary: "done" }],
-    [
-      "waiting",
-      { kind: "waiting", summary: "need a person", question: "who reviews?" },
-      { kind: "waiting", summary: "need a person", question: "who reviews?" },
-    ],
-    [
-      "blocked",
-      { kind: "blocked", summary: "blocked", question: "which env?" },
-      { kind: "waiting", summary: "blocked", question: "which env?" },
-    ],
-    ["failed", { kind: "failed", summary: "broke" }, { kind: "failed", summary: "broke" }],
-  ] as const)(
-    "maps a %s report onto the harness three-state report",
-    async (_label, body, expected) => {
-      const { client, sink, executor } = setup();
-      await executor.start(task(), sink);
-
-      client.emitAssistantText("a1", reportBlock({ ...body, at: AT }));
-      client.resolveWait("a1");
-      await tick();
-
-      expect(sink.reports).toEqual([expected]);
-    },
-  );
-
-  it("maps the remaining worker-protocol report kinds predictably", () => {
-    const base = { summary: "report" };
-    expect(mapExecutorReport({ ...base, kind: "progress" })).toEqual({
-      kind: "waiting",
-      summary: "report",
-    });
-    expect(mapExecutorReport({ ...base, kind: "dropped" })).toEqual({
-      kind: "ready",
-      summary: "report",
-    });
-    expect(
-      mapExecutorReport({
-        ...base,
-        kind: "blocked",
-        question: "which env?",
-        usage: { outputTokens: 3 },
-      }),
-    ).toEqual({
-      kind: "waiting",
-      summary: "report",
-      question: "which env?",
-      usage: { outputTokens: 3 },
-    });
-  });
-
-  it("delegates cancel to the DSH execution and reports failed", async () => {
+  it("maps a user question to a decision escalation and back to answers", async () => {
     const { client, sink, executor } = setup();
-    const handle = await executor.start(task(), sink);
+    const execution = await executor.start(task(), sink);
 
-    await handle.cancel("superseded by a person");
+    const asked = client.askQuestion({
+      requestId: "q-1",
+      sessionId: "a1",
+      questions: [
+        {
+          id: "q1",
+          question: "Merge or rebase?",
+          options: [{ label: "Merge" }, { label: "Rebase" }],
+        },
+      ],
+    });
+    expect(sink.escalations[0]).toMatchObject({
+      kind: "decision",
+      question: "Merge or rebase?",
+      options: [
+        { id: "q0", label: "Merge" },
+        { id: "q1", label: "Rebase" },
+      ],
+      blocking: true,
+    });
+
+    await execution.sendResolution({ kind: "answer", option: "q1", text: "Rebase" });
+    await expect(asked).resolves.toEqual({ answers: [{ id: "q1", selected: ["Rebase"] }] });
+  });
+
+  it("asks multi-question batches sequentially and maps free text or drops", async () => {
+    const { client, sink, executor } = setup();
+    const execution = await executor.start(task(), sink);
+
+    const asked = client.askQuestion({
+      requestId: "q-2",
+      sessionId: "a1",
+      questions: [
+        { id: "q1", question: "Env?", options: [{ label: "Staging" }, { label: "Prod" }] },
+        { id: "q2", question: "Version?" },
+      ],
+    });
+    expect(sink.escalations[0]?.question).toBe("Env? (1/2)");
+    await execution.sendResolution({ kind: "answer", option: "q0", text: "Staging" });
+    await tick();
+    expect(sink.escalations[1]?.question).toBe("Version? (2/2)");
+    await execution.sendResolution({ kind: "answer", text: "v2" });
+
+    await expect(asked).resolves.toEqual({
+      answers: [
+        { id: "q1", selected: ["Staging"] },
+        { id: "q2", selected: [], custom: "v2" },
+      ],
+    });
+
+    const dropped = client.askQuestion({
+      requestId: "q-3",
+      sessionId: "a1",
+      questions: [{ id: "q1", question: "Proceed?", options: [{ label: "Yes" }] }],
+    });
+    await execution.sendResolution({ kind: "drop", text: "skip" });
+    await expect(dropped).resolves.toEqual({ cancelled: true });
+  });
+
+  it("answers a tool-result escalation and prompts the resolution back", async () => {
+    const { client, sink, executor } = setup();
+    const execution = await executor.start(task(), sink);
+
+    client.emitEvent(
+      toolResultEvent(
+        "a1",
+        escalationBlock({
+          id: "esc-9",
+          kind: "decision",
+          question: "Merge or rebase?",
+          options: [
+            { id: "merge", label: "Merge" },
+            { id: "rebase", label: "Rebase" },
+          ],
+          blocking: true,
+        }),
+      ),
+    );
+    client.resolveWait("a1");
+    await tick();
+
+    expect(sink.escalations[0]).toMatchObject({
+      id: "esc-9",
+      kind: "decision",
+      question: "Merge or rebase?",
+      options: [
+        { id: "merge", label: "Merge" },
+        { id: "rebase", label: "Rebase" },
+      ],
+      blocking: true,
+    });
+
+    await execution.sendResolution({ kind: "answer", option: "merge", text: "merge it" });
+    await tick();
+    expect(client.prompts).toHaveLength(2);
+    expect(client.prompts[1]?.text).toContain("[GETHEN-RESOLUTION]");
+    expect(client.waitCalls).toHaveLength(2);
+
+    client.emitAssistantText("a1", reportBlock({ kind: "ready", summary: "merged", at: AT }));
+    client.resolveWait("a1");
+    await tick();
+    expect(sink.reports).toEqual([{ kind: "ready", summary: "merged" }]);
+  });
+});
+
+describe("createSdkHarnessExecutor failures and cancellation", () => {
+  it("cancels by closing the runtime and reporting failed once", async () => {
+    const { client, sink, executor } = setup();
+    const execution = await executor.start(task(), sink);
+
+    await execution.cancel("superseded by a person");
+    await tick();
 
     expect(client.closeCount).toBe(1);
+    expect(sink.reports).toEqual([
+      { kind: "failed", summary: "cancelled: superseded by a person" },
+    ]);
+
+    client.emitAssistantText("a1", reportBlock({ kind: "ready", summary: "late", at: AT }));
+    client.resolveWait("a1");
+    await tick();
     expect(sink.reports).toHaveLength(1);
-    expect(sink.reports[0]).toMatchObject({ kind: "failed" });
-    expect(sink.reports[0]?.summary).toMatch(/cancelled: superseded by a person/);
   });
 
-  it("reports failures as failed reports instead of throwing", async () => {
-    const init = setup();
-    init.client.failInitialize = new Error("no model route");
-    const initHandle = await init.executor.start(task(), init.sink);
-    expect(init.sink.reports).toHaveLength(1);
-    expect(init.sink.reports[0]).toMatchObject({ kind: "failed" });
-    expect(init.sink.reports[0]?.summary).toMatch(/failed to start DSH SDK runtime/);
-    // The handle is still usable and duplicate calls do not throw or re-report.
-    await expect(initHandle.sendResolution({ kind: "drop" })).resolves.toBeUndefined();
-    await expect(initHandle.cancel("again")).resolves.toBeUndefined();
-    expect(init.sink.reports).toHaveLength(1);
+  it("reports start errors as failed and retries initialization on the next start", async () => {
+    const { client, sink, executor } = setup();
+    client.failInitialize = new Error("no model route");
+    await executor.start(task(), sink);
+
+    expect(sink.reports).toHaveLength(1);
+    expect(sink.reports[0]?.kind).toBe("failed");
+    expect(sink.reports[0]?.summary).toMatch(/failed to start DSH SDK runtime/);
+    expect(client.closeCount).toBe(1);
+
+    client.failInitialize = undefined;
+    await executor.start(task({ assignmentId: "a2" }), sink);
+    expect(client.initializeCalls).toHaveLength(2);
+    expect(client.prompts).toEqual([{ sessionId: "a2", text: "do the work" }]);
 
     const prompt = setup();
     prompt.client.failPrompt = new Error("prompt rejected");
     await prompt.executor.start(task(), prompt.sink);
     expect(prompt.sink.reports).toHaveLength(1);
+    expect(prompt.sink.reports[0]?.kind).toBe("failed");
     expect(prompt.sink.reports[0]?.summary).toMatch(/failed to prompt DSH SDK session/);
-
-    const expired = setup();
-    await expired.executor.start(task({ deadlineAt: "2026-11-16T00:00:00.000Z" }), expired.sink);
-    expect(expired.sink.reports).toEqual([
-      { kind: "failed", summary: "assignment deadline had already passed" },
-    ]);
-    expect(expired.client.initializeCalls).toEqual([]);
   });
 
-  it("reuses one client per workspace and releases it on close", async () => {
-    const { client, sink, executor } = setup();
-    await executor.start(task({ assignmentId: "a1" }), sink);
-    await executor.start(task({ assignmentId: "a2" }), sink);
+  it("refuses an assignment whose deadline already passed, without spawning", async () => {
+    const spawned: FakeSdkClient[] = [];
+    const sink = new RecordingSink();
+    const executor = createSdkHarnessExecutor({
+      provider: "deepseek",
+      model: "deepseek-v4",
+      clientFactory: () => {
+        const client = new FakeSdkClient();
+        spawned.push(client);
+        return client;
+      },
+      now: () => new Date(AT),
+    });
+    executors.push(executor);
 
-    expect(client.startCalls).toHaveLength(1);
-    expect(client.initializeCalls).toHaveLength(1);
-    expect(client.prompts.map((prompt) => prompt.sessionId)).toEqual(["a1", "a2"]);
+    await executor.start(task({ deadlineAt: "2026-11-16T00:00:00.000Z" }), sink);
 
-    await executor.close();
-    expect(client.closeCount).toBe(1);
+    expect(spawned).toEqual([]);
+    expect(sink.reports).toEqual([
+      { kind: "failed", summary: "assignment deadline had already passed" },
+    ]);
   });
 });

@@ -14,8 +14,7 @@
   "dependencies": {
     "@gethen/harness": "workspace:*",
     "@gethen/master": "workspace:*",
-    "@gethen/sdk-driver": "workspace:*",
-    "@gethen/worker-agent": "workspace:*"
+    "@gethen/sdk-driver": "workspace:*"
   },
-  "description": "Worker execution driver: DSH SDK JSON-RPC sessions behind the worker-agent SessionExecutor port"
+  "description": "Worker execution driver: DSH SDK JSON-RPC sessions behind the harness-agnostic HarnessExecutor port"
 }

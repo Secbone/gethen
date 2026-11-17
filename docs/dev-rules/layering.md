@@ -135,6 +135,6 @@ pnpm check 同时运行 TypeScript 行为测试和 PAST Python 审计测试。�
 尚未删除、将在后续阶段并入或移出的包：`domain`（→ 自研 master 的类型）、
 `effects`/`store`/`storage-file`（→ master 的持久化与 outbox）、`source-github`
 （→ master 的 sources）、`observability`/`evolution`（→ `evidence`）、
-`transport-pi`/`transport-acp`/`harnesses`（→ `bridge-remote`/`worker`）、
+`transport-pi`/`transport-acp`/`harnesses`（历史层，`bridge-remote` 已在 C7 删除）、
 `benchmark`/`benchmark-file`/`evaluation`/`workspace`（→ P7 移出产品）。
 最终目标为 14 个产品包，见重构计划 §3.1。

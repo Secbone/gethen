@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-// R5-B opt-in e2e: master (startServe, in-memory worker token) -> worker-agent
-// (real WS) -> createSdkExecutor -> real `dsh --profile sdk --patch <overlay>`.
+// R5 opt-in e2e (mailbox transport): master (`gethen serve`, L1 ws + L2 mailbox)
+// -> worker side (transport connect + mailbox link + mailbox agent) ->
+// `createSdkHarnessExecutor` -> real `dsh --profile sdk --patch <overlay>`.
 //
 // This spawns a real DSH SDK runtime and costs model tokens, so it only runs
 // with GETHEN_E2E=1:
@@ -14,7 +15,7 @@
 // credential seam (launch environment, `$DSH_HOME/.env`, ...).
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { hostname, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -26,7 +27,7 @@ const WORKER_ENTRY = "file:///home/secbone/.local/share/gethen/dsh/worker.js";
 const DSH_COMMAND = process.env.GETHEN_DSH ?? "dsh";
 const PROVIDER = process.env.GETHEN_E2E_PROVIDER ?? "opencode-go";
 const MODEL = process.env.GETHEN_E2E_MODEL ?? "deepseek-v4.1-flash";
-const INSTRUCTION = "在 /tmp/gethen-e2e/ 下创建 ok.txt 写入 ok，然后报告 ready";
+const INSTRUCTION = `在 ${E2E_DIR}/ 下创建 ok.txt 写入 ok，然后报告 ready`;
 const MAX_RUN_MS = Number(process.env.GETHEN_E2E_TIMEOUT_MS ?? 15 * 60_000);
 const MAX_EVENTS = 200;
 
@@ -136,12 +137,13 @@ async function main() {
   const { register } = await import("tsx/esm/api");
   register();
   const { startServe } = await import("../packages/cli/src/commands/serve.ts");
-  const { createWorkerAgent } = await import("../packages/worker-agent/src/index.ts");
-  const { createSdkExecutor } = await import("../packages/executor-sdk/src/index.ts");
+  const { createWsTransport } = await import("../packages/transport/src/index.ts");
+  const { createMailboxClientLink } = await import("../packages/mailbox-link/src/index.ts");
+  const { createMailboxAgent } = await import("../packages/agent/src/index.ts");
+  const { createSdkHarnessExecutor } = await import("../packages/executor-sdk/src/index.ts");
   const { DshSdkClient } = await import("../packages/sdk-driver/src/index.ts");
 
   class E2eClient extends DshSdkClient {
-    #prompted = false;
     constructor() {
       super();
       this.onStderr((text) => process.stderr.write(`e2e-sdk: dsh stderr: ${text}`));
@@ -186,8 +188,10 @@ async function main() {
   const token = "e2e-sdk-token";
   const workerId = "e2e-sdk-worker";
   let handle;
-  let worker;
-  let executor;
+  let session;
+  let link;
+  let agent;
+  let harness;
   try {
     rmSync(E2E_DIR, { recursive: true, force: true });
     mkdirSync(E2E_DIR, { recursive: true });
@@ -197,6 +201,7 @@ async function main() {
       port: 0,
       tokens: [{ workerId, token }],
       workspace: E2E_DIR,
+      mailboxDbPath: join(stateDir, "mailbox.sqlite"),
       // Answer permission escalations (and any decision) automatically so the
       // check does not need a person; option ids come from the recorded options.
       resolveEscalation: async (record) => ({
@@ -206,7 +211,12 @@ async function main() {
       }),
     });
 
-    executor = createSdkExecutor({
+    session = await createWsTransport({ heartbeat: true }).connect(
+      { url: `ws://127.0.0.1:${handle.port}/gethen/worker` },
+      { kind: "bearer", token },
+    );
+    link = await createMailboxClientLink({ session, mailbox: `mailbox:${workerId}` });
+    harness = createSdkHarnessExecutor({
       provider: PROVIDER,
       model: MODEL,
       dshCommand: DSH_COMMAND,
@@ -214,30 +224,23 @@ async function main() {
       requestTimeoutMs: MAX_RUN_MS,
       clientFactory: () => new E2eClient(),
     });
-
-    worker = createWorkerAgent({
-      masterUrl: `ws://127.0.0.1:${handle.port}/gethen/worker`,
-      token,
+    agent = createMailboxAgent({
       workerId,
-      machine: hostname(),
-      platform: process.platform,
-      runtimes: ["dsh"],
-      workspaces: [E2E_DIR],
-      models: [MODEL],
-      capabilities: {},
+      mailbox: link,
+      harness,
       quota: 1,
-      executor,
-      reconnect: { initialDelayMs: 100, maxDelayMs: 500, jitter: 0 },
-      logger: { error: (message) => process.stderr.write(`e2e-sdk: worker: ${message}\n`) },
+      pollIntervalMs: 50,
+      onError: (error, context) =>
+        process.stderr.write(`e2e-sdk: agent ${context.phase} error: ${String(error)}\n`),
     });
+    agent.start();
 
-    await worker.whenConnected();
     await waitFor(
       async () => (await json(handle.port, "/health")).body.workers === 1,
-      10_000,
-      "worker hello was not registered by the gateway",
+      20_000,
+      "worker did not attach to the mailbox transport",
     );
-    process.stdout.write("e2e-sdk: worker connected, dispatching assignment\n");
+    process.stdout.write("e2e-sdk: worker attached, dispatching assignment\n");
 
     const progress = setInterval(() => {
       const last = events.at(-1);
@@ -276,6 +279,7 @@ async function main() {
     check(health.launch === "ws", `expected launch="ws", got ${health.launch}`);
     check(health.tickets === 1, `expected tickets=1, got ${health.tickets}`);
     check(health.receipts === 1, `expected receipts=1, got ${health.receipts}`);
+    check(health.mailbox !== undefined, "expected mailbox counters on /health");
 
     check(existsSync(OK_FILE), `worker did not create ${OK_FILE}`);
     const content = readFileSync(OK_FILE, "utf8").trim();
@@ -290,8 +294,10 @@ async function main() {
     );
     printEvents(20);
   } finally {
-    if (worker !== undefined) await worker.close().catch(() => undefined);
-    if (executor !== undefined) await executor.close().catch(() => undefined);
+    if (agent !== undefined) await agent.stop().catch(() => undefined);
+    if (link !== undefined) link.close();
+    if (session !== undefined) await session.close("e2e_done").catch(() => undefined);
+    if (harness !== undefined) await harness.close().catch(() => undefined);
     if (handle !== undefined) await handle.close().catch(() => undefined);
     rmSync(stateDir, { recursive: true, force: true });
   }

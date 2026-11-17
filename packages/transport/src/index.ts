@@ -20,6 +20,7 @@ export {
   DEFAULT_MAX_SEND_QUEUE,
   DEFAULT_SEND_TIMEOUT_MS,
 } from "./adapters/ws/session";
+export * from "./auth";
 export type {
   TransportAuth,
   TransportCloseCode,

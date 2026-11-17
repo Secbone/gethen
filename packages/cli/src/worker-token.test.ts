@@ -10,7 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SqliteStore } from "@gethen/master";
-import { hashWorkerToken, type WorkerTokenRecord } from "@gethen/transport-ws";
+import { hashToken, type TokenRecord } from "@gethen/transport";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { workerCommand } from "./commands/worker";
 import {
@@ -64,8 +64,8 @@ function testOptions(overrides: Partial<WorkerTokenOptions> = {}): WorkerTokenOp
   return { now: () => new Date(AT), randomToken: tokens(), ...overrides };
 }
 
-function readTokens(path: string): WorkerTokenRecord[] {
-  return JSON.parse(readFileSync(path, "utf8")) as WorkerTokenRecord[];
+function readTokens(path: string): TokenRecord[] {
+  return JSON.parse(readFileSync(path, "utf8")) as TokenRecord[];
 }
 
 describe("gethen worker add/ls/revoke", () => {
@@ -88,7 +88,7 @@ describe("gethen worker add/ls/revoke", () => {
 
     const store = new SqliteStore(dbPath);
     try {
-      const record = store.findWorkerByTokenHash(hashWorkerToken("token-one"));
+      const record = store.findWorkerByTokenHash(hashToken("token-one"));
       expect(record).toMatchObject({ id: "w1", name: "Box 1" });
       expect(record?.createdAt).toBe(AT);
       expect(record?.lastSeenAt).toBeUndefined();
@@ -130,8 +130,8 @@ describe("gethen worker add/ls/revoke", () => {
 
     const store = new SqliteStore(dbPath);
     try {
-      expect(store.findWorkerByTokenHash(hashWorkerToken("old-token"))).toBeUndefined();
-      expect(store.findWorkerByTokenHash(hashWorkerToken("new-token"))?.id).toBe("w1");
+      expect(store.findWorkerByTokenHash(hashToken("old-token"))).toBeUndefined();
+      expect(store.findWorkerByTokenHash(hashToken("new-token"))?.id).toBe("w1");
     } finally {
       store.close();
     }
