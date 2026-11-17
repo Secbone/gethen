@@ -507,6 +507,18 @@ export class SqliteStore implements Repositories, ReceiptSink, WorkerRegistry {
     });
   }
 
+  /** True when any of these effect keys still has a waiting/running effect. */
+  hasPendingEffects(keys: readonly string[]): boolean {
+    if (keys.length === 0) return false;
+    const placeholders = keys.map(() => "?").join(", ");
+    const row = this.one(
+      `SELECT 1 AS present FROM effects
+       WHERE status IN ('waiting', 'running') AND "key" IN (${placeholders}) LIMIT 1`,
+      ...keys,
+    );
+    return row !== undefined;
+  }
+
   /** Marks a claimed effect done. Unknown or already finished ids are ignored. */
   complete(id: string, doneAt: string = new Date().toISOString()): void {
     this.run(

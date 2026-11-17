@@ -73,6 +73,15 @@ export interface ServeCommandOptions {
 
 const MAX_BODY_BYTES = 64 * 1024;
 
+function optionalWaitMs(value: unknown): number | undefined {
+  if (value === undefined || value === null) return undefined;
+  const parsed = typeof value === "number" ? value : Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error("waitMs must be a positive integer");
+  }
+  return parsed;
+}
+
 function text(value: unknown, workspace: string): Trigger {
   const message = typeof value === "string" ? value.trim() : "";
   if (message.length === 0) throw new Error("text is required");
@@ -179,16 +188,26 @@ export async function startServe(config: ServeConfig = {}): Promise<ServeHandle>
         if (request.method === "POST" && pathname === "/gethen/run") {
           const body = await readJson(request);
           const trigger = text(body.text as string | undefined, config.workspace ?? process.cwd());
+          const waitMs = optionalWaitMs(body.waitMs);
           const result = await service.submit(trigger);
-          const ticket = service.store.tickets.list().at(-1);
+          const created = service.store.tickets.list().at(-1);
+          // Wait for the launch effect + receipt: an immediate snapshot can race
+          // with a failed first attempt that the outbox retries successfully.
+          const settlement =
+            created === undefined
+              ? undefined
+              : await service.waitForTicket(
+                  created.id,
+                  waitMs === undefined ? {} : { timeoutMs: waitMs },
+                );
+          const ticket = settlement?.ticket ?? created;
           send(response, 200, {
             stored: result.stored,
             outcome: result.decision?.outcome ?? "",
             ticket: ticket?.id ?? "",
             report: ticket?.latestReport ?? "",
-            receipt: ticket
-              ? service.store.listReceipts().some((row) => row.ticket === ticket.id)
-              : false,
+            receipt: settlement?.receipt ?? false,
+            settled: settlement?.settled ?? false,
           });
           return;
         }

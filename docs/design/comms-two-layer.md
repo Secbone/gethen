@@ -323,6 +323,13 @@ interface TaskState { assignmentId; phase; step; lastTool?: {name,startedAt};
 
 `isolation: "shared" | "process"`（默认 shared）：process 模式每个 assignment 独立 `dsh --profile sdk`，cancel 可精确杀进程；shared 模式取消会影响同 workspace 的其它 session。
 
+### 结果读取一致性
+
+`gethen_run` / `POST /gethen/run` 在返回前调用 `MasterService.waitForTicket()`：
+等待 launch effect 完成且 receipt 落库（失败的首次尝试可能被 outbox 重试，
+立即快照会读到 `failed`/`receipt:0`）。返回 `settled:false` 表示等待超时，
+此时应以 `gethen_status` / `gethen task status` 的后续状态为准。
+
 ### 限制
 
 DSH SDK 0.2.2 没有 per-turn interrupt；精确打断依赖进程隔离或 approval/question 拒绝；steering 是排队输入，不保证立即中断。

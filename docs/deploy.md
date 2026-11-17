@@ -105,7 +105,7 @@ HTTP 表面：
 | 方法 | 路径 | 用途 |
 |---|---|---|
 | `GET` | `/health` | `ok`、`uptimeMs`、`tickets`、`open`、`receipts`、`escalations`、`workers`、`launch`(`ws`/`fake`)、`protocol` |
-| `POST` | `/gethen/run` | 本地投递一次工单（body `{"text":"..."}`），等待一次 launch 完成 |
+| `POST` | `/gethen/run` | 本地投递一次工单（body `{"text":"...","waitMs?":n}`）；等待 launch 结束并落 receipt，返回 `settled` |
 | `GET` | `/gethen/tasks` | 当前已知 assignment 的实时状态（phase/step/lastTool/lastMessage） |
 | `GET` | `/gethen/tasks/:id[?timeoutMs=n]` | 查询单个 assignment（缓存优先，否则向 worker 发 status 请求） |
 | `POST` | `/gethen/tasks/:id/steer` | `{"text":"..."}` 给运行中的 session 追加输入（best-effort） |

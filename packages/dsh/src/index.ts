@@ -110,6 +110,8 @@ export interface GethenConfig {
    * escalation with this text. Without it an escalation is parked for a person.
    */
   escalation?: { answer?: string };
+  /** Upper bound for `gethen_run` waiting on the receipt; defaults to 10 minutes. */
+  runWaitMs?: number;
 }
 
 /** The worker transport endpoint registered on the DSH web server. */
@@ -229,6 +231,8 @@ interface ToolDeps {
   mailbox?(): MailboxHealth | undefined;
   /** Runtime task state/control; fake mode reports `RUNTIME_COMMS_UNAVAILABLE`. */
   tasks?: MasterRuntimeTasks;
+  /** Upper bound for `gethen_run` waiting on settlement. */
+  runWaitMs?: number;
 }
 
 /** Register the read/write tool surface against one master service. */
@@ -307,8 +311,9 @@ function registerTools(ctx: DshContext, deps: ToolDeps): void {
           ticket: { type: "string" },
           report: { type: "string" },
           receipt: { type: "number" },
+          settled: { type: "boolean" },
         },
-        ["stored", "outcome", "ticket", "report", "receipt"],
+        ["stored", "outcome", "ticket", "report", "receipt", "settled"],
       ),
       render: (_args, value) => text(value),
     },
@@ -330,16 +335,24 @@ function registerTools(ctx: DshContext, deps: ToolDeps): void {
         meta: { scope: "local" },
       };
       const result = await service.submit(trigger);
-      const ticket = service.store.tickets.list().find((item) => !before.has(item.id));
-      const received =
-        ticket !== undefined &&
-        service.store.listReceipts().some((receipt) => receipt.ticket === ticket.id);
+      const created = service.store.tickets.list().find((item) => !before.has(item.id));
+      // A failed first launch attempt is retried by the outbox; snapshotting
+      // tickets/receipts immediately can observe `failed`/0 while the retry
+      // later completes. Wait for the launch effect and receipt instead.
+      const settlement =
+        created === undefined
+          ? undefined
+          : await service.waitForTicket(created.id, {
+              ...(deps.runWaitMs === undefined ? {} : { timeoutMs: deps.runWaitMs }),
+            });
+      const ticket = settlement?.ticket ?? created;
       return {
         stored: result.stored,
         outcome: result.decision?.outcome ?? "",
         ticket: ticket?.id ?? "",
         report: ticket?.latestReport ?? "",
-        receipt: received ? 1 : 0,
+        receipt: settlement?.receipt === true ? 1 : 0,
+        settled: settlement?.settled ?? false,
       };
     },
   });
@@ -469,6 +482,7 @@ export function apply(ctx: DshContext, config: GethenConfig = {}): void {
     workers: () => mounted.health().workers,
     mailbox: () => (mounted.launch === "ws" ? mounted.health().mailbox : undefined),
     tasks: mounted.tasks,
+    ...(config.runWaitMs === undefined ? {} : { runWaitMs: config.runWaitMs }),
   });
 }
 
