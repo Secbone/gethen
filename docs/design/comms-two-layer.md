@@ -290,3 +290,39 @@ pnpm verify:ws        # legacy WS 栈
 pnpm verify:mailbox   # L1 transport + L2 mailbox 栈（fake harness，不花模型钱）
 GETHEN_E2E=1 node scripts/e2e-sdk.mjs   # legacy + 真实 dsh
 ```
+
+## 执行可观测与干预（P1–P3 实现约定）
+
+目标：不依赖"等待总时长"，改为事件驱动完成 + 静默看门狗；Master 能看到 session 实时状态，并能 steer/cancel。
+
+### 完成与超时
+
+| 机制 | 语义 |
+|---|---|
+| 完成 | 收到该 session 的 `turn/end`（`session.status` idle/ended 兜底）即完成，解析 report |
+| 短请求超时 | initialize / prompt / status 等短 RPC 保留 30s–10min 级超时 |
+| **静默看门狗** | 任何 session event 重置计时；连续 `idleTimeoutMs`（默认 5 分钟）无事件 → failed/stalled，可选终止 |
+| 任务 deadline | assignment `deadlineAt` 到点 → failed，并取消执行 |
+
+不再使用"总时长超时"判失败。
+
+### 任务状态消息
+
+```ts
+type TaskPhase = "starting" | "thinking" | "tool" | "waiting" | "done" | "failed";
+interface TaskState { assignmentId; phase; step; lastTool?: {name,startedAt};
+  lastEventAt; lastMessage?; seq }
+```
+
+- `gethen.task.progress`：worker 节流上报 `{assignmentId, state}`（at-most-once）；
+- `gethen.task.status` / `gethen.task.status.result`：Master 查询实时状态（request/reply）；
+- `gethen.task.steer`：向运行中的 session 追加输入（best-effort，DSH 排队）；
+- `gethen.task.cancel`：worker 顺序执行 —— reject 挂起 escalation → steer "stop" → 宽限期 → 按隔离策略终止（shared 关 client / process 杀子进程）→ `failed(cancelled)`。
+
+### 隔离
+
+`isolation: "shared" | "process"`（默认 shared）：process 模式每个 assignment 独立 `dsh --profile sdk`，cancel 可精确杀进程；shared 模式取消会影响同 workspace 的其它 session。
+
+### 限制
+
+DSH SDK 0.2.2 没有 per-turn interrupt；精确打断依赖进程隔离或 approval/question 拒绝；steering 是排队输入，不保证立即中断。
