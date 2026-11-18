@@ -1,10 +1,11 @@
 import { once } from "node:events";
 import { createServer, type Server } from "node:http";
-import { connect as netConnect } from "node:net";
+import { createServer as createNetServer, connect as netConnect } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket, WebSocketServer } from "ws";
 import {
   createTransport,
+  createWsTransport,
   createWsTransportServer,
   TRANSPORT_CLOSE_CODES,
   type Transport,
@@ -249,6 +250,34 @@ async function rawUpgradeStatus(port: number, headers: Record<string, string>): 
   socket.destroy();
   return chunk.toString("utf8").split("\r\n")[0] ?? "";
 }
+
+describe("ws transport connection failures", () => {
+  it("rejects a handshake timeout without leaking an unhandled WebSocket error", async () => {
+    // Accept the TCP connection but never complete the HTTP upgrade, then
+    // terminate the client from the timeout path. The terminating socket emits
+    // an asynchronous error that used to crash the worker during reconnect.
+    const sockets = new Set<import("node:net").Socket>();
+    const server = createNetServer((socket) => {
+      sockets.add(socket);
+      socket.on("close", () => sockets.delete(socket));
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+    const address = server.address();
+    const port = typeof address === "object" && address !== null ? address.port : 0;
+    try {
+      const transport = createWsTransport({ connectTimeoutMs: 30, heartbeat: false });
+      await expect(
+        transport.connect({ url: `ws://127.0.0.1:${port}` }, BEARER),
+      ).rejects.toMatchObject({ code: "timeout" });
+      // Give the terminated socket's error event time to fire. A missing
+      // listener would fail this suite as an unhandled error.
+      await delay(50);
+    } finally {
+      for (const socket of sockets) socket.destroy();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+});
 
 describe("ws transport sessions", () => {
   it("resolves a hostname override while keeping the URL hostname", async () => {

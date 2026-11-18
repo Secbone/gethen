@@ -326,6 +326,7 @@ function registerTools(ctx: DshContext, deps: ToolDeps): void {
             properties: {
               directCompleted: { type: "number" },
               recoveredCompleted: { type: "number" },
+              recoveredWithoutReport: { type: "number" },
             },
             required: ["directCompleted", "recoveredCompleted", "recoveredWithoutReport"],
           },

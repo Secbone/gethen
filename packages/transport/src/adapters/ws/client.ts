@@ -108,6 +108,12 @@ async function connectWs(
   try {
     await waitForOpen(ws, options.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS);
   } catch (error) {
+    // `ws.terminate()` on a CONNECTING socket emits its own "WebSocket was
+    // closed before the connection was established" error asynchronously.
+    // waitForOpen already removed its listeners, so absorb that event here;
+    // otherwise Node treats it as an uncaught 'error' and kills the worker
+    // during reconnect.
+    ws.on("error", () => {});
     ws.terminate();
     throw error;
   }
