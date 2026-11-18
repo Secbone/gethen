@@ -71,6 +71,8 @@ interface HarnessOptions {
   launchTimeoutMs?: number;
   reconcileIntervalMs?: number;
   recoveryGraceMs?: number;
+  timedOutRetentionMs?: number;
+  maxTimedOutPending?: number;
   withServer?: boolean;
 }
 
@@ -131,6 +133,12 @@ async function startHarness(options: HarnessOptions = {}): Promise<Harness> {
       ? {}
       : { reconcileIntervalMs: options.reconcileIntervalMs }),
     ...(options.recoveryGraceMs === undefined ? {} : { recoveryGraceMs: options.recoveryGraceMs }),
+    ...(options.timedOutRetentionMs === undefined
+      ? {}
+      : { timedOutRetentionMs: options.timedOutRetentionMs }),
+    ...(options.maxTimedOutPending === undefined
+      ? {}
+      : { maxTimedOutPending: options.maxTimedOutPending }),
   };
   const runtime = createMasterRuntime(runtimeOptions);
   const harness: Harness = { runtime };
@@ -783,6 +791,44 @@ describe("createMasterRuntime mailbox stack", () => {
       outcome: "completed",
       summary: "long command done",
     });
+  });
+
+  it("prunes timed-out pending entries after the retention window", async () => {
+    const harness = await startHarness({
+      launchTimeoutMs: 20,
+      timedOutRetentionMs: 50,
+      reconcileIntervalMs: 0,
+    });
+    const runtime = harness.runtime;
+    const { link } = await attachWorker(harness);
+    const trigger: Trigger = {
+      id: "trigger-prune-timeout",
+      source: "local",
+      thread: "local",
+      actor: "local-user",
+      bot: false,
+      addressed: "mention",
+      text: "time out and stay gone",
+      at: AT,
+      meta: { scope: "local", workspace: "/ws" },
+    };
+    const submitted = runtime.service.submit(trigger);
+    const assign = await receiveOne(link);
+    const assignmentId = assignmentIdOf(assign.envelope);
+    await link.ack([assign.envelope.id]);
+    await submitted;
+    const ticketId = runtime.service.store.tickets.list().at(-1)?.id;
+    if (ticketId === undefined) throw new Error("expected a ticket");
+    await waitFor(() => runtime.service.store.tickets.get(ticketId)?.latestReport === "failed");
+
+    const file = join(dir, `master-${sequence}.sqlite.pending.json`);
+    await waitFor(() => {
+      if (!existsSync(file)) return true;
+      const rows = JSON.parse(readFileSync(file, "utf8")) as Array<{
+        request?: { assignment?: { id?: string } };
+      }>;
+      return !rows.some((row) => row.request?.assignment?.id === assignmentId);
+    }, 2_000);
   });
 
   it("persists a parked launch under the master db directory", async () => {

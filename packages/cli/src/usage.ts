@@ -4,6 +4,7 @@ Usage:
   gethen init      Create ~/.gethen and print next steps
   gethen serve     Start the master control plane (mailbox transport)
   gethen mailbox   Inspect, replay or clear dead-lettered mailbox messages
+  gethen repair    Re-apply a late Worker result to a settled assignment
   gethen worker    Run the worker daemon, or manage tokens: worker add|ls|revoke
   gethen run       Dispatch one run to a master and print the result
   gethen status    Read the master database (counts + recent tickets)

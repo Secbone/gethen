@@ -1,6 +1,7 @@
 import { doctorCommand } from "./commands/doctor";
 import { initCommand } from "./commands/init";
 import { mailboxCommand } from "./commands/mailbox";
+import { repairCommand } from "./commands/repair";
 import { runCommand } from "./commands/run";
 import { serveCommand } from "./commands/serve";
 import { sessionCommand } from "./commands/session";
@@ -32,6 +33,8 @@ async function dispatch(argv: string[]): Promise<number> {
       return initCommand();
     case "mailbox":
       return mailboxCommand(argv.slice(1));
+    case "repair":
+      return repairCommand(argv.slice(1));
     case "doctor": {
       const workerConfig = flagValue(argv.slice(1), "--worker-config");
       return doctorCommand({

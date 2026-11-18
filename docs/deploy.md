@@ -240,6 +240,14 @@ gethen serve ... --retention-ms 86400000    # 或 GETHEN_RETENTION_MS=86400000
 该值统一覆盖 merged/completed/closed/dropped/stopped 的归档窗口；DSH 插件用
 `config.retentionMs`。默认仍是 completed/closed 7 天、merged 30 天、dropped/stopped 1 天。
 
+超时 pending 保留上限：
+
+- `routing.allowWorkspaceFallback: true`（默认 false）：没有 Worker 精确声明 workspace 时，
+  在其余硬过滤通过的可用 Worker 中选最佳者，决策 reason 标注 `workspace-fallback:*`；
+  默认严格模式仍 `ROUTER_PARKED`。
+- `timedOutRetentionMs`（默认 24h）与 `maxTimedOutPending`（默认 100）：限制超时后仍保留
+  用于迟到回写的 pending 数量，超限/过期会被清理。
+
 needs-action 自动收敛：
 
 ```bash
@@ -263,12 +271,15 @@ gethen mailbox clear  --mailbox mailbox:master [--id <id> ...]
 已超时但 Worker 后来实际完成的 assignment 可用一次性修复：
 
 ```bash
-tsx scripts/repair-late-result.mjs <assignmentId> <master.sqlite> <mailbox.sqlite>
+gethen repair late-result --assignment <id> \
+  --db <master.sqlite> --mailbox-db <mailbox.sqlite> [--dry-run] [--no-backup]
 ```
 
-脚本优先从 mailbox 里的 `gethen.task.status.result` 取真实 report；如果已被清理，会向
-`assignment.worker` 发一个私有 reply mailbox 的 status 探测，取 Worker retained report，
-然后更新 Ticket latest_report 并追加一条 late receipt。
+默认先 `VACUUM INTO` 备份 master DB；`--dry-run` 只打印将更新的 Ticket/report，不写库。
+CLI 从 mailbox 的 `gethen.task.status.result` 取真实 report。若 mailbox 已被清理，可改用
+`tsx scripts/repair-late-result.mjs <assignmentId> <master.sqlite> <mailbox.sqlite>`，它会
+向 `assignment.worker` 发一个私有 reply mailbox 的 status 探测，取 Worker retained report。
+两种方式都更新 Ticket latest_report 并追加 late receipt。
 
 ## 2. Worker 部署
 

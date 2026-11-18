@@ -220,6 +220,39 @@ describe("createRoutedLaunchPort", () => {
     await two;
   });
 
+  it("soft-falls back to an available worker when the workspace is not advertised", async () => {
+    const directory = new WorkerDirectory(["worker-a", "worker-b"]);
+    directory.register(manifest("worker-a", "/ws-a"), AT);
+    directory.register(manifest("worker-b", "/ws-b"), AT);
+    const a = deferredPort();
+    const b = deferredPort();
+    const plans: string[] = [];
+    const port = createRoutedLaunchPort({
+      directory,
+      ports: new Map([
+        ["worker-a", a.port],
+        ["worker-b", b.port],
+      ]),
+      routing: { allowWorkspaceFallback: true },
+      onRoute: (_request, plan) => plans.push(plan.reason),
+    });
+    const launched = port.launch(request("assignment-fallback", "/missing"));
+    const call = a.calls[0] ?? b.calls[0];
+    expect(call).toBeDefined();
+    expect(plans[0]).toContain("workspace-fallback:workspace-missing:/missing");
+    call?.resolve(result(call.request.assignment.worker));
+    await launched;
+  });
+
+  it("keeps strict workspace parking by default", async () => {
+    const directory = new WorkerDirectory(["worker-a", "worker-b"]);
+    directory.register(manifest("worker-a", "/ws-a"), AT);
+    directory.register(manifest("worker-b", "/ws-b"), AT);
+    const port = createRoutedLaunchPort({ directory, ports: new Map() });
+    const outcome = await port.launch(request("assignment-strict", "/missing"));
+    expect(outcome.report.summary).toContain("ROUTER_PARKED:workspace-missing");
+  });
+
   it("returns a terminal failed receipt when no worker can serve the workspace", async () => {
     const directory = new WorkerDirectory(["worker-a", "worker-b"]);
     directory.register(manifest("worker-a", "/ws-a"), AT);

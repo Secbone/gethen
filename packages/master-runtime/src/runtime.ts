@@ -237,6 +237,10 @@ export interface MasterRuntimeOptions {
   reconcileIntervalMs?: number;
   /** Grace before a status probe may settle a launch; defaults to the bridge's 5s. */
   recoveryGraceMs?: number;
+  /** How long a timed-out launch is kept for late recovery; defaults to 24h. */
+  timedOutRetentionMs?: number;
+  /** Maximum timed-out pending entries kept; defaults to 100. */
+  maxTimedOutPending?: number;
   /** Thresholds for `/health` warnings; each defaults to 1 (report any non-zero). */
   warnings?: WarningThresholds;
   /** Archive every terminal Ticket after this window (all outcomes). */
@@ -417,6 +421,12 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
       ...(options.recoveryGraceMs === undefined
         ? {}
         : { recoveryGraceMs: options.recoveryGraceMs }),
+      ...(options.timedOutRetentionMs === undefined
+        ? {}
+        : { timedOutRetentionMs: options.timedOutRetentionMs }),
+      ...(options.maxTimedOutPending === undefined
+        ? {}
+        : { maxTimedOutPending: options.maxTimedOutPending }),
       ...(options.pollIntervalMs === undefined ? {} : { pollIntervalMs: options.pollIntervalMs }),
       ...(options.resolveEscalation === undefined
         ? {}

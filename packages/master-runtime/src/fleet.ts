@@ -55,6 +55,13 @@ export interface RoutingOptions {
   queueTimeoutMs?: number;
   /** Poll interval while queued; defaults to 100ms. */
   queuePollMs?: number;
+  /**
+   * When no Worker advertises the requested workspace, route to the best
+   * otherwise-eligible Worker instead of parking. Default false (strict
+   * workspace isolation); enabled decisions carry a `workspace-fallback`
+   * reason.
+   */
+  allowWorkspaceFallback?: boolean;
 }
 
 /**
@@ -365,11 +372,40 @@ export function createRoutedLaunchPort(options: RoutedLaunchPortOptions): Routed
   }
 
   function planFor(request: LaunchRequest): RoutePlan {
-    return directory.plan(
-      requirementFor(request),
+    const requirement = requirementFor(request);
+    const plan = directory.plan(
+      requirement,
       options.evidence?.() ?? {},
       directory.sessionWorker(request.assignment.session),
     );
+    if (
+      routing.allowWorkspaceFallback !== true ||
+      plan.action !== "park" ||
+      requirement.workspace === undefined ||
+      !plan.route.rejected.some((rejected) => rejected.reason.startsWith("workspace-missing:"))
+    ) {
+      return plan;
+    }
+    // Soft fallback: keep every other hard filter, but ignore the workspace
+    // affinity filter. The selected Worker may materialize the workspace itself
+    // (e.g. a remote Worker with a different local mount).
+    const fallback = directory.plan(
+      { ...requirement, workspace: undefined },
+      options.evidence?.() ?? {},
+      directory.sessionWorker(request.assignment.session),
+    );
+    if (fallback.action !== "start" && fallback.action !== "reuse") return plan;
+    return {
+      ...fallback,
+      reason: `workspace-fallback:${plan.reason}`,
+      route: {
+        ...fallback.route,
+        candidates: fallback.route.candidates.map((candidate) => ({
+          ...candidate,
+          reasons: [...candidate.reasons, { code: "workspace-fallback" }],
+        })),
+      },
+    };
   }
 
   function failed(request: LaunchRequest, plan: RoutePlan, summary: string): LaunchResult {

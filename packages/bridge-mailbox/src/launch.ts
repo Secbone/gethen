@@ -344,6 +344,10 @@ export interface MailboxLaunchOptions {
    * arrives during the grace window.
    */
   recoveryGraceMs?: number;
+  /** How long a timed-out launch is kept for late recovery; defaults to 24h. */
+  timedOutRetentionMs?: number;
+  /** Maximum timed-out pending entries kept; oldest are dropped first. */
+  maxTimedOutPending?: number;
   /**
    * JSON file that persists unresolved/parked launches across a Master restart.
    * Restored entries keep their parked escalation answerable and deliver a late
@@ -480,6 +484,8 @@ interface PendingLaunch {
   recoveryCandidate?: { report: Report; seenAt: number };
   /** The launch was settled as a silence timeout; keep it for late recovery. */
   timedOut?: boolean;
+  /** When the timeout settlement happened (epoch ms). */
+  timedOutAt?: number;
   resolve(result: LaunchResult): void;
   reject(error: Error): void;
 }
@@ -547,6 +553,18 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
     configuredGrace !== undefined && Number.isFinite(configuredGrace) && configuredGrace >= 0
       ? configuredGrace
       : 5_000;
+  const timedOutRetentionMs =
+    options.timedOutRetentionMs !== undefined &&
+    Number.isFinite(options.timedOutRetentionMs) &&
+    options.timedOutRetentionMs > 0
+      ? options.timedOutRetentionMs
+      : 24 * 60 * 60_000;
+  const maxTimedOutPending =
+    options.maxTimedOutPending !== undefined &&
+    Number.isInteger(options.maxTimedOutPending) &&
+    options.maxTimedOutPending > 0
+      ? options.maxTimedOutPending
+      : 100;
   const pollIntervalMs =
     options.pollIntervalMs ?? client.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
   const leaseMs = options.leaseMs ?? DEFAULT_LEASE_MS;
@@ -777,6 +795,8 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
     }
     pending.launchSettled = true;
     pending.timedOut = true;
+    pending.timedOutAt = Date.now();
+    pruneTimedOut();
     persistPendingState();
     pending.reject(
       new MailboxLaunchError(
@@ -1425,7 +1445,30 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
         // The lease will expire and redeliver if the ack failed.
       }
     }
+    pruneTimedOut();
     return handled;
+  }
+
+  /**
+   * Drop timed-out launches that are too old or exceed the retention cap.
+   * They are kept only for late recovery; bounding them keeps memory and the
+   * pending-state file finite under repeated timeouts.
+   */
+  function pruneTimedOut(): void {
+    const now = Date.now();
+    const timedOut = [...pendingByAssignment.values()].filter(
+      (pending) => pending.timedOut === true,
+    );
+    const expired = timedOut.filter(
+      (pending) => now - (pending.timedOutAt ?? 0) >= timedOutRetentionMs,
+    );
+    for (const pending of expired) finish(pending);
+    const remaining = timedOut.filter((pending) => !expired.includes(pending));
+    if (remaining.length <= maxTimedOutPending) return;
+    const excess = remaining
+      .sort((left, right) => (left.timedOutAt ?? 0) - (right.timedOutAt ?? 0))
+      .slice(0, remaining.length - maxTimedOutPending);
+    for (const pending of excess) finish(pending);
   }
 
   function start(): void {
