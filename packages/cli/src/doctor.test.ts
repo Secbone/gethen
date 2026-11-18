@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -92,5 +93,44 @@ describe("gethen doctor --json and checks", () => {
     expect(
       doctorCommand({ home, stateDir, env: { GETHEN_DSH: fakeDsh() }, write: () => undefined }),
     ).toBe(0);
+  });
+
+  it("validates workstream declarations and repo roots", () => {
+    const home = tempDir();
+    const repo = join(home, "repo");
+    mkdirSync(repo);
+    execFileSync("git", ["init", "-q", "-b", "main"], { cwd: repo });
+    const stateDir = tempDir("gethen-doctor-state-");
+    const config = join(home, "worker.json");
+    writeFileSync(
+      config,
+      JSON.stringify({
+        workstreams: [{ id: "ws-a", repo, root: join(home, "worktrees", "ws-a") }],
+      }),
+    );
+    const valid = runDoctor({
+      home,
+      stateDir,
+      env: { GETHEN_DSH: fakeDsh(), GETHEN_WORKER_CONFIG: config },
+    });
+    expect(valid.checks.find((check) => check.name === "workstreams")).toMatchObject({
+      status: "ok",
+      message: expect.stringContaining("1 workstream(s) valid"),
+    });
+
+    writeFileSync(
+      config,
+      JSON.stringify({ workstreams: [{ id: "ws-b", repo, root: join(repo, "inside") }] }),
+    );
+    const invalid = runDoctor({
+      home,
+      stateDir,
+      env: { GETHEN_DSH: fakeDsh() },
+      workerConfig: config,
+    });
+    expect(invalid.checks.find((check) => check.name === "workstreams")).toMatchObject({
+      status: "warn",
+      message: expect.stringContaining("root is inside the source repo"),
+    });
   });
 });

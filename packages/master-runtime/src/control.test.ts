@@ -23,10 +23,11 @@ afterEach(async () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-function makeRuntime(): MasterRuntime {
+function makeRuntime(options: { retentionMs?: number } = {}): MasterRuntime {
   runtime = createMasterRuntime({
     dbPath: join(dir, "master.sqlite"),
     now: () => now,
+    ...(options.retentionMs === undefined ? {} : { retentionMs: options.retentionMs }),
   });
   return runtime;
 }
@@ -96,6 +97,15 @@ describe("control plane", () => {
     now = new Date(START.getTime() + 2 * 86_400_000);
     expect(runtime.control.autoArchive()).toContain(second);
     expect(runtime.control.overview({ filter: "all" }).counts.archived).toBe(2);
+  });
+
+  it("honours a configured retention window", async () => {
+    const runtime = makeRuntime({ retentionMs: 1_000 });
+    const ticketId = await acceptedTicket(runtime);
+    await runtime.control.close({ ticketId, outcome: "completed" });
+    now = new Date(START.getTime() + 1_500);
+    expect(runtime.control.autoArchive()).toContain(ticketId);
+    expect(runtime.control.overview({ filter: "all" }).counts.archived).toBe(1);
   });
 
   it("refuses to archive an open ticket and to acknowledge a closed one", async () => {

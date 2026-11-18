@@ -2,6 +2,7 @@ import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { Engine } from "./engine";
 import { createOutboxHandlers, type LaunchFailure } from "./executor";
+import { type ArchivePolicy, DEFAULT_ARCHIVE_POLICY } from "./lifecycle";
 import { FileLock } from "./lock";
 import type { Policy, Ticket, Trigger } from "./model";
 import { OutboxRunner } from "./outbox";
@@ -24,6 +25,8 @@ export interface MasterServiceOptions {
   objective?: (request: LaunchRequest) => string;
   /** Notified when a launch is settled locally as failed (silence timeout). */
   onLaunchFailure?: (failure: LaunchFailure) => void;
+  /** Archive retention override; defaults to {@link DEFAULT_ARCHIVE_POLICY}. */
+  archivePolicy?: ArchivePolicy;
 }
 
 export interface SubmitResult {
@@ -72,6 +75,7 @@ export class MasterService {
   readonly store: SqliteStore;
   readonly engine: Engine;
   readonly outbox: OutboxRunner;
+  readonly archivePolicy: ArchivePolicy;
 
   private readonly lock: FileLock;
   private readonly outboxIntervalMs: number;
@@ -82,6 +86,7 @@ export class MasterService {
     mkdirSync(dbDir, { recursive: true });
     this.lock = new FileLock(options.lockPath ?? join(dbDir, "master.lock"));
     this.outboxIntervalMs = options.outboxIntervalMs ?? 1_000;
+    this.archivePolicy = options.archivePolicy ?? DEFAULT_ARCHIVE_POLICY;
     this.lock.acquire();
     try {
       this.store = new SqliteStore(

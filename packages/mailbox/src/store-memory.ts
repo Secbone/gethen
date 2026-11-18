@@ -233,6 +233,33 @@ export class MemoryMailboxStore implements MailboxStore {
       }));
   }
 
+  replayDead(mailbox: string, ids: readonly string[] = []): number {
+    const wanted = new Set(ids);
+    let changed = 0;
+    for (const message of this.rows.values()) {
+      if (message.mailbox !== mailbox || message.state !== "dead") continue;
+      if (wanted.size > 0 && !wanted.has(message.envelope.id)) continue;
+      message.state = "ready";
+      message.attempts = 0;
+      message.availableAt = this.timestamp(undefined);
+      message.leaseUntil = undefined;
+      changed += 1;
+    }
+    return changed;
+  }
+
+  clearDead(mailbox: string, ids: readonly string[] = []): number {
+    const wanted = new Set(ids);
+    let changed = 0;
+    for (const [id, message] of [...this.rows]) {
+      if (message.mailbox !== mailbox || message.state !== "dead") continue;
+      if (wanted.size > 0 && !wanted.has(id)) continue;
+      this.rows.delete(id);
+      changed += 1;
+    }
+    return changed;
+  }
+
   getSubscription(topic: string, name: string): SubscriptionRecord | undefined {
     const record = this.subscriptions.get(subscriptionKey(topic, name));
     return record === undefined ? undefined : { ...record };

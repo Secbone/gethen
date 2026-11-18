@@ -36,6 +36,19 @@ export const DEFAULT_ARCHIVE_POLICY: ArchivePolicy = Object.freeze({
   }),
 });
 
+/** One retention window applied to every outcome (operator override). */
+export function uniformArchivePolicy(retainMs: number): ArchivePolicy {
+  return {
+    retainMs: {
+      merged: retainMs,
+      completed: retainMs,
+      closed: retainMs,
+      dropped: retainMs,
+      stopped: retainMs,
+    },
+  };
+}
+
 /** How long open work may wait for a person before it is closed automatically. */
 export interface StalePolicy {
   /** A `ready` report awaiting review becomes `completed`. */

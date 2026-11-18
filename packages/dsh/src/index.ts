@@ -40,8 +40,10 @@ import {
   type MasterRuntime,
   type MasterRuntimeTasks,
   type RoutingOptions,
+  type RuntimeWarning,
   type SchedulingMetrics,
   taskSummary,
+  type WarningThresholds,
   type WorkerSnapshot,
 } from "@gethen/master-runtime";
 import { type AgentLike, type AgentsServiceLike, GethenNotifier } from "./notifier";
@@ -142,6 +144,10 @@ export interface GethenConfig {
   notifySession?: string;
   /** Coalesce notification bursts into one wake message (default 50ms). */
   wakeBatchMs?: number;
+  /** Archive terminal Tickets after this window (all outcomes). */
+  retentionMs?: number;
+  /** Thresholds for health warnings; each defaults to 1. */
+  warnings?: WarningThresholds;
 }
 
 /** The worker transport endpoint registered on the DSH web server. */
@@ -237,6 +243,8 @@ interface ToolDeps {
   scheduling?(): SchedulingMetrics;
   /** Direct result envelopes vs status-recovery settlements. */
   settlements?(): BridgeSettlementMetrics;
+  /** Actionable health warnings from the runtime. */
+  warnings?(): RuntimeWarning[];
   /**
    * Logical workstream dispatched with `gethen_run` so the router can match it.
    * Never a Master filesystem path; the Worker owns the workspace.
@@ -321,6 +329,18 @@ function registerTools(ctx: DshContext, deps: ToolDeps): void {
           launch: { type: "string", enum: ["fake", "ws"] },
           workers: { type: "number" },
           workerDetails: { type: "array", items: { type: "object" } },
+          warnings: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                code: { type: "string" },
+                message: { type: "string" },
+                count: { type: "number" },
+              },
+              required: ["code", "message", "count"],
+            },
+          },
           settlements: {
             type: "object",
             properties: {
@@ -401,6 +421,7 @@ function registerTools(ctx: DshContext, deps: ToolDeps): void {
         escalations: status.counts.escalations,
         launch: deps.launch(),
         workers: deps.workers(),
+        warnings: deps.warnings?.() ?? [],
         settlements: deps.settlements?.() ?? {
           directCompleted: 0,
           recoveredCompleted: 0,
@@ -614,6 +635,8 @@ export function apply(ctx: DshContext, config: GethenConfig = {}): void {
     policy: DEFAULT_POLICY,
     workspace: ws?.workspace ?? DEFAULT_WORKSTREAM,
     ...(ws?.packDigest === undefined ? {} : { packDigest: ws.packDigest }),
+    ...(config.retentionMs === undefined ? {} : { retentionMs: config.retentionMs }),
+    ...(config.warnings === undefined ? {} : { warnings: config.warnings }),
     ...(ws?.workerId === undefined ? {} : { workerId: ws.workerId }),
     ...(ws?.workers === undefined ? {} : { workers: ws.workers }),
     ...(ws?.routing === undefined ? {} : { routing: ws.routing }),
@@ -705,6 +728,7 @@ export function apply(ctx: DshContext, config: GethenConfig = {}): void {
     workspace: config.ws?.workspace ?? DEFAULT_WORKSTREAM,
     scheduling: () => mounted.scheduling(),
     settlements: () => mounted.settlements(),
+    warnings: () => mounted.health().warnings,
     ...(config.runWaitMs === undefined ? {} : { runWaitMs: config.runWaitMs }),
   });
   ctx.effect?.(() => () => {

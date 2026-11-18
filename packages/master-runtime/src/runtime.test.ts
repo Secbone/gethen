@@ -90,6 +90,7 @@ describe("createMasterRuntime", () => {
         parked: 0,
       },
       settlements: { directCompleted: 0, recoveredCompleted: 0, recoveredWithoutReport: 0 },
+      warnings: [],
     });
 
     const result = await runtime.service.submit(defaultedTrigger());
@@ -159,6 +160,7 @@ describe("createMasterRuntime", () => {
         parked: 0,
       },
       settlements: { directCompleted: 0, recoveredCompleted: 0, recoveredWithoutReport: 0 },
+      warnings: [],
     });
     // The mailbox store defaults next to the master database.
     expect(existsSync(join(dir, `runtime-${runtimeCount}`, "mailbox.sqlite"))).toBe(true);

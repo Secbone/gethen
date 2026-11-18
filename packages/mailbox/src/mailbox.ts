@@ -122,6 +122,10 @@ export interface MailboxStore {
   purge(options?: TimeOptions): PurgeResult;
   stats(mailbox: string, options?: TimeOptions): MailboxStats;
   deadLetters(mailbox: string, options?: DeadLetterOptions): DeadLetter[];
+  /** Requeue dead letters (all, or the given ids) with a fresh attempt budget. */
+  replayDead(mailbox: string, ids?: readonly string[], options?: TimeOptions): number;
+  /** Delete dead letters (all, or the given ids). */
+  clearDead(mailbox: string, ids?: readonly string[], options?: TimeOptions): number;
   getSubscription(topic: string, name: string): SubscriptionRecord | undefined;
   saveSubscription(record: SubscriptionRecord): void;
   listSubscriptions(topic?: string): SubscriptionRecord[];

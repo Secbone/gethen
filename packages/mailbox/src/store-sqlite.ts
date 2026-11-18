@@ -307,6 +307,27 @@ export class SqliteMailboxStore implements MailboxStore {
     }));
   }
 
+  replayDead(mailbox: string, ids: readonly string[] = [], options: TimeOptions = {}): number {
+    const now = this.timestamp(options.now);
+    const filter = ids.length === 0 ? "" : ` AND id IN (${ids.map(() => "?").join(", ")})`;
+    return this.run(
+      `UPDATE messages SET state = 'ready', attempts = 0, available_at = ?, lease_until = NULL
+       WHERE mailbox = ? AND state = 'dead'${filter}`,
+      now,
+      mailbox,
+      ...ids,
+    );
+  }
+
+  clearDead(mailbox: string, ids: readonly string[] = []): number {
+    const filter = ids.length === 0 ? "" : ` AND id IN (${ids.map(() => "?").join(", ")})`;
+    return this.run(
+      `DELETE FROM messages WHERE mailbox = ? AND state = 'dead'${filter}`,
+      mailbox,
+      ...ids,
+    );
+  }
+
   getSubscription(topic: string, name: string): SubscriptionRecord | undefined {
     const row = this.one("SELECT * FROM subscriptions WHERE topic = ? AND name = ?", topic, name);
     return row === undefined ? undefined : mapSubscription(row);

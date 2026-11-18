@@ -425,6 +425,27 @@ export function deliverySummary(summary: string, delivery: DeliveryResult): stri
   ].join("\n");
 }
 
+/**
+ * Validate Worker-owned workstream declarations without materializing anything.
+ * Used by `gethen doctor`; returns human-readable issues (empty means valid).
+ */
+export function validateWorkstreams(workstreams: readonly WorkstreamConfig[]): string[] {
+  const issues: string[] = [];
+  for (const workspace of workstreams) {
+    if (!existsSync(workspace.repo)) {
+      issues.push(`${workspace.id}: repo does not exist: ${workspace.repo}`);
+      continue;
+    }
+    if (tryGit(workspace.repo, ["rev-parse", "--git-dir"]) === undefined) {
+      issues.push(`${workspace.id}: repo is not a git repository: ${workspace.repo}`);
+    }
+    if (workspace.root !== undefined && within(workspace.repo, workspace.root)) {
+      issues.push(`${workspace.id}: root is inside the source repo: ${workspace.root}`);
+    }
+  }
+  return issues;
+}
+
 /** Reject a Master-supplied path when the Worker has opted into workstreams. */
 export function assertOwnedWorkspace(value: string, mapped: string | undefined): string {
   if (mapped === undefined && isFilesystemPath(value)) {

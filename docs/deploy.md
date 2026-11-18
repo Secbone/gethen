@@ -221,6 +221,35 @@ agent 用 `gethen_run` 工具派活，`/gethen/worker` 由 DSH 的 webServer 托
 - `gethen_status` 额外返回 `workers` 与 `launch: "ws"`；
 - 没有 `ws` 配置时退回旧的 remote/fake 路径（行为不变）。
 
+### 1.6 告警、retention 与 dead letter
+
+`GET /health`、`gethen_status`、`gethen_task action=status` 返回：
+
+- `warnings: []`：非零退化项。默认阈值为 1，可用 `warnings` 配置项调整；当前覆盖
+  `recovered_without_report`、`mailbox_dead`、`worker_offline`、`queue_timeout`。
+- `settlements`：`directCompleted` / `recoveredCompleted` / `recoveredWithoutReport`。
+- `scheduling`：队列/运行/复用/超时计数。
+
+retention：
+
+```bash
+gethen serve ... --retention-ms 86400000    # 或 GETHEN_RETENTION_MS=86400000
+```
+
+该值统一覆盖 merged/completed/closed/dropped/stopped 的归档窗口；DSH 插件用
+`config.retentionMs`。默认仍是 completed/closed 7 天、merged 30 天、dropped/stopped 1 天。
+
+dead letter：
+
+```bash
+gethen mailbox list  --mailbox mailbox:master [--limit 20]
+gethen mailbox replay --mailbox mailbox:master [--id <id> ...]
+gethen mailbox clear  --mailbox mailbox:master [--id <id> ...]
+```
+
+`list` 只读；`replay` 把 dead 行改回 ready、attempts=0，让运行中的 bridge/worker 重新
+消费；`clear` 删除。默认邮箱库 `<GETHEN_STATE_DIR>/mailbox.sqlite`，可用 `--db` 指定。
+
 ## 2. Worker 部署
 
 ### 2.1 配置文件
@@ -396,6 +425,66 @@ Worker 只是用 `dshArgs` 启动 `dsh --profile sdk`。DSH 0.2.2-rc.1 的 base 
 确认当前策略：Worker 日志里 `dsh --profile sdk` 的启动参数、`~/.dsh/profiles/sdk`
 的 patch 层，以及任务上的 `waiting`/`permission` 记录。Master 侧的自动/人工答复见
 [enable.md](enable.md) §5。
+
+### 2.6 新增第二台 worker 接入清单
+
+1. **签发 token**（Master 上执行，只显示一次）：
+
+   ```bash
+   gethen worker add --worker-id build-2 --tokens-file /etc/gethen/worker-tokens.json
+   ```
+
+2. **准备 Worker 自己的 repo**：`git clone <origin> /home/gethen/Code/gethen`，切到
+   主线 ref（如 `refactor/superagent`）并 `git fetch`。不要指向 Master 的仓库路径。
+
+3. **写 `/etc/gethen/worker.json`**（权限 0600）：
+
+   ```json
+   {
+     "masterUrl": "wss://gethen.example.com/gethen/worker",
+     "token": "<token>",
+     "workerId": "build-2",
+     "machine": "build-2",
+     "provider": "opencode-go",
+     "model": "deepseek-v4.1-flash",
+     "workstreams": [
+       {
+         "id": "ws-collab",
+         "repo": "/home/gethen/Code/gethen",
+         "base": "origin/refactor/superagent",
+         "remote": "origin",
+         "isolation": "worktree"
+       }
+     ],
+     "workspaceRoot": "/home/gethen/workstreams",
+     "quota": 1,
+     "dnsOverrides": { "gethen.example.com": "203.0.113.10" }
+   }
+   ```
+
+   `workstreams` 是主推荐；旧部署可继续用 `workspaces` + `workspaceMap`。
+   `workspaceMap` 只用于显式跨机路径映射，不会默认暴露 Master 仓库。`repo` 必须是
+   Worker 自己的 clone，`root`/`workspaceRoot` 必须在 repo 外。
+
+4. **权限模式**：Worker 的 DSH 沙箱仍由本机决定。默认 `workspace-write` + `ask`；
+   长任务无人值守可设 `DSH_PERMISSION_MODE=allow`（或等价 profile 配置），但不要
+   把 Master 目录放进可写范围；需要审批时保持 `ask`，Master 会收到 permission escalation。
+
+5. **启动并自检**：
+
+   ```bash
+   gethen doctor --worker-config /etc/gethen/worker.json
+   gethen worker --config /etc/gethen/worker.json
+   curl -s http://127.0.0.1:8080/health    # Master 侧：workers 增加、warnings 为空
+   curl -s http://127.0.0.1:8080/gethen/workers
+   ```
+
+   `gethen doctor` 会校验 workstream 的 id、repo 是否为 git 仓库、root 是否在 repo 外；
+   Worker 首次 hello 后 `/gethen/workers` 出现新 id 且 `registered=true`。
+
+6. **验收**：从 Master 发一个 `echo` canary 到该 workstream，确认 receipt 的 worker 是
+   新 id、summary 含真实内容、`directCompleted` +1；再让两个 workstream 并发各改一个
+   文件，确认各自 `feat/<id>` 分支和 worktree 不共享。
 
 ## 3. 本机验证
 

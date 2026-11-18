@@ -18,6 +18,7 @@ import {
   type MasterRuntime,
   type RoutingOptions,
   type TaskEventQuery,
+  type WarningThresholds,
 } from "@gethen/master-runtime";
 import type { TokenRecord } from "@gethen/transport";
 import { defaultMasterDbPath } from "../paths";
@@ -50,6 +51,10 @@ export interface ServeConfig {
   workspace?: string;
   /** Pack digest recorded for dispatches without one. */
   packDigest?: string;
+  /** Archive every terminal Ticket after this window (all outcomes). */
+  retentionMs?: number;
+  /** Thresholds for health warnings; each defaults to 1. */
+  warnings?: WarningThresholds;
   /** Restrict dispatch to this Worker; defaults to every configured token. */
   workerId?: string;
   /** Workers accepted from a dynamic token verifier (tokens are preferred). */
@@ -172,6 +177,8 @@ export async function startServe(config: ServeConfig = {}): Promise<ServeHandle>
     workspace: config.workspace ?? DEFAULT_WORKSTREAM,
     ...(config.tokens === undefined ? {} : { tokens: config.tokens }),
     ...(config.packDigest === undefined ? {} : { packDigest: config.packDigest }),
+    ...(config.retentionMs === undefined ? {} : { retentionMs: config.retentionMs }),
+    ...(config.warnings === undefined ? {} : { warnings: config.warnings }),
     ...(config.resolveEscalation === undefined
       ? {}
       : { resolveEscalation: config.resolveEscalation }),
@@ -762,7 +769,7 @@ export async function serveCommand(
     write(
       "Usage: gethen serve [--db <file>] [--host <addr>] [--port <n>]\n" +
         "                    [--tokens <file>] [--workspace <dir>]\n" +
-        "                    [--worker-id <id>] [--mailbox-db <file>]\n" +
+        "                    [--worker-id <id>] [--mailbox-db <file>] [--retention-ms <n>]\n" +
         "                    [--master-mailbox <name>] [--escalation auto|park]\n" +
         "Starts the master control plane (L1 ws transport + L2 mailbox).\n" +
         "Worker tokens come from --tokens <file> or GETHEN_WORKER_TOKENS_JSON\n" +
@@ -772,6 +779,7 @@ export async function serveCommand(
         "--worker-id is the single worker served (defaults to the only token);\n" +
         "--mailbox-db defaults to <db dir>/mailbox.sqlite and --master-mailbox to\n" +
         "mailbox:master.\n" +
+        "--retention-ms (or GETHEN_RETENTION_MS) archives terminal tickets after n ms\n" +
         "--workspace is the logical workstream id dispatched with assignments\n" +
         "(the engine has no per-assignment workspace yet).\n" +
         "--escalation auto|park (default park): park waits for a person (the run\n" +
@@ -810,6 +818,15 @@ export async function serveCommand(
   const workerId = option("--worker-id");
   const mailboxDbPath = option("--mailbox-db");
   const masterMailbox = option("--master-mailbox");
+  const retentionFlag = option("--retention-ms") ?? env.GETHEN_RETENTION_MS;
+  let retentionMs: number | undefined;
+  if (retentionFlag !== undefined) {
+    retentionMs = Number(retentionFlag);
+    if (!Number.isSafeInteger(retentionMs) || retentionMs < 0) {
+      writeError("gethen serve: --retention-ms must be a non-negative integer");
+      return 1;
+    }
+  }
   let handle: ServeHandle;
   try {
     handle = await startServe({
@@ -822,6 +839,7 @@ export async function serveCommand(
       ...(workerId === undefined ? {} : { workerId }),
       ...(mailboxDbPath === undefined ? {} : { mailboxDbPath }),
       ...(masterMailbox === undefined ? {} : { masterMailbox }),
+      ...(retentionMs === undefined ? {} : { retentionMs }),
     });
   } catch (error) {
     writeError(`gethen serve: ${messageOf(error)}`);

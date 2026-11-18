@@ -300,6 +300,7 @@ describe("createMasterRuntime mailbox stack", () => {
         parked: 0,
       },
       settlements: { directCompleted: 0, recoveredCompleted: 0, recoveredWithoutReport: 0 },
+      warnings: [],
     });
     expect(runtime.bridge?.workerMailbox).toBe(WORKER_MAILBOX);
     expect(runtime.bridge?.masterMailbox).toBe(MASTER_MAILBOX);
@@ -817,6 +818,7 @@ describe("createMasterRuntime mailbox stack", () => {
         parked: 0,
       },
       settlements: { directCompleted: 0, recoveredCompleted: 0, recoveredWithoutReport: 0 },
+      warnings: [],
     });
     await expect(runtime.close()).resolves.toBeUndefined();
 

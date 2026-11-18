@@ -31,6 +31,7 @@ interface StatusResult {
     recoveredCompleted: number;
     recoveredWithoutReport: number;
   };
+  warnings?: Array<{ code: string; message: string; count: number }>;
   scheduling?: {
     queued: number;
     running: number;
@@ -249,6 +250,7 @@ describe("Gethen DSH plugin", () => {
         parked: 0,
       },
       settlements: { directCompleted: 0, recoveredCompleted: 0, recoveredWithoutReport: 0 },
+      warnings: [],
     } satisfies StatusResult);
     const overview = (await tool(tools, "gethen_overview").execute({}, {})) as OverviewResult;
     expect(overview.tickets).toHaveLength(1);

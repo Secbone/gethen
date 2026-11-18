@@ -45,6 +45,7 @@ import {
   MasterService,
   type Policy,
   type Report,
+  uniformArchivePolicy,
 } from "@gethen/master";
 import {
   createMemoryTokenStore,
@@ -63,6 +64,7 @@ import {
   type WorkerSnapshot,
 } from "./fleet";
 import { NotificationHub } from "./notifications";
+import { type RuntimeWarning, runtimeWarnings, type WarningThresholds } from "./warnings";
 
 /** Task state/event and session types (re-exported from bridge-mailbox). */
 export type {
@@ -234,6 +236,10 @@ export interface MasterRuntimeOptions {
   reconcileIntervalMs?: number;
   /** Grace before a status probe may settle a launch; defaults to the bridge's 5s. */
   recoveryGraceMs?: number;
+  /** Thresholds for `/health` warnings; each defaults to 1 (report any non-zero). */
+  warnings?: WarningThresholds;
+  /** Archive every terminal Ticket after this window (all outcomes). */
+  retentionMs?: number;
   /** Poll interval for the master mailbox and link delivery loops. */
   pollIntervalMs?: number;
 }
@@ -259,6 +265,8 @@ export interface MasterRuntimeHealth {
   scheduling: SchedulingMetrics;
   /** Direct result envelopes vs status-recovery settlements. */
   settlements: BridgeSettlementMetrics;
+  /** Actionable degenerate states (empty when healthy). */
+  warnings: RuntimeWarning[];
 }
 
 export interface MasterRuntime {
@@ -498,6 +506,9 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
     policy: options.policy ?? DEFAULT_MASTER_POLICY,
     launch: launchPort,
     onLaunchFailure: handleLaunchFailure,
+    ...(options.retentionMs === undefined
+      ? {}
+      : { archivePolicy: uniformArchivePolicy(options.retentionMs) }),
     ...(options.now === undefined ? {} : { clock: { now: options.now } }),
   });
   serviceRef = service;
@@ -551,6 +562,7 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
         mailbox: { pending: 0, leased: 0, dead: 0 },
         scheduling: emptySchedulingMetrics(),
         settlements: { directCompleted: 0, recoveredCompleted: 0, recoveredWithoutReport: 0 },
+        warnings: [],
       };
     }
     const tickets = service.store.tickets.list();
@@ -568,6 +580,19 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
         recoveredCompleted: 0,
         recoveredWithoutReport: 0,
       },
+      warnings: runtimeWarnings(
+        {
+          settlements: mailboxBridge?.settlementMetrics() ?? {
+            directCompleted: 0,
+            recoveredCompleted: 0,
+            recoveredWithoutReport: 0,
+          },
+          mailbox: mailboxHealth(),
+          workers: directory.snapshots(),
+          scheduling: (routedPort ?? { metrics: emptySchedulingMetrics }).metrics(),
+        },
+        options.warnings,
+      ),
     };
   }
 

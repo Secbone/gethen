@@ -1,8 +1,9 @@
 import { spawnSync } from "node:child_process";
-import { accessSync, constants, existsSync, statSync } from "node:fs";
+import { accessSync, constants, existsSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { defaultStateDir } from "../paths";
+import { parseWorkstreams, validateWorkstreams } from "../workstream";
 
 const MIN_NODE_MAJOR = 22;
 // `dsh --profile sdk --help` starts the SDK runtime before printing usage and
@@ -24,6 +25,8 @@ export interface DoctorOptions {
   readonly json?: boolean;
   /** Sink for report lines (tests). Defaults to stdout. */
   readonly write?: (line: string) => void;
+  /** Worker config file to validate; defaults to `$GETHEN_WORKER_CONFIG`. */
+  readonly workerConfig?: string;
 }
 
 type Level = "ok" | "warn" | "info";
@@ -79,6 +82,7 @@ export function runDoctor(options: DoctorOptions = {}): DoctorReport {
   checks.push(credentialsCheck(env));
   checks.push(stateDirCheck(stateDir));
   checks.push(gethenEnvCheck(env));
+  checks.push(workerConfigCheck(options.workerConfig ?? env.GETHEN_WORKER_CONFIG));
 
   const warnings = checks.filter((check) => check.status === "warn").length;
   return { ok: warnings === 0, warnings, stateDir, checks };
@@ -199,6 +203,53 @@ function stateDirCheck(stateDir: string): DoctorCheck {
     return { name: "state-dir", status: "warn", message: `${stateDir} is not writable` };
   }
   return { name: "state-dir", status: "ok", message: `${stateDir} is writable` };
+}
+
+function workerConfigCheck(path: string | undefined): DoctorCheck {
+  if (path === undefined || path.trim().length === 0) {
+    return {
+      name: "workstreams",
+      status: "info",
+      message: "worker config not set (optional); set GETHEN_WORKER_CONFIG to validate workstreams",
+    };
+  }
+  if (!existsSync(path)) {
+    return {
+      name: "workstreams",
+      status: "warn",
+      message: `worker config not found: ${path}`,
+    };
+  }
+  try {
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+    const workstreams = parseWorkstreams(parsed.workstreams);
+    if (workstreams === undefined || workstreams.length === 0) {
+      return {
+        name: "workstreams",
+        status: "info",
+        message: `${path}: no workstreams configured (legacy workspaces only)`,
+      };
+    }
+    const issues = validateWorkstreams(workstreams);
+    if (issues.length > 0) {
+      return {
+        name: "workstreams",
+        status: "warn",
+        message: `${path}: ${issues.join("; ")}`,
+      };
+    }
+    return {
+      name: "workstreams",
+      status: "ok",
+      message: `${path}: ${workstreams.length} workstream(s) valid`,
+    };
+  } catch (failure) {
+    return {
+      name: "workstreams",
+      status: "warn",
+      message: `${path}: ${failure instanceof Error ? failure.message : String(failure)}`,
+    };
+  }
 }
 
 function gethenEnvCheck(env: NodeJS.ProcessEnv): DoctorCheck {
