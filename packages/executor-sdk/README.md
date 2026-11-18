@@ -59,8 +59,11 @@ pool seam), `requestTimeoutMs?`, `idleTimeoutMs?` (silence watchdog, default
    becomes `failed`.
 5. A **silence watchdog** (`idleTimeoutMs`, default 5 min) fails the execution
    with `no session events for <n>ms` when the stream goes quiet; it resets on
-   every `session.event`. `task.deadlineAt` also fails the execution when it
-   passes. Both hard-stop the runtime.
+   every `session.event`. While a tool call is in flight (`tool/call` without
+   `tool/result`) the watchdog re-arms instead of failing: a long build or
+   `pnpm check` is activity even when it emits no session events. The hard
+   `maxExecutionMs` cap still bounds a tool that never returns. `task.deadlineAt`
+   also fails the execution when it passes.
 6. Errors never escape `start`: runtime initialize/prompt/wait, resolution
    delivery and cancellation failures are reported as a single
    `HarnessReport{kind:"failed"}`.

@@ -306,6 +306,22 @@ describe("gethen_task tool", () => {
     );
   });
 
+  it("accepts stringified numeric filters from the host", async () => {
+    const events = vi.fn(() => EVENTS);
+    const tool = registered(stubTasks({ events }));
+    await call(tool, {
+      action: "logs",
+      assignmentId: "a1",
+      limit: "2",
+      afterSeq: "0",
+      type: "tool.start",
+    });
+    expect(events).toHaveBeenCalledWith("a1", { limit: 2, afterSeq: 0, type: "tool.start" });
+    await expect(call(tool, { action: "logs", assignmentId: "a1", limit: "two" })).rejects.toThrow(
+      /positive integer/,
+    );
+  });
+
   it("sessions returns the Worker session directory", async () => {
     const sessions = vi.fn(async (_options?: { timeoutMs?: number }) => SESSIONS);
     const tool = registered(stubTasks({ sessions }));

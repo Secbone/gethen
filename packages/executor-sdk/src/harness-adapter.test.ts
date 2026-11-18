@@ -647,7 +647,7 @@ describe("live state, steering and lifecycle timers", () => {
         reportBlock({ kind: "ready", summary: "checks passed", at: AT }),
       );
       running.client.emitSessionEvent("a1", "turn/end", { turn: 1 });
-      await tick();
+      await vi.advanceTimersByTimeAsync(0);
       expect(running.sink.reports).toEqual([{ kind: "ready", summary: "checks passed" }]);
     } finally {
       vi.useRealTimers();

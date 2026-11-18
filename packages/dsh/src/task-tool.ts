@@ -115,6 +115,10 @@ export function registerTaskTool(ctx: DshContext, control: Pick<ControlPlane, "t
           sessionId: { type: "string" },
           at: { type: "string" },
           escalation: { type: "object", description: "Resolved escalation record." },
+          scheduling: {
+            type: "object",
+            description: "Live queued/running/reused/queue-timeout counters (action=status).",
+          },
         },
         ["action"],
       ),
@@ -270,26 +274,42 @@ function optionalReason(value: unknown): string | undefined {
   return requireText(value, 'gethen_task "reason"');
 }
 
+/**
+ * Tool hosts may JSON-encode numeric arguments as strings (`"2"`); accept both
+ * forms, matching `gethen_wait`. A non-numeric string is not a number.
+ */
+function numeric(value: unknown): number | undefined {
+  if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
+  if (typeof value === "string" && value.trim().length > 0) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
+}
+
 function optionalTimeout(value: unknown): number | undefined {
   if (value === undefined) return undefined;
-  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+  const parsed = numeric(value);
+  if (parsed === undefined || parsed <= 0) {
     throw new Error('gethen_task "timeoutMs" must be a positive number');
   }
-  return value;
+  return parsed;
 }
 
 function optionalLimit(value: unknown, label: string): { limit?: number } {
   if (value === undefined) return {};
-  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
+  const parsed = numeric(value);
+  if (parsed === undefined || !Number.isInteger(parsed) || parsed <= 0) {
     throw new Error(`${label} must be a positive integer`);
   }
-  return { limit: value };
+  return { limit: parsed };
 }
 
 function optionalAfterSeq(value: unknown): { afterSeq?: number } {
   if (value === undefined) return {};
-  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+  const parsed = numeric(value);
+  if (parsed === undefined || !Number.isInteger(parsed) || parsed < 0) {
     throw new Error('gethen_task "afterSeq" must be a non-negative integer');
   }
-  return { afterSeq: value };
+  return { afterSeq: parsed };
 }
