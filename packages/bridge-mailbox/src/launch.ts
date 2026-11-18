@@ -1325,11 +1325,14 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
     timer.unref();
     const reconcileMs = options.reconcileIntervalMs ?? 15_000;
     if (reconcileMs > 0) {
-      reconcileTimer = setInterval(() => {
-        for (const pending of [...pendingByAssignment.values()]) {
-          void reconcilePending(pending);
-        }
-      }, Math.max(1000, reconcileMs));
+      reconcileTimer = setInterval(
+        () => {
+          for (const pending of [...pendingByAssignment.values()]) {
+            void reconcilePending(pending);
+          }
+        },
+        Math.max(1000, reconcileMs),
+      );
       reconcileTimer.unref();
     }
   }

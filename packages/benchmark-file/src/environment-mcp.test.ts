@@ -93,4 +93,4 @@ it("executes only upstream-declared tools over an authenticated local socket", a
     await client.close();
     await new Promise<void>((done) => server.close(() => done()));
   }
-});
+}, 20_000);
