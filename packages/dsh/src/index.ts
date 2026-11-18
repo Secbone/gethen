@@ -349,8 +349,14 @@ function registerTools(ctx: DshContext, deps: ToolDeps): void {
               directCompleted: { type: "number" },
               recoveredCompleted: { type: "number" },
               recoveredWithoutReport: { type: "number" },
+              lateCompleted: { type: "number" },
             },
-            required: ["directCompleted", "recoveredCompleted", "recoveredWithoutReport"],
+            required: [
+              "directCompleted",
+              "recoveredCompleted",
+              "recoveredWithoutReport",
+              "lateCompleted",
+            ],
           },
           scheduling: {
             type: "object",
@@ -428,6 +434,7 @@ function registerTools(ctx: DshContext, deps: ToolDeps): void {
           directCompleted: 0,
           recoveredCompleted: 0,
           recoveredWithoutReport: 0,
+          lateCompleted: 0,
         },
         scheduling: deps.scheduling?.() ?? {
           queued: 0,

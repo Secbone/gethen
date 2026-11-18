@@ -299,7 +299,12 @@ describe("createMasterRuntime mailbox stack", () => {
         maxQueueDepth: 0,
         parked: 0,
       },
-      settlements: { directCompleted: 0, recoveredCompleted: 0, recoveredWithoutReport: 0 },
+      settlements: {
+        directCompleted: 0,
+        recoveredCompleted: 0,
+        recoveredWithoutReport: 0,
+        lateCompleted: 0,
+      },
       warnings: [],
     });
     expect(runtime.bridge?.workerMailbox).toBe(WORKER_MAILBOX);
@@ -369,6 +374,7 @@ describe("createMasterRuntime mailbox stack", () => {
       directCompleted: 1,
       recoveredCompleted: 0,
       recoveredWithoutReport: 0,
+      lateCompleted: 0,
     });
   });
 
@@ -392,6 +398,7 @@ describe("createMasterRuntime mailbox stack", () => {
       directCompleted: 0,
       recoveredCompleted: 1,
       recoveredWithoutReport: 0,
+      lateCompleted: 0,
     });
   });
 
@@ -591,6 +598,7 @@ describe("createMasterRuntime mailbox stack", () => {
       directCompleted: 0,
       recoveredCompleted: 1,
       recoveredWithoutReport: 1,
+      lateCompleted: 0,
     });
   });
 
@@ -658,6 +666,7 @@ describe("createMasterRuntime mailbox stack", () => {
       directCompleted: 1,
       recoveredCompleted: 0,
       recoveredWithoutReport: 0,
+      lateCompleted: 1,
     });
   });
 
@@ -703,6 +712,11 @@ describe("createMasterRuntime mailbox stack", () => {
       { assignment: assignmentId, outcome: "completed", summary: "slept" },
     ]);
     expect(runtime.service.store.tickets.get(ticketId)?.attention).toBeUndefined();
+    expect(runtime.health().settlements).toMatchObject({
+      directCompleted: 1,
+      recoveredCompleted: 0,
+      lateCompleted: 1,
+    });
 
     // At-least-once mailbox: a redelivered result (new envelope id, same
     // assignment) must not append a third receipt or move the Ticket again.
@@ -710,6 +724,65 @@ describe("createMasterRuntime mailbox stack", () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(runtime.service.store.listReceipts()).toHaveLength(2);
     expect(runtime.service.store.tickets.get(ticketId)?.latestReport).toBe("ready");
+  });
+
+  it("renews the silence window while the Worker reports a running tool", async () => {
+    const harness = await startHarness({ launchTimeoutMs: 100 });
+    const runtime = harness.runtime;
+    const { link } = await attachWorker(harness);
+    const trigger: Trigger = {
+      id: "trigger-tool-in-flight",
+      source: "local",
+      thread: "local",
+      actor: "local-user",
+      bot: false,
+      addressed: "mention",
+      text: "run a long command",
+      at: AT,
+      meta: { scope: "local", workspace: "/ws" },
+    };
+    const submitted = runtime.service.submit(trigger);
+    const assign = await receiveOne(link);
+    const assignmentId = assignmentIdOf(assign.envelope);
+    await link.ack([assign.envelope.id]);
+    const ticketId = runtime.service.store.tickets.list().at(-1)?.id;
+    if (ticketId === undefined) throw new Error("expected a ticket");
+
+    const status = await receiveOne(link, 2_000);
+    expect(status.envelope.type).toBe("gethen.task.status");
+    await link.ack([status.envelope.id]);
+    await link.send(
+      newEnvelope({
+        source: `agent:${WORKER}`,
+        type: "gethen.task.status.result",
+        subject: assignmentId,
+        time: AT,
+        data: {
+          assignmentId,
+          state: {
+            assignmentId,
+            phase: "tool",
+            step: 1,
+            seq: 1,
+            lastEventAt: AT,
+            lastTool: { name: "bash", startedAt: new Date().toISOString() },
+          },
+        },
+        correlationId: status.envelope.id,
+        to: MASTER_MAILBOX,
+      }),
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(runtime.service.store.tickets.get(ticketId)?.latestReport).not.toBe("failed");
+    await link.send(resultEnvelope(assign.envelope, { summary: "long command done" }));
+    await submitted;
+    await waitFor(() => runtime.service.store.tickets.get(ticketId)?.latestReport === "ready");
+    expect(runtime.service.store.listReceipts().at(-1)).toMatchObject({
+      assignment: assignmentId,
+      outcome: "completed",
+      summary: "long command done",
+    });
   });
 
   it("persists a parked launch under the master db directory", async () => {
@@ -817,7 +890,12 @@ describe("createMasterRuntime mailbox stack", () => {
         maxQueueDepth: 0,
         parked: 0,
       },
-      settlements: { directCompleted: 0, recoveredCompleted: 0, recoveredWithoutReport: 0 },
+      settlements: {
+        directCompleted: 0,
+        recoveredCompleted: 0,
+        recoveredWithoutReport: 0,
+        lateCompleted: 0,
+      },
       warnings: [],
     });
     await expect(runtime.close()).resolves.toBeUndefined();
@@ -958,6 +1036,7 @@ describe("multi-worker routing", () => {
       directCompleted: 0,
       recoveredCompleted: 1,
       recoveredWithoutReport: 0,
+      lateCompleted: 0,
     });
   });
 

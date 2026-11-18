@@ -567,7 +567,12 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
         escalations: 0,
         mailbox: { pending: 0, leased: 0, dead: 0 },
         scheduling: emptySchedulingMetrics(),
-        settlements: { directCompleted: 0, recoveredCompleted: 0, recoveredWithoutReport: 0 },
+        settlements: {
+          directCompleted: 0,
+          recoveredCompleted: 0,
+          recoveredWithoutReport: 0,
+          lateCompleted: 0,
+        },
         warnings: [],
       };
     }
@@ -585,6 +590,7 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
         directCompleted: 0,
         recoveredCompleted: 0,
         recoveredWithoutReport: 0,
+        lateCompleted: 0,
       },
       warnings: runtimeWarnings(
         {
@@ -592,6 +598,7 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
             directCompleted: 0,
             recoveredCompleted: 0,
             recoveredWithoutReport: 0,
+            lateCompleted: 0,
           },
           mailbox: mailboxHealth(),
           workers: directory.snapshots(),
@@ -647,6 +654,7 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
         directCompleted: 0,
         recoveredCompleted: 0,
         recoveredWithoutReport: 0,
+        lateCompleted: 0,
       },
     ...(options.now === undefined ? {} : { now: options.now }),
   });
@@ -696,6 +704,7 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
         directCompleted: 0,
         recoveredCompleted: 0,
         recoveredWithoutReport: 0,
+        lateCompleted: 0,
       },
     health,
     close,

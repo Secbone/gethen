@@ -194,6 +194,7 @@ export function createControlPlane(options: ControlPlaneOptions): ControlPlane {
       directCompleted: 0,
       recoveredCompleted: 0,
       recoveredWithoutReport: 0,
+      lateCompleted: 0,
     }));
   const now = options.now ?? (() => new Date());
   const taskControl = createTaskControl(tasks);

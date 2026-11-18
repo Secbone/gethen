@@ -17,7 +17,12 @@ function worker(id: string, registered: boolean, health: WorkerSnapshot["health"
 }
 
 const healthy = {
-  settlements: { directCompleted: 1, recoveredCompleted: 0, recoveredWithoutReport: 0 },
+  settlements: {
+    directCompleted: 1,
+    recoveredCompleted: 0,
+    recoveredWithoutReport: 0,
+    lateCompleted: 0,
+  },
   mailbox: { dead: 0 },
   workers: [worker("w1", true, "online")],
   scheduling: emptySchedulingMetrics(),
@@ -30,7 +35,12 @@ describe("runtimeWarnings", () => {
 
   it("reports every degraded counter", () => {
     const warnings = runtimeWarnings({
-      settlements: { directCompleted: 0, recoveredCompleted: 2, recoveredWithoutReport: 1 },
+      settlements: {
+        directCompleted: 0,
+        recoveredCompleted: 2,
+        recoveredWithoutReport: 1,
+        lateCompleted: 0,
+      },
       mailbox: { dead: 2 },
       workers: [worker("w1", true, "offline"), worker("w2", true, "online")],
       scheduling: { ...emptySchedulingMetrics(), queueTimeouts: 1 },

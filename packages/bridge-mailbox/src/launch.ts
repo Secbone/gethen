@@ -377,6 +377,8 @@ export interface BridgeSettlementMetrics {
   recoveredCompleted: number;
   /** Recovered settlements where the Worker had no report content left. */
   recoveredWithoutReport: number;
+  /** Late results/recoveries applied after a timeout or parked waiting. */
+  lateCompleted: number;
 }
 
 export interface MailboxLaunchBridge {
@@ -476,6 +478,8 @@ interface PendingLaunch {
   restored?: boolean;
   /** A status probe saw a finished report; settle only after the grace window. */
   recoveryCandidate?: { report: Report; seenAt: number };
+  /** The launch was settled as a silence timeout; keep it for late recovery. */
+  timedOut?: boolean;
   resolve(result: LaunchResult): void;
   reject(error: Error): void;
 }
@@ -550,6 +554,7 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
     directCompleted: 0,
     recoveredCompleted: 0,
     recoveredWithoutReport: 0,
+    lateCompleted: 0,
   };
   const batchSize = options.batchSize ?? DEFAULT_BATCH_SIZE;
   const maxTaskEvents = positiveInteger(
@@ -612,6 +617,7 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
         seenEscalations: [...pending.seenEscalations],
         events: pending.events,
         launchSettled: pending.launchSettled,
+        timedOut: pending.timedOut,
         ...(pending.parkedEscalation === undefined
           ? {}
           : { parkedEscalation: pending.parkedEscalation }),
@@ -663,6 +669,7 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
       }
       pending.restored = true;
       pending.launchSettled = entry.launchSettled === true;
+      pending.timedOut = entry.timedOut === true;
       if (typeof entry.events === "number" && Number.isFinite(entry.events)) {
         pending.events = Math.max(0, Math.floor(entry.events));
       }
@@ -750,6 +757,16 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
       );
       return;
     }
+    if (toolIsRunning(state)) {
+      // A long shell/build emits no session events while it runs. The Worker
+      // still reports phase=tool (and a lastTool start newer than lastEventAt),
+      // so treat that as activity and re-arm the silence window instead of
+      // killing a healthy assignment.
+      pending.lastActivityAt = Date.now();
+      persistPendingState();
+      armLaunchTimer(pending);
+      return;
+    }
     const sinceActivity = Date.now() - activityAt;
     if (sinceActivity < timeoutMs) {
       // The Worker or its last event is newer than the timer believed (a
@@ -759,6 +776,7 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
       return;
     }
     pending.launchSettled = true;
+    pending.timedOut = true;
     persistPendingState();
     pending.reject(
       new MailboxLaunchError(
@@ -782,6 +800,15 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
     return Number.isFinite(parsed) && parsed > pending.lastActivityAt
       ? parsed
       : pending.lastActivityAt;
+  }
+
+  /** True while the Worker reports a running tool with no fresher event. */
+  function toolIsRunning(state: TaskState | undefined): boolean {
+    if (state === undefined) return false;
+    if (state.phase === "tool") return true;
+    const toolAt = Date.parse(state.lastTool?.startedAt ?? "");
+    const eventAt = Date.parse(state.lastEventAt);
+    return Number.isFinite(toolAt) && Number.isFinite(eventAt) && toolAt > eventAt;
   }
 
   /** A bounded status probe; a missing/offline Worker simply yields no evidence. */
@@ -821,7 +848,11 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
    * waiting for the silence timeout.
    */
   async function reconcilePending(pending: PendingLaunch): Promise<void> {
-    if (closed || pending.settled || pending.launchSettled) return;
+    if (closed || pending.settled) return;
+    // A timed-out launch keeps its entry solely to accept a late result or a
+    // retained status report; still reconcile it. A parked `waiting` launch is
+    // left to its answer path.
+    if (pending.launchSettled && pending.timedOut !== true) return;
     const probe = await probeStatusQuietly(pending);
     if (closed || pending.settled || pending.launchSettled) return;
     if (probe?.report !== undefined) {
@@ -1112,6 +1143,7 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
     finalizeTaskState(pending, report);
     const result = resultFor(pending, report);
     const late = pending.launchSettled || pending.restored === true;
+    if (late) settlementCounts.lateCompleted += 1;
     notify(() =>
       options.onResult?.({
         request: pending.request,

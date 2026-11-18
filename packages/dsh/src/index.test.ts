@@ -30,6 +30,7 @@ interface StatusResult {
     directCompleted: number;
     recoveredCompleted: number;
     recoveredWithoutReport: number;
+    lateCompleted: number;
   };
   warnings?: Array<{ code: string; message: string; count: number }>;
   scheduling?: {
@@ -249,7 +250,12 @@ describe("Gethen DSH plugin", () => {
         maxQueueDepth: 0,
         parked: 0,
       },
-      settlements: { directCompleted: 0, recoveredCompleted: 0, recoveredWithoutReport: 0 },
+      settlements: {
+        directCompleted: 0,
+        recoveredCompleted: 0,
+        recoveredWithoutReport: 0,
+        lateCompleted: 0,
+      },
       warnings: [],
     } satisfies StatusResult);
     const overview = (await tool(tools, "gethen_overview").execute({}, {})) as OverviewResult;

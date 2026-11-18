@@ -89,7 +89,12 @@ describe("createMasterRuntime", () => {
         maxQueueDepth: 0,
         parked: 0,
       },
-      settlements: { directCompleted: 0, recoveredCompleted: 0, recoveredWithoutReport: 0 },
+      settlements: {
+        directCompleted: 0,
+        recoveredCompleted: 0,
+        recoveredWithoutReport: 0,
+        lateCompleted: 0,
+      },
       warnings: [],
     });
 
@@ -159,7 +164,12 @@ describe("createMasterRuntime", () => {
         maxQueueDepth: 0,
         parked: 0,
       },
-      settlements: { directCompleted: 0, recoveredCompleted: 0, recoveredWithoutReport: 0 },
+      settlements: {
+        directCompleted: 0,
+        recoveredCompleted: 0,
+        recoveredWithoutReport: 0,
+        lateCompleted: 0,
+      },
       warnings: [],
     });
     // The mailbox store defaults next to the master database.

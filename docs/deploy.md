@@ -227,7 +227,8 @@ agent 用 `gethen_run` 工具派活，`/gethen/worker` 由 DSH 的 webServer 托
 
 - `warnings: []`：非零退化项。默认阈值为 1，可用 `warnings` 配置项调整；当前覆盖
   `recovered_without_report`、`mailbox_dead`、`worker_offline`、`queue_timeout`。
-- `settlements`：`directCompleted` / `recoveredCompleted` / `recoveredWithoutReport`。
+- `settlements`：`directCompleted` / `recoveredCompleted` / `recoveredWithoutReport` /
+  `lateCompleted`（超时或 waiting 后迟到结果回写成功的次数）。
 - `scheduling`：队列/运行/复用/超时计数。
 
 retention：
@@ -258,6 +259,16 @@ gethen mailbox clear  --mailbox mailbox:master [--id <id> ...]
 
 `list` 只读；`replay` 把 dead 行改回 ready、attempts=0，让运行中的 bridge/worker 重新
 消费；`clear` 删除。默认邮箱库 `<GETHEN_STATE_DIR>/mailbox.sqlite`，可用 `--db` 指定。
+
+已超时但 Worker 后来实际完成的 assignment 可用一次性修复：
+
+```bash
+tsx scripts/repair-late-result.mjs <assignmentId> <master.sqlite> <mailbox.sqlite>
+```
+
+脚本优先从 mailbox 里的 `gethen.task.status.result` 取真实 report；如果已被清理，会向
+`assignment.worker` 发一个私有 reply mailbox 的 status 探测，取 Worker retained report，
+然后更新 Ticket latest_report 并追加一条 late receipt。
 
 ## 2. Worker 部署
 
