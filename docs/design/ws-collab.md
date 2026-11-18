@@ -55,3 +55,18 @@ agent loop 提交 `tool/result` 后直接发 `turn/end`。executor 另外识别 
 bridge 的 15s 对账只作兜底：状态探测可能和 Worker 的 result envelope 竞争，因此恢复
 候选必须跨过一个宽限窗口（`recoveryGraceMs`，默认 5s）才允许结算；宽限内到达的
 result envelope 永远优先，receipt 不应带 `(recovered from worker status)`。
+
+## 结算观测
+
+`GET /health`、`gethen_status`、`gethen_task action=status` 返回 `settlements`：
+
+| 字段 | 含义 |
+|---|---|
+| `directCompleted` | Worker 通过 `gethen.task.result` envelope 直接结算的次数 |
+| `recoveredCompleted` | 15s 对账/10min silence 探测从 Worker status 恢复 report 的次数 |
+
+计数是 Master 进程内值，重启归零；receipt 仍是持久记录。恢复候选以
+`kind + summary` 作为稳定身份：Worker 保留的 report 不变时，跨两个宽限窗口后
+恢复；如果 summary 每次探测都变化，说明 Worker 状态本身不稳定，bridge 会继续等待
+而不是用不一致的数据结算。需要更快恢复时可把 `reconcileIntervalMs` 调到 5s、
+`recoveryGraceMs` 调到 2s。

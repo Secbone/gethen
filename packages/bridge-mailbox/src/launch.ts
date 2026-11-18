@@ -369,6 +369,14 @@ export interface MailboxLaunchOptions {
   maxSessionListTimeoutMs?: number;
 }
 
+/** How launches have settled: a Worker result envelope vs status recovery. */
+export interface BridgeSettlementMetrics {
+  /** Reports delivered by the Worker's own `gethen.task.result` envelope. */
+  directCompleted: number;
+  /** Reports recovered by probing the Worker after the envelope was lost. */
+  recoveredCompleted: number;
+}
+
 export interface MailboxLaunchBridge {
   /** The port to hand to `MasterService`. */
   readonly launchPort: LaunchPort;
@@ -380,6 +388,8 @@ export interface MailboxLaunchBridge {
   readonly masterMailbox: string;
   /** Mailbox name for one Worker. */
   mailboxFor(workerId: string): string;
+  /** Process-local direct/recovered settlement counters (reset on restart). */
+  settlementMetrics(): BridgeSettlementMetrics;
   /** Register a Worker that authenticated after the bridge was built. */
   addWorker(workerId: string): void;
   /** Process one received envelope; the subscription callback and the test hook. */
@@ -534,6 +544,10 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
   const pollIntervalMs =
     options.pollIntervalMs ?? client.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
   const leaseMs = options.leaseMs ?? DEFAULT_LEASE_MS;
+  const settlementCounts: BridgeSettlementMetrics = {
+    directCompleted: 0,
+    recoveredCompleted: 0,
+  };
   const batchSize = options.batchSize ?? DEFAULT_BATCH_SIZE;
   const maxTaskEvents = positiveInteger(
     options.maxTaskEvents ?? DEFAULT_MAX_TASK_EVENTS,
@@ -705,10 +719,14 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
     if (probe?.report !== undefined) {
       // The Worker finished; the result envelope was lost on the way. Settle
       // with the retained report instead of a false timeout.
-      settleReport(pending, {
-        ...probe.report,
-        summary: `${probe.report.summary} (recovered from worker status)`,
-      });
+      settleReport(
+        pending,
+        {
+          ...probe.report,
+          summary: `${probe.report.summary} (recovered from worker status)`,
+        },
+        "recovered",
+      );
       return;
     }
     const activityAt = latestActivityAt(pending, state);
@@ -724,6 +742,7 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
               : "worker finished without a delivered result",
           at: nowIso(),
         },
+        "recovered",
       );
       return;
     }
@@ -803,10 +822,14 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
     if (closed || pending.settled || pending.launchSettled) return;
     if (probe?.report !== undefined) {
       if (!recoveryCandidateConfirmed(pending, probe.report)) return;
-      settleReport(pending, {
-        ...probe.report,
-        summary: `${probe.report.summary} (recovered from worker status)`,
-      });
+      settleReport(
+        pending,
+        {
+          ...probe.report,
+          summary: `${probe.report.summary} (recovered from worker status)`,
+        },
+        "recovered",
+      );
       return;
     }
     const state = probe?.state ?? states.get(pending.request.assignment.id);
@@ -821,7 +844,7 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
       at: nowIso(),
     };
     if (!recoveryCandidateConfirmed(pending, report)) return;
-    settleReport(pending, report);
+    settleReport(pending, report, "recovered");
   }
 
   /**
@@ -832,6 +855,9 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
    * the launch as a direct delivery (no `recovered from worker status`).
    */
   function recoveryCandidateConfirmed(pending: PendingLaunch, report: Report): boolean {
+    // An operator may explicitly disable the race guard (grace 0); tests use
+    // this to exercise the recovery path deterministically.
+    if (recoveryGraceMs <= 0) return true;
     const candidate = pending.recoveryCandidate;
     // `at` is the bridge's receive time, not the Worker's fixed report time, so
     // compare the stable report identity only (kind + summary).
@@ -1062,7 +1088,13 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
    * a timeout or a parked `waiting`) only update observability, never resolve a
    * promise twice.
    */
-  function settleReport(pending: PendingLaunch, report: Report): void {
+  function settleReport(
+    pending: PendingLaunch,
+    report: Report,
+    source: "direct" | "recovered" = "direct",
+  ): void {
+    if (source === "direct") settlementCounts.directCompleted += 1;
+    else settlementCounts.recoveredCompleted += 1;
     pending.lastActivityAt = Math.max(pending.lastActivityAt, Date.parse(report.at) || 0);
     appendTaskEvent(pending.request.assignment.id, {
       type: "gethen.result",
@@ -1871,6 +1903,9 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
       return [...workerIds].map(mailboxFor);
     },
     mailboxFor,
+    settlementMetrics(): BridgeSettlementMetrics {
+      return { ...settlementCounts };
+    },
     addWorker(workerId: string): void {
       if (workerId.length > 0) workerIds.add(workerId);
     },

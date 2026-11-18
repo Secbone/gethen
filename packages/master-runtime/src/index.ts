@@ -3,6 +3,7 @@
  * (`gethen serve`) and the DSH plugin. See `./runtime`.
  */
 
+export type { BridgeSettlementMetrics } from "@gethen/bridge-mailbox";
 // Host-convenience re-exports: a CLI/plugin that layers fleet scheduling on the
 // live worker snapshots can take the fleet/router types from here instead of
 // duplicating the assembly's dependency edges.

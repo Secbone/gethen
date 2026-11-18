@@ -30,6 +30,7 @@ import {
   type Trigger,
 } from "@gethen/master";
 import {
+  type BridgeSettlementMetrics,
   type ControlPlane,
   createEscalationHooks,
   createMasterRuntime,
@@ -234,6 +235,8 @@ interface ToolDeps {
   notifications?: MasterRuntime["notifications"];
   /** Live scheduling counters (queued/running/reused/queue-timeout). */
   scheduling?(): SchedulingMetrics;
+  /** Direct result envelopes vs status-recovery settlements. */
+  settlements?(): BridgeSettlementMetrics;
   /**
    * Logical workstream dispatched with `gethen_run` so the router can match it.
    * Never a Master filesystem path; the Worker owns the workspace.
@@ -318,6 +321,14 @@ function registerTools(ctx: DshContext, deps: ToolDeps): void {
           launch: { type: "string", enum: ["fake", "ws"] },
           workers: { type: "number" },
           workerDetails: { type: "array", items: { type: "object" } },
+          settlements: {
+            type: "object",
+            properties: {
+              directCompleted: { type: "number" },
+              recoveredCompleted: { type: "number" },
+            },
+            required: ["directCompleted", "recoveredCompleted"],
+          },
           scheduling: {
             type: "object",
             properties: {
@@ -389,6 +400,7 @@ function registerTools(ctx: DshContext, deps: ToolDeps): void {
         escalations: status.counts.escalations,
         launch: deps.launch(),
         workers: deps.workers(),
+        settlements: deps.settlements?.() ?? { directCompleted: 0, recoveredCompleted: 0 },
         scheduling: deps.scheduling?.() ?? {
           queued: 0,
           running: 0,
@@ -687,6 +699,7 @@ export function apply(ctx: DshContext, config: GethenConfig = {}): void {
     notifications: mounted.notifications,
     workspace: config.ws?.workspace ?? DEFAULT_WORKSTREAM,
     scheduling: () => mounted.scheduling(),
+    settlements: () => mounted.settlements(),
     ...(config.runWaitMs === undefined ? {} : { runWaitMs: config.runWaitMs }),
   });
   ctx.effect?.(() => () => {

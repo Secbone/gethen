@@ -236,7 +236,11 @@ function statusResultEnvelope(status: Envelope, summary: string): Envelope {
   });
 }
 
-function askEnvelope(assign: Envelope, question = "Which branch?"): Envelope {
+function askEnvelope(
+  assign: Envelope,
+  question = "Which branch?",
+  kind: "decision" | "permission" = "decision",
+): Envelope {
   const assignmentId = assignmentIdOf(assign);
   return newEnvelope({
     source: `agent:${WORKER}`,
@@ -246,12 +250,15 @@ function askEnvelope(assign: Envelope, question = "Which branch?"): Envelope {
     data: {
       assignmentId,
       escalationId: "esc-1",
-      kind: "decision",
+      kind,
       question,
-      options: [
-        { id: "merge", label: "Merge" },
-        { id: "rebase", label: "Rebase" },
-      ],
+      options:
+        kind === "permission"
+          ? [{ id: "allow", label: "Allow" }]
+          : [
+              { id: "merge", label: "Merge" },
+              { id: "rebase", label: "Rebase" },
+            ],
     },
     correlationId: assign.id,
     to: assign.replyTo ?? MASTER_MAILBOX,
@@ -292,6 +299,7 @@ describe("createMasterRuntime mailbox stack", () => {
         maxQueueDepth: 0,
         parked: 0,
       },
+      settlements: { directCompleted: 0, recoveredCompleted: 0 },
     });
     expect(runtime.bridge?.workerMailbox).toBe(WORKER_MAILBOX);
     expect(runtime.bridge?.masterMailbox).toBe(MASTER_MAILBOX);
@@ -356,6 +364,32 @@ describe("createMasterRuntime mailbox stack", () => {
     const result = await resultPromise;
     expect(result.report.summary).toBe("direct");
     expect(result.report.summary).not.toContain("recovered from worker status");
+    expect(runtime.health().settlements).toEqual({
+      directCompleted: 1,
+      recoveredCompleted: 0,
+    });
+  });
+
+  it("counts a status-recovered report separately from direct delivery", async () => {
+    const harness = await startHarness({ reconcileIntervalMs: 1_000, recoveryGraceMs: 0 });
+    const runtime = harness.runtime;
+    const { link } = await attachWorker(harness);
+
+    const resultPromise = runtime.bridge?.launchPort.launch(launchRequest());
+    if (resultPromise === undefined) throw new Error("expected a mailbox bridge");
+    const assign = await receiveOne(link);
+    await link.ack([assign.envelope.id]);
+    const status = await receiveOne(link, 4_000);
+    expect(status.envelope.type).toBe("gethen.task.status");
+    await link.ack([status.envelope.id]);
+    await link.send(statusResultEnvelope(status.envelope, "recovered-only"));
+
+    const result = await resultPromise;
+    expect(result.report.summary).toContain("(recovered from worker status)");
+    expect(runtime.health().settlements).toEqual({
+      directCompleted: 0,
+      recoveredCompleted: 1,
+    });
   });
 
   it("answers a parked escalation and applies the late result to the ticket", async () => {
@@ -540,21 +574,21 @@ describe("createMasterRuntime mailbox stack", () => {
 
     const assign = await receiveOne(link);
     await link.ack([assign.envelope.id]);
-    await link.send(askEnvelope(assign.envelope));
+    await link.send(askEnvelope(assign.envelope, "Allow the tool?", "permission"));
     await submitted;
     await waitFor(() => runtime.service.store.tickets.get(ticketId)?.attention !== undefined);
 
     const answered = await runtime.control.answer({
       ticketId,
-      text: "Merge it.",
-      option: "merge",
+      text: "Allow it.",
+      option: "allow",
     });
     expect(answered).toMatchObject({
       delivered: true,
       ticket: { id: ticketId, needsAction: false },
       escalation: {
         status: "resolved",
-        resolution: { kind: "answer", text: "Merge it.", option: "merge" },
+        resolution: { kind: "answer", text: "Allow it.", option: "allow" },
       },
     });
 
@@ -564,19 +598,24 @@ describe("createMasterRuntime mailbox stack", () => {
       correlationId: answered.assignmentId,
       data: {
         escalationId: "esc-1",
-        resolution: { kind: "answer", text: "Merge it.", option: "merge" },
+        resolution: { kind: "answer", text: "Allow it.", option: "allow" },
       },
     });
     await link.ack([answer.envelope.id]);
 
     // The answered Worker resumes and its result lands on the same Ticket.
-    await link.send(resultEnvelope(assign.envelope, { summary: "merged" }));
+    await link.send(resultEnvelope(assign.envelope, { summary: "allowed and done" }));
     await waitFor(() => runtime.service.store.tickets.get(ticketId)?.latestReport === "ready");
     expect(runtime.service.store.listReceipts().map((receipt) => receipt.summary)).toEqual([
-      "waiting for a person: Which branch?",
-      "merged",
+      "waiting for a person: Allow the tool?",
+      "allowed and done",
     ]);
     expect(runtime.service.store.tickets.get(ticketId)?.attention).toBeUndefined();
+    // The resumed result arrived as a normal envelope, not via status recovery.
+    expect(runtime.health().settlements).toEqual({
+      directCompleted: 1,
+      recoveredCompleted: 0,
+    });
   });
 
   it("settles a silent launch and applies the Worker's late result", async () => {
@@ -735,6 +774,7 @@ describe("createMasterRuntime mailbox stack", () => {
         maxQueueDepth: 0,
         parked: 0,
       },
+      settlements: { directCompleted: 0, recoveredCompleted: 0 },
     });
     await expect(runtime.close()).resolves.toBeUndefined();
 

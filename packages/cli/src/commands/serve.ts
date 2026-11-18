@@ -216,6 +216,7 @@ export async function startServe(config: ServeConfig = {}): Promise<ServeHandle>
             workers: runtime.workers(),
             launch: runtime.launch,
             scheduling: runtime.scheduling(),
+            settlements: runtime.settlements(),
           });
           return;
         }

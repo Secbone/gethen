@@ -7,6 +7,7 @@
  * not re-derive ticket state or reimplement worker failure handling.
  */
 import type {
+  BridgeSettlementMetrics,
   HarnessSessionEvent,
   HarnessSessionHistory,
   HarnessSessionSummary,
@@ -75,6 +76,8 @@ export interface ControlTaskResult {
   escalation?: EscalationRecord;
   /** Live queue/running/reuse counters; present on `status` results. */
   scheduling?: SchedulingMetrics;
+  /** Direct vs recovered settlement counters; present on `status` results. */
+  settlements?: BridgeSettlementMetrics;
 }
 
 export type ControlTicketAction = "ack" | "close" | "archive";
@@ -128,6 +131,8 @@ export interface ControlPlane {
   workers(): WorkerSnapshot[];
   /** Live queue/running/reuse counters (zeros without routing). */
   scheduling(): SchedulingMetrics;
+  /** Direct vs recovered settlement counters (zeros without a mailbox bridge). */
+  settlements(): BridgeSettlementMetrics;
   task(request: ControlTaskRequest): Promise<ControlTaskResult>;
   sessions(options?: { timeoutMs?: number }): Promise<HarnessSessionSummary[]>;
   sessionHistory(
@@ -162,6 +167,8 @@ export interface ControlPlaneOptions {
   workers?: () => WorkerSnapshot[];
   /** Live scheduling counters; absent hosts report a zero snapshot. */
   scheduling?: () => SchedulingMetrics;
+  /** Direct vs recovered settlement counters; absent hosts report zeros. */
+  settlements?: () => BridgeSettlementMetrics;
   now?: () => Date;
 }
 
@@ -180,6 +187,12 @@ export function createControlPlane(options: ControlPlaneOptions): ControlPlane {
       queueTimeouts: 0,
       maxQueueDepth: 0,
       parked: 0,
+    }));
+  const settlements =
+    options.settlements ??
+    (() => ({
+      directCompleted: 0,
+      recoveredCompleted: 0,
     }));
   const now = options.now ?? (() => new Date());
   const taskControl = createTaskControl(tasks);
@@ -396,12 +409,16 @@ export function createControlPlane(options: ControlPlaneOptions): ControlPlane {
     states: () => tasks.states(),
     workers,
     scheduling,
+    settlements,
     task: async (request) => {
       const result = await taskControl.task(request);
       // A host without an `onResolution` hook still needs the Ticket's
       // Attention cleared and the Assignment resumed after a task-level answer.
       if (request.action === "answer") settleTaskAnswer(request, result.escalation);
-      if (request.action === "status") result.scheduling = scheduling();
+      if (request.action === "status") {
+        result.scheduling = scheduling();
+        result.settlements = settlements();
+      }
       return result;
     },
     sessions: (request) => tasks.sessions(request),

@@ -119,6 +119,10 @@ export function registerTaskTool(ctx: DshContext, control: Pick<ControlPlane, "t
             type: "object",
             description: "Live queued/running/reused/queue-timeout counters (action=status).",
           },
+          settlements: {
+            type: "object",
+            description: "Direct vs status-recovered completion counters (action=status).",
+          },
         },
         ["action"],
       ),

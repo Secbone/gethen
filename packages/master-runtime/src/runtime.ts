@@ -21,6 +21,7 @@ import type { IncomingMessage } from "node:http";
 import { basename, dirname, join } from "node:path";
 import type { Duplex } from "node:stream";
 import {
+  type BridgeSettlementMetrics,
   createMailboxLaunchPort,
   DEFAULT_MAILBOX_PREFIX,
   type HarnessSessionHistory,
@@ -256,6 +257,8 @@ export interface MasterRuntimeHealth {
   mailbox: MailboxHealth;
   /** Live queued/running/reused/queue-timeout counters. */
   scheduling: SchedulingMetrics;
+  /** Direct result envelopes vs status-recovery settlements. */
+  settlements: BridgeSettlementMetrics;
 }
 
 export interface MasterRuntime {
@@ -275,6 +278,8 @@ export interface MasterRuntime {
   workers(): WorkerSnapshot[];
   /** Live scheduling counters (zeros in fake mode). */
   scheduling(): SchedulingMetrics;
+  /** Direct vs recovered settlement counters (zeros in fake mode). */
+  settlements(): BridgeSettlementMetrics;
   health(): MasterRuntimeHealth;
   /**
    * Close the communication stack first (bridge -> session links -> transport
@@ -545,6 +550,7 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
         escalations: 0,
         mailbox: { pending: 0, leased: 0, dead: 0 },
         scheduling: emptySchedulingMetrics(),
+        settlements: { directCompleted: 0, recoveredCompleted: 0 },
       };
     }
     const tickets = service.store.tickets.list();
@@ -557,6 +563,10 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
       escalations: service.store.listEscalations().length,
       mailbox: mailboxHealth(),
       scheduling: (routedPort ?? { metrics: emptySchedulingMetrics }).metrics(),
+      settlements: mailboxBridge?.settlementMetrics() ?? {
+        directCompleted: 0,
+        recoveredCompleted: 0,
+      },
     };
   }
 
@@ -600,6 +610,8 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
     tasks,
     workers: () => directory.snapshots(),
     scheduling: () => (routedPort ?? { metrics: emptySchedulingMetrics }).metrics(),
+    settlements: () =>
+      mailboxBridge?.settlementMetrics() ?? { directCompleted: 0, recoveredCompleted: 0 },
     ...(options.now === undefined ? {} : { now: options.now }),
   });
   // Archive/close stale Tickets even when no operator or agent is polling.
@@ -643,6 +655,8 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
     handleUpgrade,
     workers: () => directory.snapshots(),
     scheduling: () => (routedPort ?? { metrics: emptySchedulingMetrics }).metrics(),
+    settlements: () =>
+      mailboxBridge?.settlementMetrics() ?? { directCompleted: 0, recoveredCompleted: 0 },
     health,
     close,
   };
