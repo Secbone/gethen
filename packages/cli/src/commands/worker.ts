@@ -1,16 +1,31 @@
 import { existsSync, readFileSync } from "node:fs";
 import { isIP } from "node:net";
 import { homedir, hostname } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { agentMailboxName, createMailboxAgent, type MailboxAgent } from "@gethen/agent";
 import { createSdkHarnessExecutor } from "@gethen/executor-sdk";
 import { createMailboxClientLink, type MailboxClientLink } from "@gethen/mailbox-link";
 import { createWsTransport, type TransportSession } from "@gethen/transport";
 import {
+  isFilesystemPath,
   parseWorkerManifest,
   type WorkerCapabilities,
   type WorkerManifest,
+  type WorkerWorkspace,
+  workstreamBranch,
 } from "@gethen/worker-bridge";
+import {
+  assertOwnedWorkspace,
+  defaultWorkspaceRoot,
+  deliveryInstructions,
+  deliverySummary,
+  finalizeDelivery,
+  type PreparedWorkstream,
+  parseWorkstreams,
+  prepareWorkstream,
+  type WorkstreamConfig,
+  WorkstreamError,
+} from "../workstream";
 import { WORKER_PATH } from "./serve";
 import { workerTokenCommand } from "./worker-token";
 
@@ -22,6 +37,10 @@ export interface WorkerConfig {
   provider: string;
   model: string;
   workspaces: string[];
+  /** Worker-owned workstream declarations; when set, dispatches must name one. */
+  workstreams?: WorkstreamConfig[];
+  /** Parent directory for materialized workstreams; defaults under `stateDir`. */
+  workspaceRoot?: string;
   quota?: number;
   dshCommand?: string;
   dshArgs?: string[];
@@ -67,6 +86,10 @@ interface WorkerConfigFile {
   provider?: string;
   model?: string;
   workspaces?: string[];
+  /** Worker-owned workstream declarations. */
+  workstreams?: WorkstreamConfig[];
+  /** Parent directory for materialized workstreams. */
+  workspaceRoot?: string;
   quota?: number;
   dshCommand?: string;
   dshArgs?: string[];
@@ -132,6 +155,11 @@ export function parseWorkerConfig(argv: string[], options: WorkerConfigOptions =
   );
   const isolation = parseIsolation(flagValue(argv, "--isolation") ?? file.isolation);
   const stateDir = flagValue(argv, "--state-dir") ?? file.stateDir;
+  const workstreams = parseWorkstreams(file.workstreams);
+  const workspaceRoot = flagValue(argv, "--workspace-root") ?? file.workspaceRoot;
+  if (workspaceRoot !== undefined && !isAbsolute(workspaceRoot)) {
+    throw new Error("worker config: workspaceRoot must be an absolute path");
+  }
 
   const costClass = parseCostClass(flagValue(argv, "--cost-class") ?? file.costClass);
   const capabilities = parseCapabilities(file.capabilities);
@@ -142,7 +170,16 @@ export function parseWorkerConfig(argv: string[], options: WorkerConfigOptions =
     workerId,
     provider,
     model,
-    workspaces: workspaces.length > 0 ? workspaces : [options.cwd ?? process.cwd()],
+    // Workstreams replace the legacy cwd/default workspace: advertising cwd
+    // would let a dispatch land on whatever directory the Worker started in.
+    workspaces:
+      workspaces.length > 0
+        ? workspaces
+        : workstreams === undefined
+          ? [options.cwd ?? process.cwd()]
+          : [],
+    ...(workstreams === undefined ? {} : { workstreams }),
+    ...(workspaceRoot === undefined ? {} : { workspaceRoot }),
     ...(machine === undefined ? {} : { machine }),
     ...(quota === undefined ? {} : { quota }),
     ...(file.dshCommand === undefined ? {} : { dshCommand: file.dshCommand }),
@@ -312,15 +349,24 @@ export function workerManifest(
   config: WorkerConfig,
   at = new Date().toISOString(),
 ): WorkerManifest {
-  const workspaces = new Set<string>([
-    ...Object.keys(config.workspaceMap ?? {}),
-    ...config.workspaces,
-  ]);
+  // Workstreams advertise logical ids; legacy paths keep their old ids so a
+  // rolling deployment can still route to an older Worker.
+  const declared = new Map<string, WorkerWorkspace>();
+  for (const workstream of config.workstreams ?? []) {
+    declared.set(workstream.id, {
+      id: workstream.id,
+      repo: workstream.repo,
+      branch: workstream.branch ?? workstreamBranch(workstream.id),
+    });
+  }
+  for (const id of [...Object.keys(config.workspaceMap ?? {}), ...config.workspaces]) {
+    if (!declared.has(id)) declared.set(id, { id });
+  }
   const manifest = {
     id: config.workerId,
     machine: config.machine ?? hostname(),
     runtime: "dsh" as const,
-    workspaces: [...workspaces].map((id) => ({ id })),
+    workspaces: [...declared.values()],
     capabilities: { ...DEFAULT_WORKER_CAPABILITIES, ...config.capabilities },
     models: [config.model],
     costClass: config.costClass ?? ("mid" as const),
@@ -366,14 +412,65 @@ async function runMailboxWorker(config: WorkerConfig): Promise<number> {
     worker: workerManifest(config),
   });
 
-  /** Map the master-side workspace to a local directory that exists. */
+  const workstreamConfigs = new Map(
+    (config.workstreams ?? []).map((workstream) => [workstream.id, workstream]),
+  );
+  const workstreamRoot = config.workspaceRoot ?? defaultWorkspaceRoot(config.stateDir, workerId);
+  const preparedWorkstreams = new Map<string, PreparedWorkstream>();
+
+  /** Materialize one Worker-owned workstream, once per process. */
+  function preparedFor(workspace: string): PreparedWorkstream | undefined {
+    const declared = workstreamConfigs.get(workspace);
+    if (declared === undefined) return undefined;
+    const cached = preparedWorkstreams.get(workspace);
+    if (cached !== undefined) return cached;
+    const prepared = prepareWorkstream(declared, { workerId, workspaceRoot: workstreamRoot });
+    preparedWorkstreams.set(workspace, prepared);
+    process.stderr.write(
+      `worker: workstream ${workspace} -> ${prepared.path} ` +
+        `(${prepared.isolation}, ${prepared.branch})\n`,
+    );
+    return prepared;
+  }
+
+  /**
+   * Map the dispatched workstream (or legacy workspace) to a Worker-owned
+   * directory. Once `workstreams` is configured, a Master filesystem path is
+   * refused unless the operator explicitly mapped it: the Worker never writes
+   * the Master's repository.
+   */
   function resolveWorkspace(workspace: string): string {
-    const mapped = config.workspaceMap?.[workspace] ?? workspace;
-    if (existsSync(mapped)) return mapped;
+    const prepared = preparedFor(workspace);
+    if (prepared !== undefined) return prepared.path;
+    const mapped = config.workspaceMap?.[workspace];
+    if (workstreamConfigs.size > 0) {
+      if (mapped !== undefined) {
+        if (!existsSync(mapped)) {
+          throw new WorkstreamError(
+            "WORKSTREAM_CONFIG",
+            `mapped workspace "${mapped}" does not exist on this Worker`,
+          );
+        }
+        return mapped;
+      }
+      if (!isFilesystemPath(workspace)) {
+        throw new WorkstreamError(
+          "WORKSTREAM_UNKNOWN",
+          `workstream "${workspace}" is not configured on this Worker ` +
+            `(known: ${[...workstreamConfigs.keys()].join(", ") || "none"})`,
+        );
+      }
+      // Absolute paths are exactly the Master-repo pollution vector this
+      // contract removes; only an explicit workspaceMap may opt into one.
+      assertOwnedWorkspace(workspace, undefined);
+    }
+    if (mapped !== undefined && existsSync(mapped)) return mapped;
+    if (existsSync(workspace)) return workspace;
     const configured = config.workspaces.find((candidate) => existsSync(candidate));
     const fallback = configured ?? process.cwd();
     process.stderr.write(
-      `worker: workspace "${workspace}" -> "${mapped}" does not exist; using "${fallback}"\n`,
+      `worker: workspace "${workspace}" -> "${mapped ?? workspace}" does not exist; ` +
+        `using "${fallback}"\n`,
     );
     return fallback;
   }
@@ -399,20 +496,46 @@ async function runMailboxWorker(config: WorkerConfig): Promise<number> {
       task: Parameters<typeof baseHarness.start>[0],
       sink: Parameters<typeof baseHarness.start>[1],
     ) {
+      const prepared = preparedFor(task.workspace);
+      const assigned =
+        prepared === undefined
+          ? task
+          : { ...task, prompt: `${task.prompt}${deliveryInstructions(prepared)}` };
       process.stderr.write(
         `worker: assign ${task.assignmentId} workspace=${task.workspace} cwd=${resolveWorkspace(task.workspace)}\n`,
       );
       let execution: Awaited<ReturnType<typeof baseHarness.start>>;
       try {
-        execution = await baseHarness.start(task, {
+        execution = await baseHarness.start(assigned, {
           event: (event) => sink.event(event),
           escalation: (escalation) => {
             process.stderr.write(`worker: escalation ${escalation.kind}: ${escalation.question}\n`);
             sink.escalation(escalation);
           },
           report: (report) => {
-            process.stderr.write(`worker: report ${report.kind}: ${report.summary}\n`);
-            sink.report(report);
+            let outgoing = report;
+            if (prepared !== undefined && report.kind === "ready") {
+              try {
+                const delivery = finalizeDelivery(prepared, {
+                  message: `chore(${prepared.id}): ${task.assignmentId}`,
+                });
+                outgoing = {
+                  ...report,
+                  summary: deliverySummary(report.summary, delivery),
+                };
+                process.stderr.write(
+                  `worker: delivery ${delivery.branch}@${delivery.commit} pushed=${delivery.remote}\n`,
+                );
+              } catch (error) {
+                outgoing = {
+                  kind: "failed",
+                  summary: `delivery contract failed: ${messageOf(error)}`,
+                };
+                process.stderr.write(`worker: ${outgoing.summary}\n`);
+              }
+            }
+            process.stderr.write(`worker: report ${outgoing.kind}: ${outgoing.summary}\n`);
+            sink.report(outgoing);
           },
         });
       } catch (error) {
@@ -606,6 +729,9 @@ function configFile(argv: string[]): WorkerConfigFile {
   const workspaceMap = parsed.workspaceMap;
   const requestTimeoutMs = optionalNumber(parsed, "requestTimeoutMs");
   const isolation = optionalString(parsed, "isolation");
+  const stateDir = optionalString(parsed, "stateDir");
+  const workspaceRoot = optionalString(parsed, "workspaceRoot");
+  const workstreams = parsed.workstreams;
   const costClass = optionalString(parsed, "costClass");
   const capabilities = parsed.capabilities;
   if (masterUrl !== undefined) file.masterUrl = masterUrl;
@@ -622,6 +748,9 @@ function configFile(argv: string[]): WorkerConfigFile {
   if (workspaceMap !== undefined) file.workspaceMap = workspaceMap as Record<string, string>;
   if (requestTimeoutMs !== undefined) file.requestTimeoutMs = requestTimeoutMs;
   if (isolation !== undefined) file.isolation = isolation as "shared" | "process";
+  if (stateDir !== undefined) file.stateDir = stateDir;
+  if (workspaceRoot !== undefined) file.workspaceRoot = workspaceRoot;
+  if (workstreams !== undefined) file.workstreams = workstreams as WorkstreamConfig[];
   if (costClass !== undefined) file.costClass = costClass as WorkerConfigFile["costClass"];
   if (capabilities !== undefined) {
     file.capabilities = capabilities as Partial<WorkerCapabilities>;

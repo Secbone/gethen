@@ -259,6 +259,8 @@ interface ExecutionState {
   phase: HarnessTaskPhase;
   step: number;
   lastTool: { name: string; startedAt: string } | undefined;
+  /** A tool call started and has not produced its result yet. */
+  toolInFlight: boolean;
   lastEventAt: string;
   lastMessage: string | undefined;
   seq: number;
@@ -343,6 +345,7 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
       phase: "starting",
       step: 0,
       lastTool: undefined,
+      toolInFlight: false,
       lastEventAt: this.now().toISOString(),
       lastMessage: undefined,
       seq: 0,
@@ -675,10 +678,12 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
         state.phase = "tool";
         const name = typeof data.name === "string" && data.name.length > 0 ? data.name : "tool";
         state.lastTool = { name, startedAt: state.lastEventAt };
+        state.toolInFlight = true;
         return;
       }
       case "tool/result":
         state.phase = "thinking";
+        state.toolInFlight = false;
         return;
       case "assistant/message": {
         state.phase = "thinking";
@@ -693,6 +698,7 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
         return;
       case "turn/end":
         state.phase = "done";
+        state.toolInFlight = false;
         return;
       default:
         return;
@@ -749,6 +755,14 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
     if (this.idleTimeoutMs <= 0) return;
     state.watchdogTimer = setTimeout(() => {
       if (state.settled) return;
+      // A running tool (a long `pnpm check`, build, migration, ...) produces no
+      // session events until it returns. Treat that as activity and re-arm the
+      // silence window instead of killing a healthy task; the hard
+      // `maxExecutionMs` cap still bounds a tool that never returns.
+      if (state.toolInFlight) {
+        this.resetWatchdog(state);
+        return;
+      }
       this.emitLog(state, {
         phase: "watchdog",
         text: `no session events for ${this.idleTimeoutMs}ms`,

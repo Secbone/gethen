@@ -279,6 +279,52 @@ describe("worker hello registration", () => {
     expect(manifest.workspaces).toEqual([{ id: "/srv/projects" }]);
   });
 
+  it("advertises logical workstream ids (never a Master filesystem path)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "gethen-worker-"));
+    const path = join(dir, "worker.json");
+    writeFileSync(
+      path,
+      JSON.stringify({
+        masterUrl: "wss://m.example/gethen/worker",
+        token: "t",
+        workerId: "w",
+        provider: "p",
+        model: "m",
+        workspaceRoot: "/srv/workstreams",
+        workstreams: [
+          { id: "ws-collab", repo: "/srv/gethen-worker/source" },
+          { id: "ws-docs", repo: "/srv/gethen-worker/source", base: "origin/main" },
+        ],
+      }),
+    );
+    try {
+      const config = parseWorkerConfig(["--config", path]);
+      expect(config.workstreams?.map((workstream) => workstream.branch)).toEqual([
+        "feat/ws-collab",
+        "feat/ws-docs",
+      ]);
+      expect(config.workspaceRoot).toBe("/srv/workstreams");
+      const manifest = workerManifest(config, "2026-11-18T00:00:00.000Z");
+      expect(manifest.workspaces).toEqual([
+        {
+          id: "ws-collab",
+          repo: "/srv/gethen-worker/source",
+          branch: "feat/ws-collab",
+        },
+        {
+          id: "ws-docs",
+          repo: "/srv/gethen-worker/source",
+          branch: "feat/ws-docs",
+        },
+      ]);
+      expect(() =>
+        parseWorkerConfig(["--config", path, "--workspace-root", "relative/path"]),
+      ).toThrow(/workspaceRoot/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("rejects unknown cost classes and capability values at startup", () => {
     expect(() => parseWorkerConfig([...base, "--cost-class", "free"])).toThrow(/costClass/);
     const dir = mkdtempSync(join(tmpdir(), "gethen-worker-"));

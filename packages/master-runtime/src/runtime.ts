@@ -54,8 +54,10 @@ import {
 import { type ControlPlane, createControlPlane } from "./control";
 import {
   createRoutedLaunchPort,
+  emptySchedulingMetrics,
   evidenceFromReceipts,
   type RoutingOptions,
+  type SchedulingMetrics,
   WorkerDirectory,
   type WorkerSnapshot,
 } from "./fleet";
@@ -73,6 +75,13 @@ export type {
 
 /** Pack digest recorded when the engine has none (no real pack pinning yet). */
 export const DEFAULT_PACK_DIGEST = "sha256:local-unpinned";
+
+/**
+ * Logical workspace dispatched when the host configures none. It is a
+ * workstream id, not a Master filesystem path: the Worker owns the directory
+ * and creates `feat/<id>` for delivery.
+ */
+export const DEFAULT_WORKSTREAM = "default";
 
 /** How often the runtime closes stale Tickets / archives expired ones. */
 export const TICKET_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
@@ -173,7 +182,11 @@ export interface MasterRuntimeOptions {
   verifyToken?: TokenVerifier;
   /** Master policy; defaults to {@link DEFAULT_MASTER_POLICY}. */
   policy?: Policy;
-  /** Worker-side workspace for dispatches; defaults to `process.cwd()`. */
+  /**
+   * Logical workstream id dispatched with assignments; defaults to
+   * {@link DEFAULT_WORKSTREAM}. This is never a Master filesystem path: the
+   * Worker owns and materializes the workspace.
+   */
   workspace?: string;
   /** Pack digest for dispatches; defaults to {@link DEFAULT_PACK_DIGEST}. */
   packDigest?: string;
@@ -237,6 +250,8 @@ export interface MasterRuntimeHealth {
   receipts: number;
   escalations: number;
   mailbox: MailboxHealth;
+  /** Live queued/running/reused/queue-timeout counters. */
+  scheduling: SchedulingMetrics;
 }
 
 export interface MasterRuntime {
@@ -254,6 +269,8 @@ export interface MasterRuntime {
   readonly handleUpgrade: UpgradeHandler | undefined;
   /** Per-Worker registration/health/load projection (empty in fake mode). */
   workers(): WorkerSnapshot[];
+  /** Live scheduling counters (zeros in fake mode). */
+  scheduling(): SchedulingMetrics;
   health(): MasterRuntimeHealth;
   /**
    * Close the communication stack first (bridge -> session links -> transport
@@ -267,7 +284,7 @@ export interface MasterRuntime {
  * transport server object are created here, while listening stays with the host.
  */
 export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntime {
-  const workspace = options.workspace ?? process.cwd();
+  const workspace = options.workspace ?? DEFAULT_WORKSTREAM;
   const packDigest = options.packDigest ?? DEFAULT_PACK_DIGEST;
   const nowIso = (): string => (options.now?.() ?? new Date()).toISOString();
 
@@ -438,28 +455,29 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
 
   let serviceRef: MasterService | undefined;
   let notificationHub: NotificationHub | undefined;
-  const launchPort: LaunchPort =
+  const routedPort =
     mailboxBridge === undefined
+      ? undefined
+      : createRoutedLaunchPort({
+          directory,
+          ports: new Map(workerIds.map((workerId) => [workerId, mailboxBridge.launchPort])),
+          routing,
+          evidence: () => evidenceFromReceipts(serviceRef?.store.listReceipts() ?? []),
+          onRoute: (request) => {
+            // Persist the routed Worker before the launch can block, so task
+            // observability does not show an empty worker while it runs.
+            serviceRef?.engine.assignmentRouted(
+              request.ticket.id,
+              request.assignment.id,
+              request.assignment.worker,
+            );
+          },
+          ...(options.now === undefined ? {} : { now: options.now }),
+        });
+  const launchPort: LaunchPort =
+    routedPort === undefined
       ? withLaunchDefaults(createFakeLaunch(), { workspace, packDigest })
-      : withLaunchDefaults(
-          createRoutedLaunchPort({
-            directory,
-            ports: new Map(workerIds.map((workerId) => [workerId, mailboxBridge.launchPort])),
-            routing,
-            evidence: () => evidenceFromReceipts(serviceRef?.store.listReceipts() ?? []),
-            onRoute: (request) => {
-              // Persist the routed Worker before the launch can block, so task
-              // observability does not show an empty worker while it runs.
-              serviceRef?.engine.assignmentRouted(
-                request.ticket.id,
-                request.assignment.id,
-                request.assignment.worker,
-              );
-            },
-            ...(options.now === undefined ? {} : { now: options.now }),
-          }),
-          { workspace, packDigest },
-        );
+      : withLaunchDefaults(routedPort, { workspace, packDigest });
   const service = new MasterService({
     dbPath: options.dbPath,
     policy: options.policy ?? DEFAULT_MASTER_POLICY,
@@ -516,6 +534,7 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
         receipts: 0,
         escalations: 0,
         mailbox: { pending: 0, leased: 0, dead: 0 },
+        scheduling: emptySchedulingMetrics(),
       };
     }
     const tickets = service.store.tickets.list();
@@ -527,6 +546,7 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
       receipts: service.store.listReceipts().length,
       escalations: service.store.listEscalations().length,
       mailbox: mailboxHealth(),
+      scheduling: (routedPort ?? { metrics: emptySchedulingMetrics }).metrics(),
     };
   }
 
@@ -569,6 +589,7 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
     service,
     tasks,
     workers: () => directory.snapshots(),
+    scheduling: () => (routedPort ?? { metrics: emptySchedulingMetrics }).metrics(),
     ...(options.now === undefined ? {} : { now: options.now }),
   });
   // Archive/close stale Tickets even when no operator or agent is polling.
@@ -611,6 +632,7 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
     control,
     handleUpgrade,
     workers: () => directory.snapshots(),
+    scheduling: () => (routedPort ?? { metrics: emptySchedulingMetrics }).metrics(),
     health,
     close,
   };

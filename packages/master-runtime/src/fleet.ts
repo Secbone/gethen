@@ -26,6 +26,20 @@ import {
 } from "@gethen/router";
 import type { WorkerHealth } from "@gethen/worker-bridge";
 
+/** A zeroed scheduling snapshot (fake launch, closed runtime, no routing). */
+export function emptySchedulingMetrics(): SchedulingMetrics {
+  return {
+    queued: 0,
+    running: 0,
+    dispatched: 0,
+    reused: 0,
+    queueEntries: 0,
+    queueTimeouts: 0,
+    maxQueueDepth: 0,
+    parked: 0,
+  };
+}
+
 /** Operator-level needs added to every dispatch (workspace comes from the Assignment). */
 export interface RoutingRequirements {
   model?: string;
@@ -41,6 +55,34 @@ export interface RoutingOptions {
   queueTimeoutMs?: number;
   /** Poll interval while queued; defaults to 100ms. */
   queuePollMs?: number;
+}
+
+/**
+ * Live scheduling counters for capacity decisions. They are process-local and
+ * reset when the Master restarts; Tickets/receipts remain the durable record.
+ */
+export interface SchedulingMetrics {
+  /** Dispatches currently waiting in the bounded queue. */
+  queued: number;
+  /** Dispatches currently executing on a Worker. */
+  running: number;
+  /** Every launch that reached a Worker, including reuses. */
+  dispatched: number;
+  /** Dispatches that reused a session-affine Worker. */
+  reused: number;
+  /** Total attempts that entered the queue (not the current depth). */
+  queueEntries: number;
+  /** Queue waits that ended in `ROUTER_QUEUE_TIMEOUT`. */
+  queueTimeouts: number;
+  /** Highest observed queue depth. */
+  maxQueueDepth: number;
+  /** Dispatches parked because no Worker could accept them. */
+  parked: number;
+}
+
+/** A routed launch port plus the live scheduling counters it maintains. */
+export interface RoutedLaunchPort extends LaunchPort {
+  metrics(): SchedulingMetrics;
 }
 
 /** The Master's view of one configured Worker, registered or not. */
@@ -275,12 +317,22 @@ export interface RoutedLaunchPortOptions {
  * - QUEUE waits (bounded) for a slot, PARK returns a terminal failed receipt
  *   instead of retrying an impossible dispatch forever.
  */
-export function createRoutedLaunchPort(options: RoutedLaunchPortOptions): LaunchPort {
+export function createRoutedLaunchPort(options: RoutedLaunchPortOptions): RoutedLaunchPort {
   const { directory } = options;
   const now = options.now ?? (() => new Date());
   const routing = options.routing ?? {};
   const queueTimeoutMs = positive(routing.queueTimeoutMs, 300_000);
   const queuePollMs = positive(routing.queuePollMs, 100);
+  const metrics: SchedulingMetrics = {
+    queued: 0,
+    running: 0,
+    dispatched: 0,
+    reused: 0,
+    queueEntries: 0,
+    queueTimeouts: 0,
+    maxQueueDepth: 0,
+    parked: 0,
+  };
 
   function requirementFor(request: LaunchRequest): TaskRequirement {
     const require = routing.require ?? {};
@@ -350,14 +402,19 @@ export function createRoutedLaunchPort(options: RoutedLaunchPortOptions): Launch
     options.onRoute?.(request, plan);
     directory.recordSession(worker, request.assignment.session);
     directory.acquire(worker, request.assignment.id);
+    metrics.dispatched += 1;
+    metrics.running += 1;
+    if (plan.action === "reuse") metrics.reused += 1;
     try {
       return await port.launch(request);
     } finally {
+      metrics.running -= 1;
       directory.release(worker, request.assignment.id);
     }
   }
 
   return {
+    metrics: () => ({ ...metrics }),
     async launch(request: LaunchRequest): Promise<LaunchResult> {
       // Single-Worker compatibility: keep the direct dispatch (no capability or
       // workspace filters) but honor the Worker's advertised quota. Otherwise a
@@ -371,21 +428,38 @@ export function createRoutedLaunchPort(options: RoutedLaunchPortOptions): Launch
       }
 
       const deadline = Date.now() + queueTimeoutMs;
+      let queued = false;
+      const leaveQueue = (): void => {
+        if (!queued) return;
+        queued = false;
+        metrics.queued -= 1;
+      };
       for (;;) {
         const plan = single === undefined ? planFor(request) : singleWorkerPlan(single);
         if ((plan.action === "start" || plan.action === "reuse") && plan.worker !== undefined) {
+          leaveQueue();
           return dispatch(request, plan, plan.worker);
         }
         if (plan.action === "park") {
+          leaveQueue();
+          metrics.parked += 1;
           return failed(request, plan, `ROUTER_PARKED:${plan.reason}`);
         }
         // QUEUE: wait for a slot; a slot frees when an in-flight launch settles.
         if (Date.now() >= deadline) {
+          leaveQueue();
+          metrics.queueTimeouts += 1;
           return failed(
             request,
             plan,
             `ROUTER_QUEUE_TIMEOUT: no Worker capacity within ${queueTimeoutMs}ms`,
           );
+        }
+        if (!queued) {
+          queued = true;
+          metrics.queued += 1;
+          metrics.queueEntries += 1;
+          metrics.maxQueueDepth = Math.max(metrics.maxQueueDepth, metrics.queued);
         }
         await sleep(queuePollMs);
       }

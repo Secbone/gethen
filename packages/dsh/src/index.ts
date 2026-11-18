@@ -34,10 +34,12 @@ import {
   createEscalationHooks,
   createMasterRuntime,
   DEFAULT_MASTER_POLICY,
+  DEFAULT_WORKSTREAM,
   type MailboxHealth,
   type MasterRuntime,
   type MasterRuntimeTasks,
   type RoutingOptions,
+  type SchedulingMetrics,
   taskSummary,
   type WorkerSnapshot,
 } from "@gethen/master-runtime";
@@ -98,7 +100,11 @@ export interface GethenWsConfig {
   tokensFile?: string;
   /** Inline token JSON (same shape); used when tokensFile is absent. */
   tokensJson?: string;
-  /** Worker-side workspace for dispatches; defaults to `process.cwd()`. */
+  /**
+   * Logical workstream id dispatched with assignments; defaults to
+   * `DEFAULT_WORKSTREAM`. Never a Master filesystem path: the Worker owns the
+   * workspace and delivers `feat/<id>`.
+   */
   workspace?: string;
   /** Pack digest recorded for dispatches; defaults to the runtime's constant. */
   packDigest?: string;
@@ -226,7 +232,12 @@ interface ToolDeps {
   runWaitMs?: number;
   /** Durable wake notifications, shared with the notifier / gethen_wait. */
   notifications?: MasterRuntime["notifications"];
-  /** Workspace recorded on dispatched assignments so the router can match it. */
+  /** Live scheduling counters (queued/running/reused/queue-timeout). */
+  scheduling?(): SchedulingMetrics;
+  /**
+   * Logical workstream dispatched with `gethen_run` so the router can match it.
+   * Never a Master filesystem path; the Worker owns the workspace.
+   */
   workspace?: string;
 }
 
@@ -307,6 +318,29 @@ function registerTools(ctx: DshContext, deps: ToolDeps): void {
           launch: { type: "string", enum: ["fake", "ws"] },
           workers: { type: "number" },
           workerDetails: { type: "array", items: { type: "object" } },
+          scheduling: {
+            type: "object",
+            properties: {
+              queued: { type: "number" },
+              running: { type: "number" },
+              dispatched: { type: "number" },
+              reused: { type: "number" },
+              queueEntries: { type: "number" },
+              queueTimeouts: { type: "number" },
+              maxQueueDepth: { type: "number" },
+              parked: { type: "number" },
+            },
+            required: [
+              "queued",
+              "running",
+              "dispatched",
+              "reused",
+              "queueEntries",
+              "queueTimeouts",
+              "maxQueueDepth",
+              "parked",
+            ],
+          },
           mailbox: {
             type: "object",
             properties: {
@@ -355,6 +389,16 @@ function registerTools(ctx: DshContext, deps: ToolDeps): void {
         escalations: status.counts.escalations,
         launch: deps.launch(),
         workers: deps.workers(),
+        scheduling: deps.scheduling?.() ?? {
+          queued: 0,
+          running: 0,
+          dispatched: 0,
+          reused: 0,
+          queueEntries: 0,
+          queueTimeouts: 0,
+          maxQueueDepth: 0,
+          parked: 0,
+        },
         ...(deps.workerDetails().length === 0 ? {} : { workerDetails: deps.workerDetails() }),
         ...(mailbox === undefined ? {} : { mailbox }),
         ...(tasks === undefined ? {} : { tasks }),
@@ -551,7 +595,7 @@ export function apply(ctx: DshContext, config: GethenConfig = {}): void {
   runtime = createMasterRuntime({
     dbPath: join(dir, "master.sqlite"),
     policy: DEFAULT_POLICY,
-    workspace: ws?.workspace ?? process.cwd(),
+    workspace: ws?.workspace ?? DEFAULT_WORKSTREAM,
     ...(ws?.packDigest === undefined ? {} : { packDigest: ws.packDigest }),
     ...(ws?.workerId === undefined ? {} : { workerId: ws.workerId }),
     ...(ws?.workers === undefined ? {} : { workers: ws.workers }),
@@ -641,7 +685,8 @@ export function apply(ctx: DshContext, config: GethenConfig = {}): void {
     mailbox: () => (mounted.launch === "ws" ? mounted.health().mailbox : undefined),
     tasks: mounted.tasks,
     notifications: mounted.notifications,
-    workspace: config.ws?.workspace ?? process.cwd(),
+    workspace: config.ws?.workspace ?? DEFAULT_WORKSTREAM,
+    scheduling: () => mounted.scheduling(),
     ...(config.runWaitMs === undefined ? {} : { runWaitMs: config.runWaitMs }),
   });
   ctx.effect?.(() => () => {

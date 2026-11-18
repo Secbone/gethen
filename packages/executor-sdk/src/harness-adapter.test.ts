@@ -629,6 +629,31 @@ describe("live state, steering and lifecycle timers", () => {
     }
   });
 
+  it("keeps a silent execution alive while a tool is running", async () => {
+    vi.useFakeTimers();
+    try {
+      const running = setup({ idleTimeoutMs: 1_000 });
+      await running.executor.start(task(), running.sink);
+      running.client.emitSessionEvent("a1", "tool/call", { turn: 1, step: 1, name: "bash" });
+      // A long build/check emits no session events; the silence watchdog must
+      // not report failure while the tool is still in flight.
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(running.sink.reports).toEqual([]);
+      expect(running.client.closeCount).toBe(0);
+
+      running.client.emitSessionEvent("a1", "tool/result", { turn: 1, step: 1 });
+      running.client.emitAssistantText(
+        "a1",
+        reportBlock({ kind: "ready", summary: "checks passed", at: AT }),
+      );
+      running.client.emitSessionEvent("a1", "turn/end", { turn: 1 });
+      await tick();
+      expect(running.sink.reports).toEqual([{ kind: "ready", summary: "checks passed" }]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("salvages the final report from the session log when events stop", async () => {
     const fixture = dshFixture({
       sessionId: "a1",

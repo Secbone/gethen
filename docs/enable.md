@@ -73,7 +73,7 @@ gethen worker add \
     dir: /var/lib/gethen
     ws:
       tokensFile: /etc/gethen/worker-tokens.json
-      workspace: /srv/projects
+      workspace: ws-collab
     escalation: {}          # 删掉 = 升级等人；{answer:"…"} = 自动答复
 ```
 
@@ -93,7 +93,7 @@ gethen serve \
   --db /var/lib/gethen/master.sqlite \
   --tokens /etc/gethen/worker-tokens.json \
   --host 127.0.0.1 --port 8080 \
-  --workspace /srv/projects
+  --workspace ws-collab
   # 测试期可加 --escalation auto（自动答复）；生产用 park（默认）
 
 curl -s http://127.0.0.1:8080/health    # 期望 workers:0, launch:"ws"
@@ -129,14 +129,16 @@ curl -s http://127.0.0.1:8080/health    # 期望 workers:0, launch:"ws"
   "workerId": "build-1",
   "provider": "opencode-go",
   "model": "deepseek-v4.1-flash",
-  "workspaces": ["/srv/projects"],
+  "workstreams": [
+    { "id": "ws-collab", "repo": "/home/me/Code/gethen", "base": "origin/refactor/superagent" }
+  ],
   "quota": 1,
   "dshArgs": ["--profile", "sdk", "--patch", "/etc/gethen/sdk-profile.patch.yml"],
   "isolation": "shared",
   // 可选：本机 DNS 不可用/分流时，直接覆盖主机解析（TLS SNI 仍是原域名）
   "dnsOverrides": { "gethen.example.com": "203.0.113.10" },
   // 可选：Master 侧路径 → 本机路径（跨机 worker）
-  "workspaceMap": { "/srv/projects": "/home/me/Code/project" }
+  "workspaceRoot": "/home/me/workstreams"
 }
 ```
 
@@ -261,5 +263,5 @@ GETHEN_E2E=1 node scripts/e2e-sdk.mjs               # 真实 dsh SDK + 模型
 
 - 只出站：Worker 不监听端口；Master 端点必须 TLS（wss）或走 VPN/SSH 隧道；
 - 每个 Worker 独立 token，只存 hash 于 Master；撤销后重启 Master 生效；
-- `workspaces`/`dshArgs` 是 Worker 本机配置，不接受 Master 任意路径；
+- `workstreams`/`workspaceRoot`/`dshArgs` 是 Worker 本机配置；Master 只下发逻辑 workstream id，Worker 在自有 worktree 中交付 `feat/<id>` 并 push；
 - `gethen worker add` 的明文 token 只显示一次，写入 `0600` 文件。

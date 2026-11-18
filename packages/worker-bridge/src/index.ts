@@ -34,3 +34,12 @@ export {
   assertResolution,
   BridgeContractError,
 } from "./validate";
+export {
+  assertWorkstreamId,
+  isFilesystemPath,
+  isWorkstreamId,
+  WORKSTREAM_BRANCH_PREFIX,
+  type WorkstreamContract,
+  workstreamBranch,
+  workstreamContract,
+} from "./workstream";

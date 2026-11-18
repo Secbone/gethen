@@ -79,7 +79,7 @@ sudo -u gethen env GETHEN_STATE_DIR=/var/lib/gethen \
   gethen serve \
     --tokens /etc/gethen/worker-tokens.json \
     --host 127.0.0.1 --port 8080 \
-    --workspace /srv/projects
+    --workspace ws-collab
 ```
 
 | 参数 / 环境 | 说明 |
@@ -87,7 +87,7 @@ sudo -u gethen env GETHEN_STATE_DIR=/var/lib/gethen \
 | `--db <file>` | master sqlite；默认 `$GETHEN_STATE_DIR/master.sqlite` |
 | `--host` / `--port` | 绑定地址/端口；默认 `127.0.0.1:0`（临时端口） |
 | `--tokens <file>` | worker 凭证 JSON；也可用环境 `GETHEN_WORKER_TOKENS_JSON` 直接传 JSON 字符串 |
-| `--workspace <dir>` | dispatch 给 Worker 的默认工作区（envelope 用；engine 尚无 per-assignment workspace） |
+| `--workspace <id>` | dispatch 给 Worker 的逻辑 workstream id（默认 `default`）；不是 Master 文件系统路径 |
 | `GETHEN_STATE_DIR` | sqlite/lock 所在状态目录 |
 
 没有 tokens 时 Master 仍可启动，但使用 **fake launch**（不发 Worker），
@@ -166,7 +166,7 @@ EnvironmentFile=-/etc/gethen/master.env
 ExecStart=/usr/local/bin/gethen serve \
   --tokens /etc/gethen/worker-tokens.json \
   --host 127.0.0.1 --port 8080 \
-  --workspace /srv/projects
+  --workspace ws-collab
 Restart=always
 RestartSec=2
 KillSignal=SIGTERM
@@ -210,7 +210,7 @@ agent 用 `gethen_run` 工具派活，`/gethen/worker` 由 DSH 的 webServer 托
     dir: /var/lib/gethen
     ws:
       tokensFile: /etc/gethen/worker-tokens.json
-      workspace: /srv/projects
+      workspace: ws-collab
     escalation: {}            # 或 { answer: "..." } 自动答复
 ```
 
@@ -252,7 +252,9 @@ agent 用 `gethen_run` 工具派活，`/gethen/worker` 由 DSH 的 webServer 托
 | `workspaceMap` | 可选 | `{"/srv/projects":"/home/me/project"}`，Master 下发路径映射到本机路径 |
 | `workerId` | ✅ | 必须与 token 绑定的 id 一致（hello 校验） |
 | `provider` / `model` | ✅ | 传给 `dsh --profile sdk` 的 initialize 参数 |
-| `workspaces` | 建议 | Worker 本机允许的工作区绝对路径；缺省为启动目录 |
+| `workspaces` | 建议 | 旧版工作区绝对路径；与 `workstreams` 二选一，缺省为启动目录 |
+| `workstreams` | 推荐 | 逻辑 workstream 声明（`id/repo/root?/base?/remote?/isolation?`），见 §2.2 |
+| `workspaceRoot` | 可选 | Worker 拥有的 worktree/clone 父目录；默认 `<stateDir>/workstreams/<workerId>` |
 | `machine` | ❌ | hello 中的机器名；缺省 `os.hostname()` |
 | `quota` | ❌ | 并发 assignment 上限，默认 `1` |
 | `dshCommand` / `dshArgs` | ❌ | 默认 `GETHEN_DSH`/`dsh`、`["--profile","sdk"]` |
@@ -264,23 +266,54 @@ gethen worker \
   --master-url wss://gethen.example.com/gethen/worker \
   --token "$GETHEN_WORKER_TOKEN" --worker-id build-1 \
   --provider deepseek --model deepseek-v4 \
-  --workspace /srv/projects
+  --workspace ws-collab
 ```
 
 启动输出：`worker build-1 connecting to wss://.../gethen/worker`。
 
-### 2.2 运行要求
+### 2.2 工作区隔离与交付（推荐）
+
+Master 只下发逻辑 workstream id（如 `ws-collab`），Worker 在自己的目录里创建 git
+worktree，绝不写 Master 的仓库：
+
+```json
+{
+  "workstreams": [
+    {
+      "id": "ws-collab",
+      "repo": "/home/gethen/Code/gethen",
+      "root": "/home/gethen/workstreams/ws-collab",
+      "base": "origin/refactor/superagent",
+      "remote": "origin",
+      "isolation": "worktree"
+    }
+  ],
+  "workspaceRoot": "/home/gethen/workstreams"
+}
+```
+
+- `repo` 是 Worker 自己的 clone；`root` 必须在 repo 之外（默认
+  `<workspaceRoot>/<id>`）。`isolation` 支持 `worktree`（默认）与 `clone`。
+- 分支由约定生成：`feat/<id>`（不能覆盖）。Worker 在 `ready` 时校验分支、补提交
+  剩余改动并 `git push --set-upstream <remote> feat/<id>`；push 失败会把报告改为
+  `failed`。
+- Worker 在任务提示后追加 `[GETHEN-DELIVERY]`，要求报告写明 commit、测试命令与结果、
+  风险；验证后的证据追加到 `summary` 的 `delivery:` 行。
+- 配置了 `workstreams` 后，未映射的绝对路径会被拒绝（`WORKSTREAM_NOT_OWNED`）；
+  旧部署仍可用 `workspaces`/`workspaceMap`，但不再具备默认隔离。
+
+### 2.3 运行要求
 
 - `dsh --profile sdk --help` 可用（`gethen doctor` 检查项）；
 - 模型凭证放在环境里：`OPENCODE_API_KEY` 或 `DEEPSEEK_API_KEY`（不要写进 worker JSON）；
-- `workspaces` 里的目录对该用户可读写（SDK 会话 cwd 就是 workspace）；
+- `workstreams[].repo` 是 Worker 本机的 clone 且对该用户可读写；Materialize 出来的 worktree 位于 Worker 拥有的 `workspaceRoot` 下；
 - `~/.dsh` 已存在（先手工跑一次 `dsh` 让 DSH 初始化）；
 - Worker 不给外部开端口；只需出站访问 Master。
 
-> 注意：C3 的 mailbox link 是**单 Worker**（`--worker-id`）；多 Worker 调度属于后续 C5。
-> （`bridge-ws` 的默认策略）；多机调度（fleet/router）尚未接入独立 serve。
+> 注意：`gethen serve` 与 DSH 插件都通过 `@gethen/master-runtime` 的 fleet 路由支持多 Worker；
+> `--worker-id` 只用于把部署限制到单个 Worker。
 
-### 2.3 systemd unit（Worker）
+### 2.4 systemd unit（Worker）
 
 `/etc/systemd/system/gethen-worker.service`：
 
@@ -294,7 +327,7 @@ Wants=network-online.target
 Type=simple
 User=gethen
 Group=gethen
-WorkingDirectory=/srv/projects
+WorkingDirectory=/home/gethen
 Environment=GETHEN_DSH=/usr/local/bin/dsh
 EnvironmentFile=-/etc/gethen/worker.env   # 例: OPENCODE_API_KEY=...
 ExecStart=/usr/local/bin/gethen worker --config /etc/gethen/worker.json
@@ -326,7 +359,7 @@ SIGTERM 时的关闭顺序：停止重连 → 关闭 WS → 关闭 `dsh --profil
 Worker 断线会自动重连（指数退避 1s→30s），进行中的 assignment 不重放，
 由 Master 按 `assignmentId` 对账。
 
-### 2.4 Worker 权限策略与升级
+### 2.5 Worker 权限策略与升级
 
 Worker 没有单独的权限配置：sandbox 与 approval 由 DSH 的 SDK profile 组合决定，
 Worker 只是用 `dshArgs` 启动 `dsh --profile sdk`。DSH 0.2.2-rc.1 的 base profile

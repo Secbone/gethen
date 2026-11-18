@@ -28,7 +28,7 @@ import {
   type TicketCloseOutcome,
   type TicketSummary,
 } from "@gethen/master";
-import type { WorkerSnapshot } from "./fleet";
+import type { SchedulingMetrics, WorkerSnapshot } from "./fleet";
 import type { MasterRuntimeTasks } from "./runtime";
 
 const TASK_ACTIONS = [
@@ -73,6 +73,8 @@ export interface ControlTaskResult {
   sessionId?: string;
   at?: string;
   escalation?: EscalationRecord;
+  /** Live queue/running/reuse counters; present on `status` results. */
+  scheduling?: SchedulingMetrics;
 }
 
 export type ControlTicketAction = "ack" | "close" | "archive";
@@ -124,6 +126,8 @@ export interface ControlPlane {
   states(): Record<string, TaskState>;
   /** Per-Worker registration, health and load (empty in fake mode). */
   workers(): WorkerSnapshot[];
+  /** Live queue/running/reuse counters (zeros without routing). */
+  scheduling(): SchedulingMetrics;
   task(request: ControlTaskRequest): Promise<ControlTaskResult>;
   sessions(options?: { timeoutMs?: number }): Promise<HarnessSessionSummary[]>;
   sessionHistory(
@@ -156,6 +160,8 @@ export interface ControlPlaneOptions {
   tasks: MasterRuntimeTasks;
   /** Live Worker snapshots; absent in a fake/offline host means no fleet view. */
   workers?: () => WorkerSnapshot[];
+  /** Live scheduling counters; absent hosts report a zero snapshot. */
+  scheduling?: () => SchedulingMetrics;
   now?: () => Date;
 }
 
@@ -163,6 +169,18 @@ export interface ControlPlaneOptions {
 export function createControlPlane(options: ControlPlaneOptions): ControlPlane {
   const { service, tasks } = options;
   const workers = options.workers ?? (() => []);
+  const scheduling =
+    options.scheduling ??
+    (() => ({
+      queued: 0,
+      running: 0,
+      dispatched: 0,
+      reused: 0,
+      queueEntries: 0,
+      queueTimeouts: 0,
+      maxQueueDepth: 0,
+      parked: 0,
+    }));
   const now = options.now ?? (() => new Date());
   const taskControl = createTaskControl(tasks);
 
@@ -377,11 +395,13 @@ export function createControlPlane(options: ControlPlaneOptions): ControlPlane {
     autoArchive,
     states: () => tasks.states(),
     workers,
+    scheduling,
     task: async (request) => {
       const result = await taskControl.task(request);
       // A host without an `onResolution` hook still needs the Ticket's
       // Attention cleared and the Assignment resumed after a task-level answer.
       if (request.action === "answer") settleTaskAnswer(request, result.escalation);
+      if (request.action === "status") result.scheduling = scheduling();
       return result;
     },
     sessions: (request) => tasks.sessions(request),

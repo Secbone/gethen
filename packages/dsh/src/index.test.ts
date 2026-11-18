@@ -26,6 +26,16 @@ interface StatusResult {
   launch: "fake" | "ws";
   workers: number;
   mailbox?: { pending: number; leased: number; dead: number };
+  scheduling?: {
+    queued: number;
+    running: number;
+    dispatched: number;
+    reused: number;
+    queueEntries: number;
+    queueTimeouts: number;
+    maxQueueDepth: number;
+    parked: number;
+  };
 }
 
 interface OverviewResult {
@@ -223,6 +233,16 @@ describe("Gethen DSH plugin", () => {
       escalations: 0,
       launch: "fake",
       workers: 0,
+      scheduling: {
+        queued: 0,
+        running: 0,
+        dispatched: 0,
+        reused: 0,
+        queueEntries: 0,
+        queueTimeouts: 0,
+        maxQueueDepth: 0,
+        parked: 0,
+      },
     } satisfies StatusResult);
     const overview = (await tool(tools, "gethen_overview").execute({}, {})) as OverviewResult;
     expect(overview.tickets).toHaveLength(1);

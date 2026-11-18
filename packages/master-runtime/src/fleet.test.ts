@@ -234,3 +234,85 @@ describe("createRoutedLaunchPort", () => {
     expect(outcome.receipt.worker).toBe("");
   });
 });
+
+describe("createRoutedLaunchPort scheduling metrics", () => {
+  it("counts queued depth, running slots and dispatches", async () => {
+    const directory = new WorkerDirectory(["worker-a"]);
+    directory.register(manifest("worker-a", "/ws", { load: { running: 0, quota: 1 } }), AT);
+    const ports = deferredPort();
+    const port = createRoutedLaunchPort({
+      directory,
+      ports: new Map([["worker-a", ports.port]]),
+      routing: { queuePollMs: 1, queueTimeoutMs: 500 },
+    });
+
+    const one = port.launch(request("assignment-1", "/ws"));
+    const two = port.launch(request("assignment-2", "/ws"));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(port.metrics()).toMatchObject({
+      queued: 1,
+      running: 1,
+      dispatched: 1,
+      queueEntries: 1,
+      maxQueueDepth: 1,
+      queueTimeouts: 0,
+    });
+
+    ports.calls[0]?.resolve(result("worker-a"));
+    await one;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    ports.calls[1]?.resolve(result("worker-a"));
+    await two;
+    expect(port.metrics()).toMatchObject({
+      queued: 0,
+      running: 0,
+      dispatched: 2,
+      queueEntries: 1,
+      queueTimeouts: 0,
+    });
+  });
+
+  it("counts a bounded queue timeout as a failed receipt", async () => {
+    const directory = new WorkerDirectory(["worker-a"]);
+    directory.register(manifest("worker-a", "/ws", { load: { running: 0, quota: 1 } }), AT);
+    const ports = deferredPort();
+    const port = createRoutedLaunchPort({
+      directory,
+      ports: new Map([["worker-a", ports.port]]),
+      routing: { queuePollMs: 1, queueTimeoutMs: 5 },
+    });
+
+    const held = port.launch(request("assignment-1", "/ws"));
+    const timedOut = await port.launch(request("assignment-2", "/ws"));
+    expect(timedOut.report.kind).toBe("failed");
+    expect(timedOut.report.summary).toContain("ROUTER_QUEUE_TIMEOUT");
+    expect(port.metrics()).toMatchObject({ queueTimeouts: 1, queued: 0 });
+    ports.calls[0]?.resolve(result("worker-a"));
+    await held;
+  });
+
+  it("counts a session-affine dispatch as reused", async () => {
+    const directory = new WorkerDirectory(["worker-a", "worker-b"]);
+    directory.register(manifest("worker-a", "/ws"), AT);
+    directory.register(manifest("worker-b", "/ws"), AT);
+    directory.recordSession("worker-b", { mode: "reuse", key: "project-x" });
+    const a = deferredPort();
+    const b = deferredPort();
+    const port = createRoutedLaunchPort({
+      directory,
+      ports: new Map([
+        ["worker-a", a.port],
+        ["worker-b", b.port],
+      ]),
+    });
+    const input = request("assignment-1", "/ws");
+    input.assignment.session = { mode: "reuse", key: "project-x" };
+
+    const launched = port.launch(input);
+    expect(b.calls).toHaveLength(1);
+    expect(a.calls).toHaveLength(0);
+    b.calls[0]?.resolve(result("worker-b"));
+    await launched;
+    expect(port.metrics()).toMatchObject({ dispatched: 1, reused: 1, running: 0 });
+  });
+});

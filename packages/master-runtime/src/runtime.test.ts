@@ -79,6 +79,16 @@ describe("createMasterRuntime", () => {
       receipts: 0,
       escalations: 0,
       mailbox: { pending: 0, leased: 0, dead: 0 },
+      scheduling: {
+        queued: 0,
+        running: 0,
+        dispatched: 0,
+        reused: 0,
+        queueEntries: 0,
+        queueTimeouts: 0,
+        maxQueueDepth: 0,
+        parked: 0,
+      },
     });
 
     const result = await runtime.service.submit(defaultedTrigger());
@@ -137,6 +147,16 @@ describe("createMasterRuntime", () => {
       receipts: 0,
       escalations: 0,
       mailbox: { pending: 0, leased: 0, dead: 0 },
+      scheduling: {
+        queued: 0,
+        running: 0,
+        dispatched: 0,
+        reused: 0,
+        queueEntries: 0,
+        queueTimeouts: 0,
+        maxQueueDepth: 0,
+        parked: 0,
+      },
     });
     // The mailbox store defaults next to the master database.
     expect(existsSync(join(dir, `runtime-${runtimeCount}`, "mailbox.sqlite"))).toBe(true);

@@ -14,6 +14,7 @@ import {
   type ControlPlane,
   createEscalationHooks,
   createMasterRuntime,
+  DEFAULT_WORKSTREAM,
   type MasterRuntime,
   type RoutingOptions,
   type TaskEventQuery,
@@ -42,9 +43,9 @@ export interface ServeConfig {
    */
   resolveEscalation?: (record: EscalationRecord) => Promise<EscalationResolutionInput | undefined>;
   /**
-   * Worker-side workspace put into the dispatch when the engine leaves the
-   * assignment workspace empty (defaults to `process.cwd()`). The P1 engine does
-   * not model a workspace yet; until it does, the host supplies the default.
+   * Logical workstream id put into the dispatch when the engine leaves the
+   * assignment workspace empty (defaults to `DEFAULT_WORKSTREAM`). It is not a
+   * Master filesystem path: the Worker owns the workspace directory.
    */
   workspace?: string;
   /** Pack digest recorded for dispatches without one. */
@@ -168,7 +169,7 @@ export async function startServe(config: ServeConfig = {}): Promise<ServeHandle>
   let runtime: MasterRuntime | undefined;
   runtime = createMasterRuntime({
     dbPath,
-    workspace: config.workspace ?? process.cwd(),
+    workspace: config.workspace ?? DEFAULT_WORKSTREAM,
     ...(config.tokens === undefined ? {} : { tokens: config.tokens }),
     ...(config.packDigest === undefined ? {} : { packDigest: config.packDigest }),
     ...(config.resolveEscalation === undefined
@@ -211,7 +212,11 @@ export async function startServe(config: ServeConfig = {}): Promise<ServeHandle>
           return;
         }
         if (request.method === "GET" && pathname === "/gethen/workers") {
-          send(response, 200, { workers: runtime.workers(), launch: runtime.launch });
+          send(response, 200, {
+            workers: runtime.workers(),
+            launch: runtime.launch,
+            scheduling: runtime.scheduling(),
+          });
           return;
         }
         if (request.method === "GET" && pathname === "/gethen/overview") {
@@ -226,7 +231,10 @@ export async function startServe(config: ServeConfig = {}): Promise<ServeHandle>
         if (request.method === "POST" && pathname === "/gethen/run") {
           const body = await readJson(request);
           const session = runSessionMeta(body.session);
-          const trigger = text(body.text as string | undefined, config.workspace ?? process.cwd());
+          const trigger = text(
+            body.text as string | undefined,
+            config.workspace ?? DEFAULT_WORKSTREAM,
+          );
           // Dispatch-and-poll by default: long tasks must not keep an HTTP
           // request (or a Master tool call) blocked for minutes.
           const waitMs = optionalWaitMs(body.waitMs) ?? 5_000;
@@ -763,7 +771,7 @@ export async function serveCommand(
         "--worker-id is the single worker served (defaults to the only token);\n" +
         "--mailbox-db defaults to <db dir>/mailbox.sqlite and --master-mailbox to\n" +
         "mailbox:master.\n" +
-        "--workspace is the worker-side path dispatched assignments run in\n" +
+        "--workspace is the logical workstream id dispatched with assignments\n" +
         "(the engine has no per-assignment workspace yet).\n" +
         "--escalation auto|park (default park): park waits for a person (the run\n" +
         'reports "waiting"); auto answers the declared default/first option and\n' +

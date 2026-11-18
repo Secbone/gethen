@@ -257,6 +257,16 @@ describe("createMasterRuntime mailbox stack", () => {
       receipts: 0,
       escalations: 0,
       mailbox: { pending: 0, leased: 0, dead: 0 },
+      scheduling: {
+        queued: 0,
+        running: 0,
+        dispatched: 0,
+        reused: 0,
+        queueEntries: 0,
+        queueTimeouts: 0,
+        maxQueueDepth: 0,
+        parked: 0,
+      },
     });
     expect(runtime.bridge?.workerMailbox).toBe(WORKER_MAILBOX);
     expect(runtime.bridge?.masterMailbox).toBe(MASTER_MAILBOX);
@@ -664,6 +674,16 @@ describe("createMasterRuntime mailbox stack", () => {
       receipts: 0,
       escalations: 0,
       mailbox: { pending: 0, leased: 0, dead: 0 },
+      scheduling: {
+        queued: 0,
+        running: 0,
+        dispatched: 0,
+        reused: 0,
+        queueEntries: 0,
+        queueTimeouts: 0,
+        maxQueueDepth: 0,
+        parked: 0,
+      },
     });
     await expect(runtime.close()).resolves.toBeUndefined();
 
