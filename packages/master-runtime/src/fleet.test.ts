@@ -244,6 +244,54 @@ describe("createRoutedLaunchPort", () => {
     await launched;
   });
 
+  it("falls back to a healthy Worker when the workspace match is stale", async () => {
+    const directory = new WorkerDirectory(["worker-stale", "worker-healthy"]);
+    directory.register(manifest("worker-stale", "/srv/projects", { build: { commit: "old" } }), AT);
+    directory.register(manifest("worker-healthy", "/other", { build: { commit: "new" } }), AT);
+    const healthy = deferredPort();
+    const plans: string[] = [];
+    const port = createRoutedLaunchPort({
+      directory,
+      ports: new Map([["worker-healthy", healthy.port]]),
+      expectedBuildCommit: "new",
+      routing: { allowWorkspaceFallback: true, rejectStaleWorkers: true },
+      onRoute: (_request, plan) => plans.push(plan.reason),
+    });
+    const launched = port.launch(request("assignment-stale-fallback", "/srv/projects"));
+    const call = healthy.calls[0];
+    expect(call?.request.assignment.worker).toBe("worker-healthy");
+    expect(plans[0]).toContain("stale-build-fallback:");
+    call?.resolve(result("worker-healthy"));
+    await launched;
+  });
+
+  it("parks with stale-build:all when every candidate is stale", async () => {
+    const directory = new WorkerDirectory(["worker-a", "worker-b"]);
+    directory.register(manifest("worker-a", "/ws", { build: { commit: "old" } }), AT);
+    directory.register(manifest("worker-b", "/ws", { build: { commit: "old" } }), AT);
+    const port = createRoutedLaunchPort({
+      directory,
+      ports: new Map(),
+      expectedBuildCommit: "new",
+      routing: { allowWorkspaceFallback: true, rejectStaleWorkers: true },
+    });
+    const outcome = await port.launch(request("assignment-all-stale", "/ws"));
+    expect(outcome.report.summary).toContain("ROUTER_PARKED:stale-build:all");
+  });
+
+  it("keeps strict stale parking without fallback", async () => {
+    const directory = new WorkerDirectory(["worker-stale"]);
+    directory.register(manifest("worker-stale", "/ws", { build: { commit: "old" } }), AT);
+    const port = createRoutedLaunchPort({
+      directory,
+      ports: new Map(),
+      expectedBuildCommit: "new",
+      routing: { rejectStaleWorkers: true },
+    });
+    const outcome = await port.launch(request("assignment-strict-stale", "/ws"));
+    expect(outcome.report.summary).toContain("ROUTER_PARKED:stale-build:old");
+  });
+
   it("soft-falls back to an available worker when the workspace is not advertised", async () => {
     const directory = new WorkerDirectory(["worker-a", "worker-b"]);
     directory.register(manifest("worker-a", "/ws-a"), AT);

@@ -356,7 +356,13 @@ describe("worker hello registration", () => {
       bundle: "worker.js",
     });
     const config = parseWorkerConfig([...base]);
-    expect(workerManifest(config).build?.commit).toBe("unknown");
+    const previous = process.env.GETHEN_BUILD_COMMIT;
+    delete process.env.GETHEN_BUILD_COMMIT;
+    try {
+      expect(workerManifest(config).build?.commit).toBe("unknown");
+    } finally {
+      if (previous !== undefined) process.env.GETHEN_BUILD_COMMIT = previous;
+    }
   });
 
   it("rejects unknown cost classes and capability values at startup", () => {

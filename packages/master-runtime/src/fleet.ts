@@ -382,6 +382,16 @@ export function createRoutedLaunchPort(options: RoutedLaunchPortOptions): Routed
     if (snapshot === undefined || !snapshot.registered || quota <= 0) {
       return { action: "start", worker, reason: "single-worker", route };
     }
+    if (
+      routing.rejectStaleWorkers === true &&
+      options.expectedBuildCommit !== undefined &&
+      options.expectedBuildCommit !== "unknown"
+    ) {
+      const build = snapshot.build?.commit ?? "unknown";
+      if (build !== options.expectedBuildCommit) {
+        return { action: "park", worker, reason: `stale-build:${build}`, route };
+      }
+    }
     if (snapshot.load.running < quota) {
       return { action: "start", worker, reason: "single-worker", route };
     }
@@ -390,6 +400,8 @@ export function createRoutedLaunchPort(options: RoutedLaunchPortOptions): Routed
 
   function planFor(request: LaunchRequest): RoutePlan {
     const requirement = requirementFor(request);
+    const evidence = options.evidence?.() ?? {};
+    const reuseWorker = directory.sessionWorker(request.assignment.session);
     const build = {
       ...(routing.rejectStaleWorkers === undefined
         ? {}
@@ -398,41 +410,57 @@ export function createRoutedLaunchPort(options: RoutedLaunchPortOptions): Routed
         ? {}
         : { expectedBuildCommit: options.expectedBuildCommit }),
     };
-    const plan = directory.plan(
-      requirement,
-      options.evidence?.() ?? {},
-      directory.sessionWorker(request.assignment.session),
-      build,
+    // 1. Hard filters + stale filter for the requested workspace.
+    const plan = directory.plan(requirement, evidence, reuseWorker, build);
+    if (plan.action !== "park") return plan;
+
+    const staleRejected = plan.route.rejected.filter((rejected) =>
+      rejected.reason.startsWith("stale-build:"),
     );
+    // 2. If no exact workspace candidate can serve, optionally fall back to
+    //    the best remaining Worker (hard filters and stale filter still apply).
     if (
-      routing.allowWorkspaceFallback !== true ||
-      plan.action !== "park" ||
-      requirement.workspace === undefined ||
-      !plan.route.rejected.some((rejected) => rejected.reason.startsWith("workspace-missing:"))
+      routing.allowWorkspaceFallback === true &&
+      requirement.workspace !== undefined &&
+      plan.route.rejected.some((rejected) => rejected.reason.startsWith("workspace-missing:"))
     ) {
-      return plan;
+      const fallback = directory.plan(
+        { ...requirement, workspace: undefined },
+        evidence,
+        reuseWorker,
+        build,
+      );
+      if (fallback.action === "start" || fallback.action === "reuse") {
+        const fallbackReason =
+          staleRejected.length > 0
+            ? `stale-build-fallback:${staleRejected[0]?.reason.slice("stale-build:".length)}`
+            : `workspace-fallback:${plan.reason}`;
+        return {
+          ...fallback,
+          reason: fallbackReason,
+          route: {
+            ...fallback.route,
+            candidates: fallback.route.candidates.map((candidate) => ({
+              ...candidate,
+              reasons: [
+                ...candidate.reasons,
+                {
+                  code: staleRejected.length > 0 ? "stale-build-fallback" : "workspace-fallback",
+                },
+              ],
+            })),
+          },
+        };
+      }
     }
-    // Soft fallback: keep every other hard filter, but ignore the workspace
-    // affinity filter. The selected Worker may materialize the workspace itself
-    // (e.g. a remote Worker with a different local mount).
-    const fallback = directory.plan(
-      { ...requirement, workspace: undefined },
-      options.evidence?.() ?? {},
-      directory.sessionWorker(request.assignment.session),
-      build,
-    );
-    if (fallback.action !== "start" && fallback.action !== "reuse") return plan;
-    return {
-      ...fallback,
-      reason: `workspace-fallback:${plan.reason}`,
-      route: {
-        ...fallback.route,
-        candidates: fallback.route.candidates.map((candidate) => ({
-          ...candidate,
-          reasons: [...candidate.reasons, { code: "workspace-fallback" }],
-        })),
-      },
-    };
+    // 3. Distinguish "every candidate was stale" from a mixed/other park.
+    if (
+      staleRejected.length > 0 &&
+      plan.route.rejected.every((rejected) => rejected.reason.startsWith("stale-build:"))
+    ) {
+      return { ...plan, reason: "stale-build:all" };
+    }
+    return plan;
   }
 
   function failed(request: LaunchRequest, plan: RoutePlan, summary: string): LaunchResult {
