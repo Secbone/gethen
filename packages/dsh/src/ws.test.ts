@@ -155,6 +155,7 @@ function fakeSocket(): FakeSocket {
 }
 
 const TOOL_NAMES = [
+  "gethen_wait",
   "gethen_status",
   "gethen_run",
   "gethen_overview",
@@ -245,7 +246,7 @@ describe("mailbox control-plane mount", () => {
     apply(ctx, { dir: stateDir(), ws: { tokensJson: tokensJson() } });
 
     expect(server.routes).toHaveLength(1);
-    expect(cleanups).toHaveLength(2);
+    expect(cleanups).toHaveLength(3);
     // Route disposer first, then the runtime close effect.
     cleanups[0]?.();
     expect(server.routes).toHaveLength(0);
@@ -325,17 +326,16 @@ describe("mailbox control-plane mount", () => {
     expect(server.routes).toHaveLength(0);
   });
 
-  it("requires an explicit workerId when several tokens are configured", () => {
+  it("supports several configured workers and an explicit workerId pin", () => {
     const server = webServer();
     const { ctx } = context({ webServer: server });
     const tokens = tokensJson([
       { workerId: "worker-1", token: "token-1" },
       { workerId: "worker-2", token: "token-2" },
     ]);
-    expect(() => apply(ctx, { dir: stateDir(), ws: { tokensJson: tokens } })).toThrow(
-      /workerId is required/,
-    );
-    apply(ctx, { dir: stateDir(), ws: { tokensJson: tokens, workerId: "worker-2" } });
+    apply(ctx, { dir: stateDir(), ws: { tokensJson: tokens } });
     expect(server.routes.map((route) => route.path)).toEqual([WORKER_PATH]);
+    apply(ctx, { dir: stateDir(), ws: { tokensJson: tokens, workerId: "worker-2" } });
+    expect(server.routes.map((route) => route.path)).toEqual([WORKER_PATH, WORKER_PATH]);
   });
 });

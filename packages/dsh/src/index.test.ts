@@ -2,6 +2,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MasterService } from "@gethen/master";
+import type { MasterRuntime } from "@gethen/master-runtime";
 import { afterEach, describe, expect, it } from "vitest";
 import { apply, type DshContext, type DshToolDefinition } from "./index";
 
@@ -92,12 +93,13 @@ function triggerSession(services: Map<string, unknown>): unknown {
 }
 
 describe("Gethen DSH plugin", () => {
-  it("provides the master service and registers the five tools", () => {
+  it("provides the master service and registers the gethen tools", () => {
     const { ctx, services, tools } = context();
     apply(ctx, { dir: stateDir() });
     serviceOf(services);
-    expect(cleanups).toHaveLength(1);
+    expect(cleanups).toHaveLength(2);
     expect(tools.map((entry) => entry.name)).toEqual([
+      "gethen_wait",
       "gethen_status",
       "gethen_run",
       "gethen_overview",
@@ -105,6 +107,60 @@ describe("Gethen DSH plugin", () => {
       "gethen_task",
       "gethen_ticket",
     ]);
+  });
+
+  it("wakes the bound Master agent for a worker event", async () => {
+    const { ctx, services, tools } = context();
+    apply(ctx, { dir: stateDir() });
+    const runtime = services.get("gethen.runtime") as MasterRuntime;
+    const steered: string[] = [];
+    const agent = {
+      session: { id: "master-session" },
+      status: "idle",
+      steer(message: { content: Array<{ text: string }> }) {
+        steered.push(message.content[0]?.text ?? "");
+      },
+    };
+    // Any tool call binds the live Master agent (the DSH exec.agent surface).
+    await tool(tools, "gethen_status").execute({}, { agent });
+    runtime.notifications.publish({
+      kind: "assignment.result",
+      ticket: "ticket-1",
+      assignment: "assignment-1",
+      data: { report: "ready", summary: "done", late: false },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(steered).toHaveLength(1);
+    expect(steered[0]).toContain("assignment assignment-1 finished: ready");
+    expect(runtime.notifications.pending()).toEqual([]);
+  });
+
+  it("leaves events pending when no Master agent is bound (gethen_wait fallback)", async () => {
+    const { ctx, services } = context();
+    apply(ctx, { dir: stateDir() });
+    const runtime = services.get("gethen.runtime") as MasterRuntime;
+    runtime.notifications.publish({ kind: "assignment.result", assignment: "assignment-2" });
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(runtime.notifications.pending().map((row) => row.assignment)).toEqual(["assignment-2"]);
+  });
+
+  it("gethen_wait returns a queued notification and acknowledges it", async () => {
+    const { ctx, services, tools } = context();
+    apply(ctx, { dir: stateDir() });
+    const service = serviceOf(services);
+    service.store.enqueueNotification({
+      kind: "assignment.result",
+      ticket: "ticket-1",
+      assignment: "assignment-1",
+      data: { report: "ready", summary: "done" },
+    });
+    const result = (await tool(tools, "gethen_wait").execute({ timeoutMs: 0 }, {})) as {
+      event: { kind: string; assignment?: string };
+      timedOut: boolean;
+    };
+    expect(result.timedOut).toBe(false);
+    expect(result.event).toMatchObject({ kind: "assignment.result", assignment: "assignment-1" });
+    expect(service.store.listNotifications({ pendingOnly: true })).toEqual([]);
   });
 
   it("runs one local request into an accepted ticket with a ready report", async () => {

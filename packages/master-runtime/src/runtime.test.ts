@@ -134,30 +134,36 @@ describe("createMasterRuntime", () => {
     expect(runtime.bridge?.workerMailbox).toBe("mailbox:worker-a");
   });
 
-  it("requires an explicit workerId when more than one token is configured", () => {
-    expect(() =>
-      makeRuntime({
-        tokens: [
-          { workerId: "worker-a", token: "secret-a" },
-          { workerId: "worker-b", token: "secret-b" },
-        ],
-      }),
-    ).toThrow(/workerId/);
-
+  it("routes to every configured token when no workerId restricts the runtime", () => {
     const runtime = makeRuntime({
+      tokens: [
+        { workerId: "worker-a", token: "secret-a" },
+        { workerId: "worker-b", token: "secret-b" },
+      ],
+    });
+    expect(runtime.bridge?.workerMailboxes).toEqual(["mailbox:worker-a", "mailbox:worker-b"]);
+    expect(runtime.workers().map((worker) => worker.id)).toEqual(["worker-a", "worker-b"]);
+    expect(runtime.workers().every((worker) => !worker.registered)).toBe(true);
+
+    const restricted = makeRuntime({
       tokens: [
         { workerId: "worker-a", token: "secret-a" },
         { workerId: "worker-b", token: "secret-b" },
       ],
       workerId: "worker-b",
     });
-    expect(runtime.bridge?.workerMailbox).toBe("mailbox:worker-b");
+    expect(restricted.bridge?.workerMailboxes).toEqual(["mailbox:worker-b"]);
   });
 
-  it("requires an explicit workerId with a custom verifyToken", () => {
+  it("needs an explicit worker list with a custom verifyToken", () => {
     expect(() => makeRuntime({ verifyToken: async () => ({ workerId: "worker-a" }) })).toThrow(
-      /workerId/,
+      /configure tokens/,
     );
+    const runtime = makeRuntime({
+      verifyToken: async (token) => (token === "secret" ? { workerId: "worker-a" } : undefined),
+      workers: ["worker-a"],
+    });
+    expect(runtime.bridge?.workerMailboxes).toEqual(["mailbox:worker-a"]);
   });
 
   it("honours a custom masterMailbox prefix and validates it", () => {

@@ -200,3 +200,64 @@ export function routeWorkers(
     rejected,
   };
 }
+
+/** What the Master should do with one task after routing. */
+export type RouteAction = "reuse" | "start" | "queue" | "park";
+
+/** A concrete dispatch plan derived from {@link routeWorkers}. */
+export interface RoutePlan {
+  action: RouteAction;
+  /** Selected Worker for `reuse`/`start`. */
+  worker?: string;
+  /** Stable reason code, also useful in logs and tests. */
+  reason: string;
+  /** Full scoring result, including rejected Workers and their reasons. */
+  route: RouteResult;
+}
+
+export interface RoutePlanOptions extends RouteOptions {
+  /**
+   * Worker that already owns the requested session key. When it is still
+   * eligible the plan reuses it even if another Worker scores slightly higher.
+   */
+  reuseWorker?: string;
+}
+
+/**
+ * Turn the single-Worker route into the fleet action the dispatch path uses:
+ *
+ * - REUSE: the session-affine Worker is still eligible;
+ * - START: an eligible Worker has free capacity;
+ * - QUEUE: eligible Workers exist but every one is at capacity;
+ * - PARK: policy/availability excludes every Worker (offline, workspace/model/
+ *   capability mismatch, or no registration at all).
+ *
+ * The Worker declarations are filters only; the Master never turns them into
+ * remote permissions.
+ */
+export function planTaskRoute(
+  manifests: readonly WorkerManifest[],
+  requirement: TaskRequirement,
+  evidence: EvidenceMap = {},
+  options: RoutePlanOptions = {},
+): RoutePlan {
+  const { reuseWorker, ...routeOptions } = options;
+  const route = routeWorkers(manifests, requirement, evidence, routeOptions);
+  const eligibility = new Set(route.candidates.map((candidate) => candidate.worker));
+  if (reuseWorker !== undefined && eligibility.has(reuseWorker)) {
+    return { action: "reuse", worker: reuseWorker, reason: "reuse-session-worker", route };
+  }
+  if (route.decision !== undefined) {
+    return {
+      action: "start",
+      worker: route.decision.worker,
+      reason: "start-free-capacity",
+      route,
+    };
+  }
+  if (route.rejected.some((rejected) => rejected.reason === "at-capacity")) {
+    return { action: "queue", reason: "at-capacity", route };
+  }
+  const reason = route.rejected[0]?.reason ?? "no-workers";
+  return { action: "park", reason, route };
+}

@@ -28,6 +28,7 @@ import {
   type TicketCloseOutcome,
   type TicketSummary,
 } from "@gethen/master";
+import type { WorkerSnapshot } from "./fleet";
 import type { MasterRuntimeTasks } from "./runtime";
 
 const TASK_ACTIONS = [
@@ -121,6 +122,8 @@ export interface ControlPlane {
   autoArchive(now?: Date): string[];
   /** Cached live task states, keyed by assignment id. */
   states(): Record<string, TaskState>;
+  /** Per-Worker registration, health and load (empty in fake mode). */
+  workers(): WorkerSnapshot[];
   task(request: ControlTaskRequest): Promise<ControlTaskResult>;
   sessions(options?: { timeoutMs?: number }): Promise<HarnessSessionSummary[]>;
   sessionHistory(
@@ -151,12 +154,15 @@ export interface ControlAnswerResult {
 export interface ControlPlaneOptions {
   service: MasterService;
   tasks: MasterRuntimeTasks;
+  /** Live Worker snapshots; absent in a fake/offline host means no fleet view. */
+  workers?: () => WorkerSnapshot[];
   now?: () => Date;
 }
 
 /** Build the shared control surface over one master service. */
 export function createControlPlane(options: ControlPlaneOptions): ControlPlane {
   const { service, tasks } = options;
+  const workers = options.workers ?? (() => []);
   const now = options.now ?? (() => new Date());
   const taskControl = createTaskControl(tasks);
 
@@ -370,6 +376,7 @@ export function createControlPlane(options: ControlPlaneOptions): ControlPlane {
     answer,
     autoArchive,
     states: () => tasks.states(),
+    workers,
     task: async (request) => {
       const result = await taskControl.task(request);
       // A host without an `onResolution` hook still needs the Ticket's

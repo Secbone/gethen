@@ -1,4 +1,9 @@
 export type {
+  WorkerCapabilities,
+  WorkerManifest,
+  WorkerWorkspace,
+} from "@gethen/worker-bridge";
+export type {
   MailboxClientLink,
   MailboxClientLinkOptions,
   MailboxNackOptions,

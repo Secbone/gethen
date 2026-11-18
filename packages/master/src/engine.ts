@@ -243,6 +243,27 @@ export class Engine {
   }
 
   /**
+   * Persist the Worker a routing decision selected, before the launch can
+   * block. The Assignment keeps its state; only the binding becomes visible to
+   * task/overview readers while the work runs.
+   */
+  assignmentRouted(
+    ticketId: string,
+    assignmentId: string,
+    worker: string,
+    workspace?: string,
+  ): void {
+    const ticket = this.requireTicket(ticketId);
+    const assignment = this.repos.assignments.get(assignmentId);
+    if (!assignment || assignment.ticket !== ticket.id) {
+      throw new EngineError(`assignment ${assignmentId} does not belong to ticket ${ticketId}`);
+    }
+    if (worker.length > 0) assignment.worker = worker;
+    if (workspace !== undefined && workspace.length > 0) assignment.workspace = workspace;
+    this.repos.assignments.save(assignment);
+  }
+
+  /**
    * A Worker's Report: the latest kind drives the Ticket stage, a question
    * becomes Attention, and the running Assignment ends with the report.
    */

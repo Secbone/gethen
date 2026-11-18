@@ -722,4 +722,22 @@ describe("ticket lifecycle commands", () => {
     expect(ctx.repos.tickets.get(ticket.id)?.archivedAt).toBe(ctx.at());
     expect(ctx.engine.archiveDue()).toEqual([]);
   });
+
+  it("persists the routed worker before the launch settles", () => {
+    const ctx = setup();
+    const { ticket } = accepted(ctx);
+    const assignment = ticket.assignments[0];
+    if (assignment === undefined) throw new Error("expected an assignment");
+    expect(ctx.repos.assignments.get(assignment)?.worker).toBe("");
+
+    ctx.engine.assignmentRouted(ticket.id, assignment, "worker-b", "/ws-b");
+    expect(ctx.repos.assignments.get(assignment)).toMatchObject({
+      worker: "worker-b",
+      workspace: "/ws-b",
+      state: "pending",
+    });
+    expect(() => ctx.engine.assignmentRouted("missing", assignment, "worker-a")).toThrow(
+      EngineError,
+    );
+  });
 });

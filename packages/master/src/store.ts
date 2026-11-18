@@ -64,6 +64,32 @@ export const DEFAULT_POLICY: Policy = {
   sources: {},
 };
 
+/** Durable notification kinds consumed by a Master agent wake-up. */
+export type NotificationKind = "assignment.result" | "escalation.parked" | "ticket.updated";
+
+export interface NotificationInput {
+  kind: NotificationKind;
+  ticket?: string;
+  assignment?: string;
+  data?: Record<string, unknown>;
+  createdAt?: string;
+}
+
+export interface NotificationQuery {
+  pendingOnly?: boolean;
+  limit?: number;
+}
+
+export interface NotificationRow {
+  id: string;
+  kind: string;
+  ticket?: string;
+  assignment?: string;
+  data: Record<string, unknown>;
+  createdAt: string;
+  deliveredAt?: string;
+}
+
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS threads (
   id TEXT PRIMARY KEY,
@@ -207,6 +233,20 @@ CREATE TABLE IF NOT EXISTS operations (
   result_json TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
+
+-- Durable event notifications for a Master agent that should be woken up
+-- (worker finished, escalation parked). Delivery is tracked so a restarted
+-- plugin does not double-wake and does not lose an event.
+CREATE TABLE IF NOT EXISTS notifications (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  ticket TEXT,
+  assignment TEXT,
+  data_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  delivered_at TEXT
+);
+CREATE INDEX IF NOT EXISTS notifications_pending ON notifications (delivered_at, created_at);
 
 CREATE TABLE IF NOT EXISTS receipts (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -675,6 +715,55 @@ export class SqliteStore implements Repositories, ReceiptSink, WorkerRegistry {
 
   listReceipts(): AssignmentReceipt[] {
     return this.all("SELECT * FROM receipts ORDER BY id").map((row) => mapReceipt(row));
+  }
+
+  // --------------------------------------------------------------- notifications
+
+  /** Persist one notification for the Master agent. */
+  enqueueNotification(input: NotificationInput): string {
+    const id = randomUUID();
+    this.run(
+      `INSERT INTO notifications (id, kind, ticket, assignment, data_json, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      id,
+      input.kind,
+      input.ticket ?? null,
+      input.assignment ?? null,
+      toJson(input.data ?? {}),
+      rfc3339(input.createdAt ?? new Date().toISOString()),
+    );
+    return id;
+  }
+
+  /** Notifications oldest first; `pendingOnly` filters on `delivered_at IS NULL`. */
+  listNotifications(options: NotificationQuery = {}): NotificationRow[] {
+    const limit = Math.max(1, Math.floor(options.limit ?? 100));
+    const where = options.pendingOnly === true ? "WHERE delivered_at IS NULL" : "";
+    return this.all(
+      `SELECT * FROM notifications ${where} ORDER BY created_at, rowid LIMIT ?`,
+      limit,
+    ).map((row) => ({
+      id: text(row, "id"),
+      kind: text(row, "kind"),
+      ...(optionalText(row, "ticket") === undefined ? {} : { ticket: optionalText(row, "ticket") }),
+      ...(optionalText(row, "assignment") === undefined
+        ? {}
+        : { assignment: optionalText(row, "assignment") }),
+      data: JSON.parse(text(row, "data_json")) as Record<string, unknown>,
+      createdAt: text(row, "created_at"),
+      ...(optionalText(row, "delivered_at") === undefined
+        ? {}
+        : { deliveredAt: optionalText(row, "delivered_at") }),
+    }));
+  }
+
+  /** Mark a notification consumed by a wake/wait caller. Idempotent. */
+  markNotificationDelivered(id: string, at: string = new Date().toISOString()): void {
+    this.run(
+      "UPDATE notifications SET delivered_at = ? WHERE id = ? AND delivered_at IS NULL",
+      rfc3339(at),
+      id,
+    );
   }
 
   // ------------------------------------------------------------------ escalations

@@ -51,6 +51,14 @@ import {
   type WsTransportServer,
 } from "@gethen/transport";
 import { type ControlPlane, createControlPlane } from "./control";
+import {
+  createRoutedLaunchPort,
+  evidenceFromReceipts,
+  type RoutingOptions,
+  WorkerDirectory,
+  type WorkerSnapshot,
+} from "./fleet";
+import { NotificationHub } from "./notifications";
 
 /** Task state/event and session types (re-exported from bridge-mailbox). */
 export type {
@@ -176,8 +184,18 @@ export interface MasterRuntimeOptions {
   /** Transport ping interval in milliseconds. */
   heartbeatMs?: number;
   now?: () => Date;
-  /** Worker served by this runtime (single-worker C3). Defaults to the only token. */
+  /**
+   * Restrict dispatch to this Worker (also the default for a single-Worker
+   * deployment). Without it every configured token is routable.
+   */
   workerId?: string;
+  /**
+   * Workers accepted from a dynamic `verifyToken` lookup. Not needed when
+   * `tokens` is given; one of the two is required for a multi-Worker runtime.
+   */
+  workers?: readonly string[];
+  /** Routing behavior: operator pin, extra hard requirements, queue bounds. */
+  routing?: RoutingOptions;
   /** Mailbox sqlite file; defaults to `<dirname(dbPath)>/mailbox.sqlite`. */
   mailboxDbPath?: string;
   /** Pending-launch persistence file; defaults to `<dbPath>.pending.json`. */
@@ -198,6 +216,14 @@ export interface MasterRuntimeOptions {
   pollIntervalMs?: number;
 }
 
+export type {
+  NotificationInput,
+  NotificationKind,
+  NotificationQuery,
+  NotificationRow,
+} from "@gethen/master";
+export type { NotificationHub } from "./notifications";
+
 /** Counts a host renders on `/health` or a status widget. */
 export interface MasterRuntimeHealth {
   launch: LaunchMode;
@@ -216,10 +242,14 @@ export interface MasterRuntime {
   readonly launch: LaunchMode;
   /** Live task state/control; fake mode reports `RUNTIME_COMMS_UNAVAILABLE`. */
   readonly tasks: MasterRuntimeTasks;
+  /** Durable wake-up notifications (worker result / parked escalation). */
+  readonly notifications: NotificationHub;
   /** Shared status/overview/ticket/task control for every host adapter. */
   readonly control: ControlPlane;
   /** Forward the host server's worker upgrade here; `undefined` in fake mode. */
   readonly handleUpgrade: UpgradeHandler | undefined;
+  /** Per-Worker registration/health/load projection (empty in fake mode). */
+  workers(): WorkerSnapshot[];
   health(): MasterRuntimeHealth;
   /**
    * Close the communication stack first (bridge -> session links -> transport
@@ -235,12 +265,24 @@ export interface MasterRuntime {
 export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntime {
   const workspace = options.workspace ?? process.cwd();
   const packDigest = options.packDigest ?? DEFAULT_PACK_DIGEST;
+  const nowIso = (): string => (options.now?.() ?? new Date()).toISOString();
 
   const tokenStore =
     options.tokens !== undefined && options.tokens.length > 0
       ? createMemoryTokenStore(options.tokens)
       : undefined;
   const verifyToken = options.verifyToken ?? tokenStore?.lookup;
+  const workerIds = resolveWorkerIds(
+    options.workerId,
+    options.tokens,
+    options.workers,
+    verifyToken,
+  );
+  const defaultWorkerId = options.workerId ?? (workerIds.length === 1 ? workerIds[0] : undefined);
+  const routing: RoutingOptions = options.routing ?? {};
+  const directory = new WorkerDirectory(workerIds, {
+    ...(routing.preferWorker === undefined ? {} : { preferWorker: routing.preferWorker }),
+  });
 
   let mailboxStore: SqliteMailboxStore | undefined;
   let mailboxServer: WsTransportServer | undefined;
@@ -248,14 +290,47 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
   const serverLinks = new Set<MailboxServerLink>();
   let closed = false;
 
+  function handleBridgeResult(input: LateLaunchResult & { late: boolean }): void {
+    notificationHub?.publish({
+      kind: "assignment.result",
+      ticket: input.request.ticket.id,
+      assignment: input.request.assignment.id,
+      data: {
+        report: input.report.kind,
+        summary: input.report.summary,
+        late: input.late,
+        at: input.report.at,
+      },
+    });
+  }
+
+  function handleResolution(record: EscalationRecord): void {
+    options.onResolution?.(record);
+    if (record.status === "parked") {
+      notificationHub?.publish({
+        kind: "escalation.parked",
+        ticket: record.ticket,
+        assignment: record.assignment,
+        data: {
+          escalationId: record.id,
+          kind: record.kind,
+          question: record.question,
+          options: record.options,
+          at: record.at,
+        },
+      });
+    }
+  }
+
   function handleLateResult(input: LateLaunchResult): void {
+    const service = serviceRef;
+    if (service === undefined) return;
     service.engine.report(input.request.ticket.id, input.report);
     service.store.append(input.receipt);
     options.onLateResult?.(input);
   }
 
   if (verifyToken !== undefined) {
-    const workerId = resolveWorkerId(options.workerId, options.tokens);
     const masterMailboxName = options.masterMailbox ?? `${DEFAULT_MAILBOX_PREFIX}${MASTER_MAILBOX}`;
     const mailboxPrefix = mailboxPrefixFor(masterMailboxName);
     const store = new SqliteMailboxStore(
@@ -273,7 +348,8 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
     });
     mailboxBridge = createMailboxLaunchPort({
       client,
-      workerId,
+      workers: workerIds,
+      ...(defaultWorkerId === undefined ? {} : { workerId: defaultWorkerId }),
       mailboxPrefix,
       ...(options.visibilityTimeoutMs === undefined
         ? {}
@@ -283,7 +359,8 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
         ? {}
         : { resolveEscalation: options.resolveEscalation }),
       ...(options.onEscalation === undefined ? {} : { onEscalation: options.onEscalation }),
-      ...(options.onResolution === undefined ? {} : { onResolution: options.onResolution }),
+      onResolution: handleResolution,
+      onResult: handleBridgeResult,
       onLateResult: handleLateResult,
       pendingStateFile:
         options.pendingStateFile ??
@@ -291,20 +368,26 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
       ...(options.launchTimeoutMs === undefined ? {} : { timeoutMs: options.launchTimeoutMs }),
       ...(options.now === undefined ? {} : { now: options.now }),
     });
-    const workerMailbox = mailboxBridge.workerMailbox;
+    const bridge = mailboxBridge;
     mailboxServer = createWsTransportServer({
       verifyAuth: async (auth) => {
         if (auth.kind !== "bearer" || auth.token.length === 0) return undefined;
         const identity = await verifyToken(auth.token);
-        // C3 is single-worker: only the configured worker may attach.
-        if (identity === undefined || identity.workerId !== workerId) return undefined;
-        return identity;
+        if (identity === undefined) return undefined;
+        // An explicit workerId keeps the historical single-Worker restriction;
+        // otherwise every configured Worker may attach.
+        if (options.workerId !== undefined && identity.workerId !== options.workerId) {
+          return undefined;
+        }
+        return workerIds.includes(identity.workerId) ? identity : undefined;
       },
-      onSession: (session) => {
+      onSession: (session, context) => {
+        const workerId = context.identity.workerId;
+        directory.connect(workerId);
         const link = createMailboxServerLink({
           session,
           store,
-          workers: [workerMailbox],
+          workers: [bridge.mailboxFor(workerId)],
           ...(options.visibilityTimeoutMs === undefined
             ? {}
             : { visibilityTimeoutMs: options.visibilityTimeoutMs }),
@@ -312,6 +395,12 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
             ? {}
             : { pollIntervalMs: options.pollIntervalMs }),
           ...(options.now === undefined ? {} : { now: options.now }),
+          onHello: (hello) => {
+            // The transport already authenticated the worker id; a manifest
+            // claiming another id must never enter the routing pool.
+            if (hello.worker === undefined) return;
+            directory.register(hello.worker, nowIso(), workerId);
+          },
           onError: () => undefined,
         });
         serverLinks.add(link);
@@ -319,6 +408,7 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
           if (state !== "closed") return;
           link.close();
           serverLinks.delete(link);
+          directory.disconnect(workerId, nowIso());
         });
       },
       onError: () => undefined,
@@ -326,17 +416,42 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
     });
   }
 
-  const launchPort = withLaunchDefaults(mailboxBridge?.launchPort ?? createFakeLaunch(), {
-    workspace,
-    packDigest,
-  });
+  let serviceRef: MasterService | undefined;
+  let notificationHub: NotificationHub | undefined;
+  const launchPort: LaunchPort =
+    mailboxBridge === undefined
+      ? withLaunchDefaults(createFakeLaunch(), { workspace, packDigest })
+      : withLaunchDefaults(
+          createRoutedLaunchPort({
+            directory,
+            ports: new Map(workerIds.map((workerId) => [workerId, mailboxBridge.launchPort])),
+            routing,
+            evidence: () => evidenceFromReceipts(serviceRef?.store.listReceipts() ?? []),
+            onRoute: (request) => {
+              // Persist the routed Worker before the launch can block, so task
+              // observability does not show an empty worker while it runs.
+              serviceRef?.engine.assignmentRouted(
+                request.ticket.id,
+                request.assignment.id,
+                request.assignment.worker,
+              );
+            },
+            ...(options.now === undefined ? {} : { now: options.now }),
+          }),
+          { workspace, packDigest },
+        );
   const service = new MasterService({
     dbPath: options.dbPath,
     policy: options.policy ?? DEFAULT_MASTER_POLICY,
     launch: launchPort,
     ...(options.now === undefined ? {} : { clock: { now: options.now } }),
   });
+  serviceRef = service;
   service.start();
+  notificationHub = new NotificationHub({
+    store: service.store,
+    ...(options.now === undefined ? {} : { now: options.now }),
+  });
 
   const finalServer = mailboxServer;
   const handleUpgrade: UpgradeHandler | undefined =
@@ -352,7 +467,7 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
     if (store === undefined || closed) return counters;
     const mailboxes = new Set<string>();
     if (mailboxBridge !== undefined) {
-      mailboxes.add(mailboxBridge.workerMailbox);
+      for (const workerMailbox of mailboxBridge.workerMailboxes) mailboxes.add(workerMailbox);
       mailboxes.add(mailboxBridge.masterMailbox);
     }
     try {
@@ -432,6 +547,7 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
   const control = createControlPlane({
     service,
     tasks,
+    workers: () => directory.snapshots(),
     ...(options.now === undefined ? {} : { now: options.now }),
   });
 
@@ -457,24 +573,39 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
     bridge: mailboxBridge,
     launch: mailboxBridge === undefined ? "fake" : "ws",
     tasks,
+    notifications: notificationHub,
     control,
     handleUpgrade,
+    workers: () => directory.snapshots(),
     health,
     close,
   };
 }
 
-/** Single-worker resolution: explicit > the only configured token > error. */
-function resolveWorkerId(
+/**
+ * Which Workers this runtime may route to: an explicit `workerId` restriction,
+ * else every configured token, else an explicit `workers` list. A dynamic
+ * verifier with no list cannot be routed and fails fast instead of guessing.
+ */
+function resolveWorkerIds(
   explicit: string | undefined,
   tokens: readonly TokenRecord[] | undefined,
-): string {
-  if (explicit !== undefined && explicit.length > 0) return explicit;
-  const only = tokens?.length === 1 ? tokens[0] : undefined;
-  if (only !== undefined) return only.workerId;
-  throw new Error(
-    "master-runtime: workerId is required (multiple worker tokens need an explicit workerId)",
-  );
+  workers: readonly string[] | undefined,
+  hasVerifier: TokenVerifier | undefined,
+): string[] {
+  const unique = (ids: readonly string[]): string[] => [
+    ...new Set(ids.filter((id) => typeof id === "string" && id.length > 0)),
+  ];
+  if (explicit !== undefined && explicit.length > 0) return [explicit];
+  if (tokens !== undefined && tokens.length > 0)
+    return unique(tokens.map((token) => token.workerId));
+  if (workers !== undefined && workers.length > 0) return unique(workers);
+  if (hasVerifier !== undefined) {
+    throw new Error(
+      "master-runtime: configure tokens/workers (or an explicit workerId) so Workers can be routed",
+    );
+  }
+  return [];
 }
 
 /**

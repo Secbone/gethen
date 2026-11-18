@@ -37,8 +37,11 @@ import {
   type MailboxHealth,
   type MasterRuntime,
   type MasterRuntimeTasks,
+  type RoutingOptions,
   taskSummary,
+  type WorkerSnapshot,
 } from "@gethen/master-runtime";
+import { type AgentLike, type AgentsServiceLike, GethenNotifier } from "./notifier";
 import { registerTaskTool } from "./task-tool";
 import { registerTicketTool } from "./ticket-tool";
 
@@ -73,6 +76,8 @@ export interface DshContext {
   get?(name: string): unknown;
   /** Register a sub-plugin that runs once its injected services are available. */
   inject?(deps: string[], callback: (scope: DshContext) => (() => void) | void): unknown;
+  /** Live DSH agents (present when the `agents` service is mounted). */
+  agents?: AgentsServiceLike;
   logger?: { error?(message: string): void };
 }
 
@@ -97,8 +102,12 @@ export interface GethenWsConfig {
   workspace?: string;
   /** Pack digest recorded for dispatches; defaults to the runtime's constant. */
   packDigest?: string;
-  /** Worker served by this runtime; defaults to the only configured token. */
+  /** Restrict dispatch to this Worker; defaults to every configured token. */
   workerId?: string;
+  /** Workers accepted from a dynamic token verifier (tokens are preferred). */
+  workers?: readonly string[];
+  /** Router pin, extra hard requirements and queue bounds. */
+  routing?: RoutingOptions;
   /** mailbox sqlite file; defaults to `<dirname(dbPath)>/mailbox.sqlite`. */
   mailboxDbPath?: string;
   /** Master mailbox name, `<prefix>master`; defaults to `mailbox:master`. */
@@ -120,6 +129,12 @@ export interface GethenConfig {
    * Defaults to 5s (dispatch-and-poll); set 600000 for blocking CLI-style runs.
    */
   runWaitMs?: number;
+  /** Wake the Master DSH agent when Gethen has an event; default `steer`. */
+  wake?: "steer" | "followup" | "off";
+  /** Master session to wake; defaults to the session that calls a gethen tool. */
+  notifySession?: string;
+  /** Coalesce notification bursts into one wake message (default 50ms). */
+  wakeBatchMs?: number;
 }
 
 /** The worker transport endpoint registered on the DSH web server. */
@@ -201,17 +216,71 @@ interface ToolDeps {
   launch(): "ws" | "fake";
   /** Connected workers reported by the runtime (0 in fake mode). */
   workers(): number;
+  /** Per-Worker registration, health and load snapshots. */
+  workerDetails(): WorkerSnapshot[];
   /** Mailbox queue counters; `undefined` in fake mode. */
   mailbox?(): MailboxHealth | undefined;
   /** Runtime task state/control; fake mode reports `RUNTIME_COMMS_UNAVAILABLE`. */
   tasks?: MasterRuntimeTasks;
   /** Upper bound for `gethen_run` waiting on settlement (default 5s). */
   runWaitMs?: number;
+  /** Durable wake notifications, shared with the notifier / gethen_wait. */
+  notifications?: MasterRuntime["notifications"];
 }
 
 /** Register the read/write tool surface against one master service. */
 function registerTools(ctx: DshContext, deps: ToolDeps): void {
   const { service } = deps;
+
+  ctx.tools.register({
+    name: "gethen_wait",
+    description:
+      "Wait for the next Gethen event (worker finished or escalation parked) instead of " +
+      "polling. Returns immediately when one is queued; returns timedOut=true after the " +
+      "timeout. Auto-wake usually delivers these events without calling this tool; it is " +
+      "the fallback for hosts without agent wake-up.",
+    parameters: {
+      timeoutMs: {
+        type: "number",
+        required: false,
+        description: "Wait bound in milliseconds, 0-3600000; default 30000.",
+      },
+    },
+    output: {
+      schema: objectSchema(
+        {
+          event: { type: "object" },
+          timedOut: { type: "boolean" },
+        },
+        ["event", "timedOut"],
+      ),
+      render: (_args, value) => text(value),
+    },
+    async execute(raw, exec) {
+      const args = raw as { timeoutMs?: unknown };
+      if (
+        args.timeoutMs !== undefined &&
+        (typeof args.timeoutMs !== "number" ||
+          !Number.isFinite(args.timeoutMs) ||
+          args.timeoutMs < 0 ||
+          args.timeoutMs > 3_600_000)
+      ) {
+        throw new Error('gethen_wait "timeoutMs" must be a number between 0 and 3600000');
+      }
+      const hub = deps.notifications;
+      if (hub === undefined) throw new Error("gethen_wait requires the master notifications hub");
+      const signal = (exec as { signal?: AbortSignal } | undefined)?.signal;
+      const row = await hub.waitForNext({
+        timeoutMs: args.timeoutMs ?? 30_000,
+        ...(signal === undefined ? {} : { signal }),
+      });
+      if (row === undefined) {
+        return { event: { kind: "none" }, timedOut: true };
+      }
+      hub.markDelivered(row.id);
+      return { event: row, timedOut: false };
+    },
+  });
 
   ctx.tools.register({
     name: "gethen_status",
@@ -231,6 +300,7 @@ function registerTools(ctx: DshContext, deps: ToolDeps): void {
           escalations: { type: "number" },
           launch: { type: "string", enum: ["fake", "ws"] },
           workers: { type: "number" },
+          workerDetails: { type: "array", items: { type: "object" } },
           mailbox: {
             type: "object",
             properties: {
@@ -279,6 +349,7 @@ function registerTools(ctx: DshContext, deps: ToolDeps): void {
         escalations: status.counts.escalations,
         launch: deps.launch(),
         workers: deps.workers(),
+        ...(deps.workerDetails().length === 0 ? {} : { workerDetails: deps.workerDetails() }),
         ...(mailbox === undefined ? {} : { mailbox }),
         ...(tasks === undefined ? {} : { tasks }),
       };
@@ -473,6 +544,8 @@ export function apply(ctx: DshContext, config: GethenConfig = {}): void {
     workspace: ws?.workspace ?? process.cwd(),
     ...(ws?.packDigest === undefined ? {} : { packDigest: ws.packDigest }),
     ...(ws?.workerId === undefined ? {} : { workerId: ws.workerId }),
+    ...(ws?.workers === undefined ? {} : { workers: ws.workers }),
+    ...(ws?.routing === undefined ? {} : { routing: ws.routing }),
     ...(ws?.mailboxDbPath === undefined ? {} : { mailboxDbPath: ws.mailboxDbPath }),
     ...(ws?.masterMailbox === undefined ? {} : { masterMailbox: ws.masterMailbox }),
     ...(tokens.length === 0 ? {} : { tokens }),
@@ -480,8 +553,29 @@ export function apply(ctx: DshContext, config: GethenConfig = {}): void {
     ...createEscalationHooks(() => runtime?.service),
   });
   const mounted = runtime;
+  const notifier = new GethenNotifier({
+    notifications: mounted.notifications,
+    mode: config.wake ?? "steer",
+    ...(config.notifySession === undefined ? {} : { sessionId: config.notifySession }),
+    ...(config.wakeBatchMs === undefined ? {} : { batchWindowMs: config.wakeBatchMs }),
+    onError: (error: unknown) => {
+      ctx.logger?.error?.(`gethen: wake delivery failed: ${messageOf(error)}`);
+    },
+  });
+  const stopNotifier = notifier.start();
+  if (ctx.inject !== undefined) {
+    ctx.inject(["agents"], (scope) => {
+      const agents = scope.get?.("agents") as AgentsServiceLike | undefined;
+      if (agents !== undefined) notifier.setAgents(agents);
+    });
+  } else {
+    const agents = ctx.get?.("agents") as AgentsServiceLike | undefined;
+    if (agents !== undefined) notifier.setAgents(agents);
+  }
 
   ctx.provide("gethen", mounted.service);
+  // Hosts/tests can inspect notifications or publish synthetic events.
+  ctx.provide("gethen.runtime", mounted);
 
   const handleUpgrade = mounted.handleUpgrade;
   const mountRoute = (scope: DshContext): (() => void) | void => {
@@ -511,14 +605,36 @@ export function apply(ctx: DshContext, config: GethenConfig = {}): void {
       ctx.logger?.error?.(`gethen: closing the master runtime failed: ${messageOf(error)}`);
     });
   });
-  registerTools(ctx, {
+  // Capture the live Master agent from any gethen tool call so later worker
+  // events can steer it. This is the same `exec.agent` surface Agent Teams uses.
+  const toolContext: DshContext = {
+    ...ctx,
+    tools: {
+      register(definition) {
+        return ctx.tools.register({
+          ...definition,
+          async execute(args, exec) {
+            const agent = (exec as { agent?: AgentLike } | undefined)?.agent;
+            if (agent !== undefined) notifier.bind(agent);
+            return definition.execute(args, exec);
+          },
+        });
+      },
+    },
+  };
+  registerTools(toolContext, {
     service: mounted.service,
     control: mounted.control,
     launch: () => mounted.launch,
     workers: () => mounted.health().workers,
+    workerDetails: () => mounted.workers(),
     mailbox: () => (mounted.launch === "ws" ? mounted.health().mailbox : undefined),
     tasks: mounted.tasks,
+    notifications: mounted.notifications,
     ...(config.runWaitMs === undefined ? {} : { runWaitMs: config.runWaitMs }),
+  });
+  ctx.effect?.(() => () => {
+    stopNotifier();
   });
 }
 

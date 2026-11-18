@@ -122,6 +122,8 @@ export interface TaskState {
   lastMessage?: string;
   seq: number;
   updatedAt?: string;
+  /** Worker that owns the assignment (Master-side bookkeeping). */
+  worker?: string;
 }
 
 /** Minimal JSON vocabulary for opaque event payloads (no harness/DSH import). */
@@ -198,11 +200,15 @@ export interface HarnessSessionHistory {
 }
 
 export interface SessionListOptions {
+  /** Worker to ask; all registered workers when omitted in a multi-Worker runtime. */
+  workerId?: string;
   /** How long to wait for the reply; defaults to `maxSessionListTimeoutMs`. */
   timeoutMs?: number;
 }
 
 export interface SessionHistoryOptions {
+  /** Worker that owns the session; required when more than one is registered. */
+  workerId?: string;
   /** Forwarded to the worker (default there is 200). */
   limit?: number;
   /** Return events with `seq > afterSeq` (forwarded to the worker). */
@@ -237,6 +243,7 @@ export type MailboxLaunchErrorCode =
   | "MAILBOX_STATUS_TIMEOUT"
   | "MAILBOX_SEND_FAILED"
   | "MAILBOX_UNKNOWN_ASSIGNMENT"
+  | "MAILBOX_UNKNOWN_WORKER"
   | "MAILBOX_NO_PARKED_ESCALATION"
   | "MAILBOX_INVALID_RESOLUTION";
 
@@ -249,6 +256,7 @@ export const MAILBOX_LAUNCH_ERROR_CODES: readonly MailboxLaunchErrorCode[] = [
   "MAILBOX_STATUS_TIMEOUT",
   "MAILBOX_SEND_FAILED",
   "MAILBOX_UNKNOWN_ASSIGNMENT",
+  "MAILBOX_UNKNOWN_WORKER",
   "MAILBOX_NO_PARKED_ESCALATION",
   "MAILBOX_INVALID_RESOLUTION",
 ];
@@ -294,8 +302,17 @@ export interface LateLaunchResult {
 export interface MailboxLaunchOptions {
   /** Shared mailbox client (memory/sqlite store or a mailbox link). */
   client: MailboxClientLike;
-  /** Worker whose mailbox receives assignments: `<prefix><workerId>`. */
-  workerId: string;
+  /**
+   * Default Worker whose mailbox receives assignments: `<prefix><workerId>`.
+   * Optional when `workers` is given; required for a single-Worker deployment.
+   */
+  workerId?: string;
+  /**
+   * Workers this bridge may dispatch to. One bridge polls the Master mailbox
+   * and routes every assignment to the selected Worker's mailbox, so multiple
+   * Workers never race for the same result envelope.
+   */
+  workers?: readonly string[];
   /** Answers a worker escalation; absent parks it for a person. */
   resolveEscalation?: (record: EscalationRecord) => Promise<EscalationResolutionInput | undefined>;
   /** Observer fired when an `ask` is parsed (status `"waiting"`). */
@@ -309,6 +326,8 @@ export interface MailboxLaunchOptions {
    * settled with a parked `waiting` report (answered escalation resumed).
    */
   onLateResult?: (input: LateLaunchResult) => void;
+  /** Called for every result, including ones that settled normally. */
+  onResult?: (input: LateLaunchResult & { late: boolean }) => void;
   /** Per-launch timeout; defaults to {@link DEFAULT_MAILBOX_LAUNCH_TIMEOUT_MS}. */
   timeoutMs?: number;
   /**
@@ -339,10 +358,16 @@ export interface MailboxLaunchOptions {
 export interface MailboxLaunchBridge {
   /** The port to hand to `MasterService`. */
   readonly launchPort: LaunchPort;
-  /** Mailbox the worker consumes, e.g. `mailbox:worker-1`. */
+  /** Default mailbox, e.g. `mailbox:worker-1` (first Worker when none is default). */
   readonly workerMailbox: string;
+  /** Every Worker mailbox this bridge can dispatch to. */
+  readonly workerMailboxes: readonly string[];
   /** Mailbox this adapter polls for ask/result/progress, e.g. `mailbox:master`. */
   readonly masterMailbox: string;
+  /** Mailbox name for one Worker. */
+  mailboxFor(workerId: string): string;
+  /** Register a Worker that authenticated after the bridge was built. */
+  addWorker(workerId: string): void;
   /** Process one received envelope; the subscription callback and the test hook. */
   handleEnvelope(envelope: Envelope): void;
   /** Poll the Master mailbox once; returns how many envelopes were processed. */
@@ -401,6 +426,9 @@ export interface MailboxLaunchBridge {
 interface PendingLaunch {
   readonly promise: Promise<LaunchResult>;
   readonly request: LaunchRequest;
+  /** Worker selected for this assignment; every reply/control targets it. */
+  readonly worker: string;
+  readonly workerMailbox: string;
   readonly escalations: EscalationRecord[];
   readonly seenEscalations: Set<string>;
   events: number;
@@ -448,7 +476,20 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
   const now = options.now ?? (() => new Date());
   const nowIso = (): string => now().toISOString();
   const prefix = options.mailboxPrefix ?? DEFAULT_MAILBOX_PREFIX;
-  const workerMailbox = `${prefix}${options.workerId}`;
+  const workerIds = new Set<string>();
+  if (options.workerId !== undefined && options.workerId.length > 0) {
+    workerIds.add(options.workerId);
+  }
+  for (const workerId of options.workers ?? []) {
+    if (workerId.length > 0) workerIds.add(workerId);
+  }
+  if (workerIds.size === 0) {
+    throw new Error("bridge-mailbox: configure at least one workerId or workers entry");
+  }
+  const defaultWorkerId =
+    options.workerId ?? (workerIds.size === 1 ? workerIds.values().next().value : undefined);
+  const mailboxFor = (workerId: string): string => `${prefix}${workerId}`;
+  const firstWorkerId = (): string => defaultWorkerId ?? workerIds.values().next().value ?? "";
   const masterMailbox = `${prefix}${MASTER_MAILBOX}`;
   const timeoutMs = positiveTimeout(options.timeoutMs ?? DEFAULT_MAILBOX_LAUNCH_TIMEOUT_MS);
   const pollIntervalMs =
@@ -464,6 +505,42 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
     "maxEventBytes",
   );
   const pendingByAssignment = new Map<string, PendingLaunch>();
+  /**
+   * Assignment -> Worker binding, retained after a result so task control can
+   * still reach the right Worker (or report that it was a different one).
+   */
+  const workerByAssignment = new Map<string, string>();
+
+  function workerForAssignment(assignmentId: string): string | undefined {
+    return (
+      pendingByAssignment.get(assignmentId)?.worker ??
+      workerByAssignment.get(assignmentId) ??
+      defaultWorkerId
+    );
+  }
+
+  /**
+   * The explicit `assignment.worker` wins when it is known; otherwise a
+   * single-Worker bridge keeps the historical default. A multi-Worker bridge
+   * must be given a routed Worker, never silently pick one.
+   */
+  function resolveLaunchWorker(request: LaunchRequest): string {
+    const requested = request.assignment.worker;
+    if (requested.length > 0) {
+      if (!workerIds.has(requested)) {
+        throw new MailboxLaunchError(
+          "MAILBOX_UNKNOWN_WORKER",
+          `assignment ${request.assignment.id} was routed to unknown worker "${requested}"`,
+        );
+      }
+      return requested;
+    }
+    if (defaultWorkerId !== undefined) return defaultWorkerId;
+    throw new MailboxLaunchError(
+      "MAILBOX_UNKNOWN_WORKER",
+      `assignment ${request.assignment.id} has no routed worker and the bridge has no default`,
+    );
+  }
 
   /** Persist every still-unresolved launch so a Master restart can settle it. */
   function persistPendingState(): void {
@@ -515,7 +592,17 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
       if (!isRecord(request.assignment) || typeof request.assignment.id !== "string") continue;
       const assignmentId = request.assignment.id;
       if (pendingByAssignment.has(assignmentId)) continue;
-      const pending = createPending(request);
+      // A persisted assignment already names the Worker it was routed to; keep
+      // that mailbox reachable even if the current token file no longer lists it.
+      if (typeof request.assignment.worker === "string" && request.assignment.worker.length > 0) {
+        workerIds.add(request.assignment.worker);
+      }
+      let pending: PendingLaunch;
+      try {
+        pending = createPending(request);
+      } catch {
+        continue;
+      }
       pending.restored = true;
       pending.launchSettled = entry.launchSettled === true;
       if (typeof entry.events === "number" && Number.isFinite(entry.events)) {
@@ -533,7 +620,12 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
         pending.parkedEscalation = entry.parkedEscalation as unknown as EscalationRecord;
       }
       if (isRecord(entry.parkedAsk)) pending.parkedAsk = entry.parkedAsk as unknown as Envelope;
-      if (isRecord(entry.state)) states.set(assignmentId, entry.state as unknown as TaskState);
+      if (isRecord(entry.state)) {
+        states.set(assignmentId, {
+          ...(entry.state as unknown as TaskState),
+          worker: pending.worker,
+        });
+      }
       pendingByAssignment.set(assignmentId, pending);
     }
   }
@@ -589,8 +681,10 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
   }
 
   function publishTaskState(assignmentId: string, state: TaskState): void {
-    states.set(assignmentId, state);
-    notify(() => options.onTaskState?.(assignmentId, state));
+    const worker = workerForAssignment(assignmentId);
+    const tagged = worker === undefined ? state : { ...state, worker };
+    states.set(assignmentId, tagged);
+    notify(() => options.onTaskState?.(assignmentId, tagged));
   }
 
   /** Retain the final `done`/`failed` state when the result arrives. */
@@ -680,15 +774,20 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
   }
 
   function createPending(request: LaunchRequest): PendingLaunch {
+    const worker = resolveLaunchWorker(request);
     let resolvePromise: (result: LaunchResult) => void = () => {};
     let rejectPromise: (error: Error) => void = () => {};
     const promise = new Promise<LaunchResult>((resolve, reject) => {
       resolvePromise = resolve;
       rejectPromise = reject;
     });
+    request.assignment.worker = worker;
+    workerByAssignment.set(request.assignment.id, worker);
     return {
       promise,
       request,
+      worker,
+      workerMailbox: mailboxFor(worker),
       escalations: [],
       seenEscalations: new Set(),
       events: 0,
@@ -705,7 +804,7 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
     return {
       assignment: pending.request.assignment.id,
       ticket: pending.request.ticket.id,
-      worker: options.workerId,
+      worker: pending.worker,
       workspace: pending.request.assignment.workspace,
       packDigest: pending.request.packDigest,
       at: report.at,
@@ -770,7 +869,17 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
     });
     finalizeTaskState(pending, report);
     const result = resultFor(pending, report);
-    if (pending.launchSettled) {
+    const late = pending.launchSettled || pending.restored === true;
+    notify(() =>
+      options.onResult?.({
+        request: pending.request,
+        report,
+        receipt: result.receipt,
+        ...(result.escalations === undefined ? {} : { escalations: result.escalations }),
+        late,
+      }),
+    );
+    if (late) {
       notify(() =>
         options.onLateResult?.({
           request: pending.request,
@@ -857,7 +966,7 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
       assignment: pending.request.assignment.id,
       // The mailbox protocol carries no session id; the worker id is the stable
       // identity a person-facing panel can show.
-      session: options.workerId,
+      session: pending.worker,
       kind,
       question,
       options: parsedOptions,
@@ -931,7 +1040,7 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
     persistPendingState();
 
     try {
-      client.send(assignEnvelope(request));
+      client.send(assignEnvelope(pending));
     } catch (error) {
       rejectWith(
         pending,
@@ -1068,7 +1177,8 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
     }
   }
 
-  function assignEnvelope(request: LaunchRequest): Envelope {
+  function assignEnvelope(pending: PendingLaunch): Envelope {
+    const request = pending.request;
     return newEnvelope({
       id: request.assignment.id,
       source: "master:router",
@@ -1085,7 +1195,7 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
           ? {}
           : { session: request.assignment.session }),
       },
-      to: workerMailbox,
+      to: pending.workerMailbox,
       correlationId: request.assignment.id,
       replyTo: masterMailbox,
     });
@@ -1112,7 +1222,7 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
           text: resolution.text,
         },
       },
-      to: ask?.replyTo ?? workerMailbox,
+      to: ask?.replyTo ?? pending.workerMailbox,
       correlationId: pending.request.assignment.id,
       ...(ask === undefined ? {} : { causationId: ask.id }),
     });
@@ -1161,6 +1271,7 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
     data: Record<string, unknown>,
     requestedTimeoutMs: number | undefined,
     select: (payload: Record<string, unknown> | undefined) => T,
+    targetWorker: string,
   ): Promise<T> {
     if (closed) {
       return Promise.reject(
@@ -1173,7 +1284,7 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
       type,
       time: nowIso(),
       data,
-      to: workerMailbox,
+      to: mailboxFor(targetWorker),
       replyTo: masterMailbox,
     });
     const requestId = request.id;
@@ -1211,9 +1322,49 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
   async function listSessions(
     sessionOptions: SessionListOptions = {},
   ): Promise<HarnessSessionSummary[]> {
-    return requestSessionReply(MESSAGE_TYPES.sessionList, {}, sessionOptions.timeoutMs, (payload) =>
-      parseSessionList(payload),
+    const explicit = sessionOptions.workerId;
+    if (explicit !== undefined) {
+      return requestSessionReply(
+        MESSAGE_TYPES.sessionList,
+        {},
+        sessionOptions.timeoutMs,
+        (payload) => parseSessionList(payload),
+        explicit,
+      );
+    }
+    // Single-Worker bridges keep targeting their only Worker; a multi-Worker
+    // bridge aggregates the directory so a panel sees every session.
+    if (defaultWorkerId !== undefined) {
+      return requestSessionReply(
+        MESSAGE_TYPES.sessionList,
+        {},
+        sessionOptions.timeoutMs,
+        (payload) => parseSessionList(payload),
+        defaultWorkerId,
+      );
+    }
+    const targets = [...workerIds];
+    const settled = await Promise.allSettled(
+      targets.map((workerId) =>
+        requestSessionReply(
+          MESSAGE_TYPES.sessionList,
+          {},
+          sessionOptions.timeoutMs,
+          (payload) => parseSessionList(payload),
+          workerId,
+        ),
+      ),
     );
+    const merged = new Map<string, HarnessSessionSummary>();
+    for (const result of settled) {
+      if (result.status !== "fulfilled") continue;
+      for (const summary of result.value) merged.set(summary.sessionId, summary);
+    }
+    if (merged.size === 0) {
+      const failure = settled.find((result) => result.status === "rejected");
+      if (failure?.status === "rejected") throw failure.reason;
+    }
+    return [...merged.values()];
   }
 
   async function sessionHistory(
@@ -1231,11 +1382,24 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
     if (sessionOptions.afterSeq !== undefined) {
       data.afterSeq = nonNegativeInteger(sessionOptions.afterSeq, "afterSeq");
     }
+    const target =
+      sessionOptions.workerId ??
+      defaultWorkerId ??
+      (workerIds.size === 1 ? workerIds.values().next().value : undefined);
+    if (target === undefined) {
+      return Promise.reject(
+        new MailboxLaunchError(
+          "MAILBOX_UNKNOWN_WORKER",
+          `session ${wanted}: specify workerId in a multi-Worker runtime`,
+        ),
+      );
+    }
     return requestSessionReply(
       MESSAGE_TYPES.sessionHistory,
       data,
       sessionOptions.timeoutMs,
       (payload) => parseSessionHistory(payload, wanted),
+      target,
     );
   }
 
@@ -1251,6 +1415,15 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
         ),
       );
     }
+    const worker = workerForAssignment(assignmentId);
+    if (worker === undefined) {
+      return Promise.reject(
+        new MailboxLaunchError(
+          "MAILBOX_UNKNOWN_WORKER",
+          `assignment ${assignmentId} is not bound to a Worker on this bridge`,
+        ),
+      );
+    }
     const requestTimeoutMs = positiveTimeout(requestOptions.timeoutMs ?? DEFAULT_STATUS_TIMEOUT_MS);
     return new Promise<TaskState | null>((resolve, reject) => {
       const request = newEnvelope({
@@ -1259,7 +1432,7 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
         subject: assignmentId,
         time: nowIso(),
         data: { assignmentId },
-        to: workerMailbox,
+        to: mailboxFor(worker),
         correlationId: assignmentId,
         replyTo: masterMailbox,
       });
@@ -1300,6 +1473,13 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
     if (typeof text !== "string" || text.trim().length === 0) {
       throw new Error("bridge-mailbox: steer text must be a non-empty string");
     }
+    const worker = workerForAssignment(assignmentId);
+    if (worker === undefined) {
+      throw new MailboxLaunchError(
+        "MAILBOX_UNKNOWN_WORKER",
+        `assignment ${assignmentId} is not bound to a Worker on this bridge`,
+      );
+    }
     try {
       client.send(
         newEnvelope({
@@ -1308,7 +1488,7 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
           subject: assignmentId,
           time: nowIso(),
           data: { assignmentId, text },
-          to: workerMailbox,
+          to: mailboxFor(worker),
           correlationId: assignmentId,
         }),
       );
@@ -1327,6 +1507,13 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
         `assignment ${assignmentId}: cancel after the mailbox bridge closed`,
       );
     }
+    const worker = workerForAssignment(assignmentId);
+    if (worker === undefined) {
+      throw new MailboxLaunchError(
+        "MAILBOX_UNKNOWN_WORKER",
+        `assignment ${assignmentId} is not bound to a Worker on this bridge`,
+      );
+    }
     try {
       client.send(
         newEnvelope({
@@ -1338,7 +1525,7 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
             assignmentId,
             ...(reason === undefined ? {} : { reason }),
           },
-          to: workerMailbox,
+          to: mailboxFor(worker),
           correlationId: assignmentId,
         }),
       );
@@ -1418,7 +1605,16 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
 
   return {
     launchPort: { launch },
-    workerMailbox,
+    get workerMailbox(): string {
+      return mailboxFor(firstWorkerId());
+    },
+    get workerMailboxes(): readonly string[] {
+      return [...workerIds].map(mailboxFor);
+    },
+    mailboxFor,
+    addWorker(workerId: string): void {
+      if (workerId.length > 0) workerIds.add(workerId);
+    },
     masterMailbox,
     handleEnvelope,
     pollOnce,

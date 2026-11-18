@@ -88,6 +88,9 @@ importers:
       '@gethen/transport':
         specifier: workspace:*
         version: link:../transport
+      '@gethen/worker-bridge':
+        specifier: workspace:*
+        version: link:../worker-bridge
 
   packages/core: {}
 
@@ -191,6 +194,9 @@ importers:
       '@gethen/transport':
         specifier: workspace:*
         version: link:../transport
+      '@gethen/worker-bridge':
+        specifier: workspace:*
+        version: link:../worker-bridge
 
   packages/master: {}
 
@@ -217,6 +223,9 @@ importers:
       '@gethen/transport':
         specifier: workspace:*
         version: link:../transport
+      '@gethen/worker-bridge':
+        specifier: workspace:*
+        version: link:../worker-bridge
 
   packages/pack:
     dependencies:

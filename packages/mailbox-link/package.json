@@ -13,7 +13,8 @@
   },
   "dependencies": {
     "@gethen/mailbox": "workspace:*",
-    "@gethen/transport": "workspace:*"
+    "@gethen/transport": "workspace:*",
+    "@gethen/worker-bridge": "workspace:*"
   },
   "description": "L2 mailbox over an L1 transport session: worker-side remote mailbox client and master-side mailbox server link"
 }

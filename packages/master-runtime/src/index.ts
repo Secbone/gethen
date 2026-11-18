@@ -13,6 +13,13 @@ export type {
   Runtime as FleetRuntime,
   Slot,
 } from "@gethen/fleet";
-export type { RouteDecision, TaskRequirement } from "@gethen/router";
+export type {
+  RouteDecision,
+  RoutePlan,
+  TaskRequirement,
+  WorkerCapabilities,
+  WorkerManifest,
+} from "@gethen/router";
 export * from "./control";
+export * from "./fleet";
 export * from "./runtime";

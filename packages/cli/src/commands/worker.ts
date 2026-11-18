@@ -1,11 +1,16 @@
 import { existsSync, readFileSync } from "node:fs";
 import { isIP } from "node:net";
-import { homedir } from "node:os";
+import { homedir, hostname } from "node:os";
 import { join } from "node:path";
 import { agentMailboxName, createMailboxAgent, type MailboxAgent } from "@gethen/agent";
 import { createSdkHarnessExecutor } from "@gethen/executor-sdk";
 import { createMailboxClientLink, type MailboxClientLink } from "@gethen/mailbox-link";
 import { createWsTransport, type TransportSession } from "@gethen/transport";
+import {
+  parseWorkerManifest,
+  type WorkerCapabilities,
+  type WorkerManifest,
+} from "@gethen/worker-bridge";
 import { WORKER_PATH } from "./serve";
 import { workerTokenCommand } from "./worker-token";
 
@@ -32,12 +37,27 @@ export interface WorkerConfig {
   maxExecutionMs?: number;
   /** Directory for durable worker state (session key registry). */
   stateDir?: string;
+  /** Cost class advertised to the Master router (default "mid"). */
+  costClass?: "low" | "mid" | "high";
+  /** Declared DSH capability overrides; these are filter hints, not permissions. */
+  capabilities?: Partial<WorkerCapabilities>;
 }
 
 export interface WorkerConfigOptions {
   /** Default workspace when none is configured; defaults to `process.cwd()`. */
   cwd?: string;
 }
+
+/** Conservative defaults matching the documented DSH SDK profile. */
+export const DEFAULT_WORKER_CAPABILITIES: WorkerCapabilities = {
+  promptInjection: "system",
+  skills: "filesystem",
+  mcp: false,
+  permissions: "approval",
+  streaming: true,
+  steer: true,
+  fork: false,
+};
 
 interface WorkerConfigFile {
   masterUrl?: string;
@@ -62,6 +82,10 @@ interface WorkerConfigFile {
   maxExecutionMs?: number;
   /** Directory for durable worker state (session key registry). */
   stateDir?: string;
+  /** Cost class advertised to the Master router (default "mid"). */
+  costClass?: "low" | "mid" | "high";
+  /** Declared DSH capability overrides; these are filter hints, not permissions. */
+  capabilities?: Partial<WorkerCapabilities>;
 }
 
 /**
@@ -109,6 +133,9 @@ export function parseWorkerConfig(argv: string[], options: WorkerConfigOptions =
   const isolation = parseIsolation(flagValue(argv, "--isolation") ?? file.isolation);
   const stateDir = flagValue(argv, "--state-dir") ?? file.stateDir;
 
+  const costClass = parseCostClass(flagValue(argv, "--cost-class") ?? file.costClass);
+  const capabilities = parseCapabilities(file.capabilities);
+
   return {
     masterUrl: normalizeMasterUrl(masterUrl),
     token,
@@ -125,7 +152,44 @@ export function parseWorkerConfig(argv: string[], options: WorkerConfigOptions =
     ...(requestTimeoutMs === undefined ? {} : { requestTimeoutMs }),
     ...(isolation === undefined ? {} : { isolation }),
     ...(stateDir === undefined ? {} : { stateDir }),
+    ...(costClass === undefined ? {} : { costClass }),
+    ...(capabilities === undefined ? {} : { capabilities }),
   };
+}
+
+/** Validate the advertised cost class; an unknown value fails at startup. */
+function parseCostClass(value: string | undefined): "low" | "mid" | "high" | undefined {
+  if (value === undefined) return undefined;
+  if (value !== "low" && value !== "mid" && value !== "high") {
+    throw new Error('worker config: costClass must be "low", "mid" or "high"');
+  }
+  return value;
+}
+
+/** Validate declared capability overrides (they are merged over the defaults). */
+function parseCapabilities(
+  value: Partial<WorkerCapabilities> | undefined,
+): Partial<WorkerCapabilities> | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error("worker config: capabilities must be an object");
+  }
+  const merged = { ...DEFAULT_WORKER_CAPABILITIES, ...value };
+  if (!["system", "prefix", "none"].includes(merged.promptInjection)) {
+    throw new Error('worker config: capabilities.promptInjection must be "system"|"prefix"|"none"');
+  }
+  if (!["filesystem", "mcp", "none"].includes(merged.skills)) {
+    throw new Error('worker config: capabilities.skills must be "filesystem"|"mcp"|"none"');
+  }
+  if (!["sandbox", "approval", "none"].includes(merged.permissions)) {
+    throw new Error('worker config: capabilities.permissions must be "sandbox"|"approval"|"none"');
+  }
+  for (const key of ["mcp", "streaming", "steer", "fork"] as const) {
+    if (typeof merged[key] !== "boolean") {
+      throw new Error(`worker config: capabilities.${key} must be a boolean`);
+    }
+  }
+  return value;
 }
 
 /** Parse `{"host":"ip"}` from a flag or the config file; invalid values fail fast. */
@@ -239,6 +303,36 @@ const RECONNECT_INITIAL_MS = 500;
 const RECONNECT_MAX_MS = 30_000;
 
 /**
+ * The registration reported in the mailbox `hello`: the Master forms its
+ * selectable pool from these declarations (workspace paths, model, capability
+ * hints, quota and health). The declarations are not permissions; the DSH
+ * sandbox/approval policy on this machine stays authoritative.
+ */
+export function workerManifest(
+  config: WorkerConfig,
+  at = new Date().toISOString(),
+): WorkerManifest {
+  const workspaces = new Set<string>([
+    ...Object.keys(config.workspaceMap ?? {}),
+    ...config.workspaces,
+  ]);
+  const manifest = {
+    id: config.workerId,
+    machine: config.machine ?? hostname(),
+    runtime: "dsh" as const,
+    workspaces: [...workspaces].map((id) => ({ id })),
+    capabilities: { ...DEFAULT_WORKER_CAPABILITIES, ...config.capabilities },
+    models: [config.model],
+    costClass: config.costClass ?? ("mid" as const),
+    load: { running: 0, quota: config.quota ?? 1 },
+    health: { state: "online" as const, lastHeartbeatAt: at },
+  };
+  const parsed = parseWorkerManifest(manifest);
+  if (!parsed.ok) throw new Error(`worker registration is invalid: ${parsed.reason}`);
+  return parsed.value;
+}
+
+/**
  * The worker daemon: dial the master's L1 ws transport, attach the L2 mailbox
  * link for `mailbox:<workerId>` and let the mailbox agent drive the DSH SDK
  * harness. Disconnects reconnect with exponential backoff and re-attach the
@@ -266,7 +360,11 @@ async function runMailboxWorker(config: WorkerConfig): Promise<number> {
     return 1;
   }
 
-  const link: MailboxClientLink = await createMailboxClientLink({ session, mailbox });
+  const link: MailboxClientLink = await createMailboxClientLink({
+    session,
+    mailbox,
+    worker: workerManifest(config),
+  });
 
   /** Map the master-side workspace to a local directory that exists. */
   function resolveWorkspace(workspace: string): string {
@@ -508,6 +606,8 @@ function configFile(argv: string[]): WorkerConfigFile {
   const workspaceMap = parsed.workspaceMap;
   const requestTimeoutMs = optionalNumber(parsed, "requestTimeoutMs");
   const isolation = optionalString(parsed, "isolation");
+  const costClass = optionalString(parsed, "costClass");
+  const capabilities = parsed.capabilities;
   if (masterUrl !== undefined) file.masterUrl = masterUrl;
   if (token !== undefined) file.token = token;
   if (workerId !== undefined) file.workerId = workerId;
@@ -522,6 +622,10 @@ function configFile(argv: string[]): WorkerConfigFile {
   if (workspaceMap !== undefined) file.workspaceMap = workspaceMap as Record<string, string>;
   if (requestTimeoutMs !== undefined) file.requestTimeoutMs = requestTimeoutMs;
   if (isolation !== undefined) file.isolation = isolation as "shared" | "process";
+  if (costClass !== undefined) file.costClass = costClass as WorkerConfigFile["costClass"];
+  if (capabilities !== undefined) {
+    file.capabilities = capabilities as Partial<WorkerCapabilities>;
+  }
   return file;
 }
 

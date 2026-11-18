@@ -13,6 +13,7 @@ import type {
   Trigger,
 } from "@gethen/master";
 import { createWsTransport, type TransportSession } from "@gethen/transport";
+import type { WorkerManifest } from "@gethen/worker-bridge";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createMasterRuntime, type MasterRuntime, type MasterRuntimeOptions } from "./runtime";
 
@@ -151,7 +152,7 @@ async function startHarness(options: HarnessOptions = {}): Promise<Harness> {
 
 async function attachWorker(
   harness: Harness,
-  options: { token?: string; mailbox?: string } = {},
+  options: { token?: string; mailbox?: string; worker?: WorkerManifest } = {},
 ): Promise<{ session: TransportSession; link: MailboxClientLink }> {
   if (harness.url === undefined) throw new Error("harness has no server url");
   const session = await createWsTransport({ heartbeat: false }).connect(
@@ -162,6 +163,7 @@ async function attachWorker(
   const link = await createMailboxClientLink({
     session,
     mailbox: options.mailbox ?? WORKER_MAILBOX,
+    ...(options.worker === undefined ? {} : { worker: options.worker }),
     receiveTimeoutMs: 500,
     requestTimeoutMs: 2_000,
     visibilityTimeoutMs: 1_000,
@@ -341,6 +343,45 @@ describe("createMasterRuntime mailbox stack", () => {
     await waitFor(() => runtime.service.store.tickets.get(ticket.id)?.latestReport === "ready");
     const receipts = runtime.service.store.listReceipts().filter((row) => row.ticket === ticket.id);
     expect(receipts.at(-1)?.summary).toBe("merged");
+  });
+
+  it("records durable wake notifications for results and parked escalations", async () => {
+    const harness = await startHarness();
+    const runtime = harness.runtime;
+    const { link } = await attachWorker(harness);
+
+    const resultPromise = runtime.bridge?.launchPort.launch(launchRequest());
+    if (resultPromise === undefined) throw new Error("expected a mailbox bridge");
+    const assign = await receiveOne(link);
+    await link.ack([assign.envelope.id]);
+    await link.send(resultEnvelope(assign.envelope, { summary: "done" }));
+    await resultPromise;
+    const resultRows = runtime.notifications.pending();
+    expect(resultRows[0]).toMatchObject({
+      kind: "assignment.result",
+      assignment: "assignment-1",
+      ticket: "ticket-1",
+    });
+    expect(resultRows[0]?.data).toMatchObject({ report: "ready", late: false });
+    runtime.notifications.markDelivered(resultRows[0]?.id as string);
+    expect(runtime.notifications.pending()).toEqual([]);
+    await harness.runtime.close();
+
+    const parked = await startHarness();
+    const parkedClient = await attachWorker(parked);
+    const parkedLaunch = parked.runtime.bridge?.launchPort.launch(launchRequest());
+    if (parkedLaunch === undefined) throw new Error("expected a mailbox bridge");
+    const parkedAssign = await receiveOne(parkedClient.link);
+    await parkedClient.link.ack([parkedAssign.envelope.id]);
+    await parkedClient.link.send(askEnvelope(parkedAssign.envelope, "Which branch?"));
+    const waiting = await parkedLaunch;
+    expect(waiting.report.kind).toBe("waiting");
+    const parkedRows = parked.runtime.notifications.pending();
+    expect(parkedRows[0]).toMatchObject({
+      kind: "escalation.parked",
+      assignment: "assignment-1",
+    });
+    expect(parkedRows[0]?.data).toMatchObject({ question: "Which branch?" });
   });
 
   it("closes the ask loop over the link: assign, ask, answer, result", async () => {
@@ -635,5 +676,105 @@ describe("createMasterRuntime mailbox stack", () => {
       ),
     ).rejects.toThrow();
     expect(() => runtime.service.store.tickets.list()).toThrow();
+  });
+});
+
+describe("multi-worker routing", () => {
+  function manifest(id: string, workspace: string, quota = 1): WorkerManifest {
+    return {
+      id,
+      machine: id,
+      runtime: "dsh",
+      workspaces: [{ id: workspace }],
+      capabilities: {
+        promptInjection: "system",
+        skills: "filesystem",
+        mcp: false,
+        permissions: "approval",
+        streaming: true,
+        steer: true,
+        fork: false,
+      },
+      models: ["deepseek-v4.1-flash"],
+      costClass: "mid",
+      load: { running: 0, quota },
+      health: { state: "online", lastHeartbeatAt: AT },
+    };
+  }
+
+  it("routes each assignment to a different worker and exposes both in the fleet view", async () => {
+    const harness = await startHarness({
+      tokens: [
+        { workerId: "worker-a", token: "secret-a" },
+        { workerId: "worker-b", token: "secret-b" },
+      ],
+    });
+    const runtime = harness.runtime;
+    const a = await attachWorker(harness, {
+      token: "secret-a",
+      mailbox: "mailbox:worker-a",
+      worker: manifest("worker-a", "/ws-a", 2),
+    });
+    const b = await attachWorker(harness, {
+      token: "secret-b",
+      mailbox: "mailbox:worker-b",
+      worker: manifest("worker-b", "/ws-b", 1),
+    });
+    await waitFor(() => runtime.workers().filter((worker) => worker.registered).length === 2);
+    expect(runtime.workers().map((worker) => [worker.id, worker.health])).toEqual([
+      ["worker-a", "online"],
+      ["worker-b", "online"],
+    ]);
+
+    const triggerFor = (id: string, workspace: string): Trigger => ({
+      id,
+      source: "local",
+      thread: "local",
+      actor: "local-user",
+      bot: false,
+      addressed: "mention",
+      text: `work in ${workspace}`,
+      at: AT,
+      meta: { scope: "local", workspace },
+    });
+
+    const first = runtime.service.submit(triggerFor("trigger-a", "/ws-a"));
+    const assignA = await receiveOne(a.link);
+    expect(assignA.envelope).toMatchObject({
+      type: "gethen.task.assign",
+      to: "mailbox:worker-a",
+    });
+    await a.link.ack([assignA.envelope.id]);
+    await a.link.send(resultEnvelope(assignA.envelope, { summary: "a done" }));
+    const firstSettled = await first;
+    expect(firstSettled.decision?.outcome).toBe("accept");
+
+    const second = runtime.service.submit(triggerFor("trigger-b", "/ws-b"));
+    const assignB = await receiveOne(b.link);
+    expect(assignB.envelope).toMatchObject({
+      type: "gethen.task.assign",
+      to: "mailbox:worker-b",
+    });
+    await b.link.ack([assignB.envelope.id]);
+    await b.link.send(resultEnvelope(assignB.envelope, { summary: "b done" }));
+    await second;
+
+    const receipts = runtime.service.store.listReceipts();
+    expect(receipts.map((receipt) => receipt.worker)).toEqual(["worker-a", "worker-b"]);
+    expect(runtime.service.store.assignments.list().map((item) => item.worker)).toEqual([
+      "worker-a",
+      "worker-b",
+    ]);
+    expect(
+      runtime.workers().map((worker) => ({
+        id: worker.id,
+        workspaces: worker.workspaces.map((workspace) => workspace.id),
+        quota: worker.load.quota,
+        running: worker.load.running,
+      })),
+    ).toEqual([
+      { id: "worker-a", workspaces: ["/ws-a"], quota: 2, running: 0 },
+      { id: "worker-b", workspaces: ["/ws-b"], quota: 1, running: 0 },
+    ]);
   });
 });

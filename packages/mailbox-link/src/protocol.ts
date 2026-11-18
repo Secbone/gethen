@@ -14,6 +14,7 @@
  */
 import { type Envelope, isRfc3339Timestamp, validateEnvelope } from "@gethen/mailbox";
 import type { TransportMessage, TransportPayload } from "@gethen/transport";
+import { parseWorkerManifest, type WorkerManifest } from "@gethen/worker-bridge";
 
 export const MAILBOX_LINK_VERSION = 1 as const;
 
@@ -80,6 +81,12 @@ export interface HelloPayload {
   protocol: number;
   /** Mailbox the client intends to subscribe to (informational). */
   mailbox?: string;
+  /**
+   * Optional Worker registration: workspace/model/capability/quota/health as
+   * the Worker declares them. The Master only uses this to select a Worker; it
+   * is not a remote permission grant.
+   */
+  worker?: WorkerManifest;
 }
 
 export interface HelloResult {
@@ -249,9 +256,16 @@ export function parseHelloPayload(value: unknown): ProtocolResult<HelloPayload> 
   }
   const mailbox = optionalStringField(object.value, "mailbox", "hello.mailbox");
   if (!mailbox.ok) return mailbox;
+  let worker: WorkerManifest | undefined;
+  if (object.value.worker !== undefined) {
+    const parsed = parseWorkerManifest(object.value.worker);
+    if (!parsed.ok) return fail("invalid_payload", `hello.worker: ${parsed.reason}`);
+    worker = parsed.value;
+  }
   return ok({
     protocol: MAILBOX_LINK_VERSION,
     ...(mailbox.value === undefined ? {} : { mailbox: mailbox.value }),
+    ...(worker === undefined ? {} : { worker }),
   });
 }
 

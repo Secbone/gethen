@@ -17,7 +17,8 @@
     "@gethen/mailbox-link": "workspace:*",
     "@gethen/master": "workspace:*",
     "@gethen/master-runtime": "workspace:*",
-    "@gethen/transport": "workspace:*"
+    "@gethen/transport": "workspace:*",
+    "@gethen/worker-bridge": "workspace:*"
   },
   "description": "Operations CLI: init, doctor, help, master serve (mailbox transport) and worker daemon",
   "scripts": {

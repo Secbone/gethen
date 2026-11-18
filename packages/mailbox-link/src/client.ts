@@ -22,6 +22,7 @@ import {
   validateEnvelope,
 } from "@gethen/mailbox";
 import type { TransportMessage, TransportSession, TransportSessionState } from "@gethen/transport";
+import type { WorkerManifest } from "@gethen/worker-bridge";
 import {
   createMailboxFrame,
   decodeMailboxFrame,
@@ -47,6 +48,8 @@ export const DEFAULT_LINK_RECEIVE_TIMEOUT_MS = 5_000;
 
 export interface MailboxClientLinkOptions {
   mailbox: string;
+  /** Worker registration reported in the mailbox `hello` (optional). */
+  worker?: WorkerManifest;
   /** Durable subscription name forwarded to the master link. */
   name?: string;
   batchSize?: number;
@@ -117,6 +120,7 @@ class MailboxClientLinkImpl implements MailboxClientLink {
   readonly mailbox: string;
 
   private readonly name: string | undefined;
+  private readonly worker: WorkerManifest | undefined;
   private readonly batchSize: number;
   private readonly visibilityTimeoutMs: number;
   private readonly requestTimeoutMs: number;
@@ -139,6 +143,7 @@ class MailboxClientLinkImpl implements MailboxClientLink {
     }
     this.mailbox = options.mailbox;
     this.name = options.name;
+    this.worker = options.worker;
     this.batchSize = positiveInteger(options.batchSize ?? DEFAULT_LINK_BATCH_SIZE, "batchSize");
     this.visibilityTimeoutMs = positiveNumber(
       options.visibilityTimeoutMs ?? DEFAULT_LINK_VISIBILITY_TIMEOUT_MS,
@@ -172,7 +177,15 @@ class MailboxClientLinkImpl implements MailboxClientLink {
     this.offs.push(session.onState((state) => this.handleSessionState(state)));
     try {
       const hello = parseOrThrow(
-        await this.call("hello", { protocol: 1, mailbox: this.mailbox }, this.requestTimeoutMs),
+        await this.call(
+          "hello",
+          {
+            protocol: 1,
+            mailbox: this.mailbox,
+            ...(this.worker === undefined ? {} : { worker: this.worker }),
+          },
+          this.requestTimeoutMs,
+        ),
         parseHelloResult,
       );
       void hello;

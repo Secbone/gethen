@@ -21,6 +21,7 @@ import {
   createMailboxFrame,
   type DeliverPayload,
   decodeMailboxFrame,
+  type HelloPayload,
   MAILBOX_LINK_VERSION,
   MailboxLinkError,
   type MailboxLinkErrorCode,
@@ -61,6 +62,11 @@ export interface MailboxServerLinkOptions {
   pollIntervalMs?: number;
   maxConcurrentRequests?: number;
   now?: () => Date;
+  /**
+   * Observer for an authenticated Worker's `hello` registration. The host
+   * validates that the reported worker id matches the transport identity.
+   */
+  onHello?: (hello: HelloPayload, session: TransportSession) => void;
   /** Transport/protocol problems; never thrown into the caller's stack. */
   onError?: (error: unknown) => void;
 }
@@ -184,6 +190,13 @@ export function createMailboxServerLink(options: MailboxServerLinkOptions): Mail
         if (!payload.ok) {
           sendError(frame.id, payload.code, payload.message);
           return;
+        }
+        if (options.onHello !== undefined) {
+          try {
+            options.onHello(payload.value, session);
+          } catch (error) {
+            reportError(error);
+          }
         }
         respond(frame.id, {
           protocol: MAILBOX_LINK_VERSION,

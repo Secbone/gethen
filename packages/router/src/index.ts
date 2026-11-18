@@ -1,3 +1,9 @@
+export type {
+  WorkerCapabilities,
+  WorkerHealth,
+  WorkerManifest,
+  WorkerWorkspace,
+} from "@gethen/worker-bridge";
 export {
   type AssignmentState,
   AssignmentTransitionError,
@@ -16,9 +22,13 @@ export {
   DEFAULT_WEIGHTS,
   type EvidenceCount,
   type EvidenceMap,
+  planTaskRoute,
   type RejectedWorker,
+  type RouteAction,
   type RouteDecision,
   type RouteOptions,
+  type RoutePlan,
+  type RoutePlanOptions,
   type RouteReason,
   type RouteResult,
   type RoutingWeights,

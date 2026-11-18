@@ -15,6 +15,7 @@ import {
   createEscalationHooks,
   createMasterRuntime,
   type MasterRuntime,
+  type RoutingOptions,
   type TaskEventQuery,
 } from "@gethen/master-runtime";
 import type { TokenRecord } from "@gethen/transport";
@@ -48,8 +49,12 @@ export interface ServeConfig {
   workspace?: string;
   /** Pack digest recorded for dispatches without one. */
   packDigest?: string;
-  /** The single worker served; defaults to the only configured token's id. */
+  /** Restrict dispatch to this Worker; defaults to every configured token. */
   workerId?: string;
+  /** Workers accepted from a dynamic token verifier (tokens are preferred). */
+  workers?: readonly string[];
+  /** Router pin, extra hard requirements and queue bounds. */
+  routing?: RoutingOptions;
   /** Mailbox sqlite file; defaults to `<db dir>/mailbox.sqlite`. */
   mailboxDbPath?: string;
   /** Full master mailbox name; defaults to `mailbox:master`. */
@@ -170,6 +175,8 @@ export async function startServe(config: ServeConfig = {}): Promise<ServeHandle>
       ? {}
       : { resolveEscalation: config.resolveEscalation }),
     ...(config.workerId === undefined ? {} : { workerId: config.workerId }),
+    ...(config.workers === undefined ? {} : { workers: config.workers }),
+    ...(config.routing === undefined ? {} : { routing: config.routing }),
     ...(config.mailboxDbPath === undefined ? {} : { mailboxDbPath: config.mailboxDbPath }),
     ...(config.masterMailbox === undefined ? {} : { masterMailbox: config.masterMailbox }),
     ...(config.mailboxPollIntervalMs === undefined
@@ -197,9 +204,14 @@ export async function startServe(config: ServeConfig = {}): Promise<ServeHandle>
             ok: true,
             uptimeMs: Date.now() - startedAt,
             ...runtime.health(),
+            workerDetails: runtime.workers(),
             needsAction: counts.needsAction,
             archived: counts.archived,
           });
+          return;
+        }
+        if (request.method === "GET" && pathname === "/gethen/workers") {
+          send(response, 200, { workers: runtime.workers(), launch: runtime.launch });
           return;
         }
         if (request.method === "GET" && pathname === "/gethen/overview") {

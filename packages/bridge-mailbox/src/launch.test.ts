@@ -726,6 +726,7 @@ describe("task state, status, steer and cancel", () => {
       lastMessage: "reading files",
       seq: 7,
       updatedAt: AT,
+      worker: "worker-a",
     });
     expect(bridge.taskStates()).toEqual({ "assignment-1": state });
     expect(updates).toHaveLength(1);
@@ -785,6 +786,7 @@ describe("task state, status, steer and cancel", () => {
       lastMessage: "all done",
       seq: 7,
       updatedAt: AT,
+      worker: "worker-a",
     });
     expect(updates.map((state) => state.phase)).toEqual(["thinking", "done"]);
   });
@@ -808,6 +810,7 @@ describe("task state, status, steer and cancel", () => {
       lastMessage: "boom",
       seq: 0,
       updatedAt: AT,
+      worker: "worker-a",
     });
   });
 
@@ -1778,8 +1781,49 @@ describe("mailbox launch constants", () => {
       "MAILBOX_STATUS_TIMEOUT",
       "MAILBOX_SEND_FAILED",
       "MAILBOX_UNKNOWN_ASSIGNMENT",
+      "MAILBOX_UNKNOWN_WORKER",
       "MAILBOX_NO_PARKED_ESCALATION",
       "MAILBOX_INVALID_RESOLUTION",
     ]);
+  });
+});
+
+describe("multi-worker dispatch", () => {
+  function requestFor(assignmentId: string, worker: string): LaunchRequest {
+    const request = launchRequest(assignmentId);
+    request.assignment = { ...request.assignment, worker };
+    return request;
+  }
+
+  it("routes assignments to the selected worker mailbox and receipts that worker", async () => {
+    const client = new FakeMailbox();
+    const bridge = makeBridge(client, { workerId: undefined, workers: ["worker-a", "worker-b"] });
+
+    const first = bridge.launchPort.launch(requestFor("assignment-a", "worker-a"));
+    const second = bridge.launchPort.launch(requestFor("assignment-b", "worker-b"));
+    const assigns = client.sent.filter((envelope) => envelope.type === "gethen.task.assign");
+    expect(assigns.map((envelope) => envelope.to)).toEqual([
+      "mailbox:worker-a",
+      "mailbox:worker-b",
+    ]);
+
+    bridge.handleEnvelope(resultEnvelope("assignment-a", { summary: "a done" }));
+    bridge.handleEnvelope(resultEnvelope("assignment-b", { summary: "b done" }));
+    expect((await first).receipt.worker).toBe("worker-a");
+    expect((await second).receipt.worker).toBe("worker-b");
+
+    await bridge.steer("assignment-b", "keep going");
+    expect(client.sent.at(-1)?.to).toBe("mailbox:worker-b");
+    await bridge.cancel("assignment-a", "stop");
+    expect(client.sent.at(-1)?.to).toBe("mailbox:worker-a");
+  });
+
+  it("rejects an assignment routed to a worker the bridge does not know", async () => {
+    const client = new FakeMailbox();
+    const bridge = makeBridge(client, { workerId: undefined, workers: ["worker-a", "worker-b"] });
+    await expect(
+      bridge.launchPort.launch(requestFor("assignment-x", "worker-z")),
+    ).rejects.toMatchObject({ code: "MAILBOX_UNKNOWN_WORKER" });
+    expect(client.sent).toEqual([]);
   });
 });

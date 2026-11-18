@@ -1,4 +1,9 @@
 export type { WorkerBridge } from "./bridge";
+export {
+  assertWorkerManifest,
+  parseWorkerManifest,
+  type WorkerManifestResult,
+} from "./manifest";
 export type {
   AssignmentId,
   AssignmentReceipt,

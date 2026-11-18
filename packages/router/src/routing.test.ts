@@ -1,6 +1,6 @@
 import type { WorkerManifest } from "@gethen/worker-bridge";
 import { describe, expect, it } from "vitest";
-import { routeWorkers } from "./routing";
+import { planTaskRoute, routeWorkers } from "./routing";
 
 const base: WorkerManifest = {
   id: "w1",
@@ -119,5 +119,60 @@ describe("routeWorkers scoring", () => {
     const result = routeWorkers([worker({ id: "a" }), worker({ id: "b" })], { kind: "k" });
     expect(result.candidates.map((candidate) => candidate.worker).sort()).toEqual(["a", "b"]);
     expect(result.rejected).toEqual([]);
+  });
+});
+
+describe("planTaskRoute", () => {
+  it("starts on the best eligible worker", () => {
+    const result = planTaskRoute([worker({ id: "far", workspaces: [{ id: "elsewhere" }] }), base], {
+      kind: "code-change",
+      workspace: "gethen",
+    });
+    expect(result.action).toBe("start");
+    expect(result.worker).toBe("w1");
+    expect(result.reason).toBe("start-free-capacity");
+  });
+
+  it("reuses the worker that already owns the session", () => {
+    const other = worker({ id: "other", workspaces: [{ id: "elsewhere" }] });
+    const result = planTaskRoute(
+      [other, worker({ id: "session-owner" })],
+      { kind: "code-change" },
+      {},
+      { reuseWorker: "session-owner" },
+    );
+    expect(result.action).toBe("reuse");
+    expect(result.worker).toBe("session-owner");
+    expect(result.reason).toBe("reuse-session-worker");
+  });
+
+  it("queues when every eligible worker is at capacity", () => {
+    const result = planTaskRoute(
+      [
+        worker({ id: "a", load: { running: 1, quota: 1 } }),
+        worker({ id: "b", load: { running: 2, quota: 2 } }),
+      ],
+      { kind: "code-change" },
+    );
+    expect(result).toMatchObject({ action: "queue", reason: "at-capacity" });
+  });
+
+  it("parks on policy or availability mismatches", () => {
+    expect(planTaskRoute([], { kind: "k" }).action).toBe("park");
+    expect(planTaskRoute([], { kind: "k" }).reason).toBe("no-workers");
+    expect(planTaskRoute([base], { kind: "k", workspace: "other" }).reason).toBe(
+      "workspace-missing:other",
+    );
+    expect(
+      planTaskRoute(
+        [
+          worker({
+            id: "off",
+            health: { state: "offline", lastHeartbeatAt: base.health.lastHeartbeatAt },
+          }),
+        ],
+        { kind: "k" },
+      ),
+    ).toMatchObject({ action: "park", reason: "offline" });
   });
 });

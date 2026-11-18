@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { normalizeMasterUrl, parseWorkerConfig } from "./commands/worker";
+import { normalizeMasterUrl, parseWorkerConfig, workerManifest } from "./commands/worker";
 
 describe("gethen worker config", () => {
   it("builds config from simple flags and normalizes a bare master origin", () => {
@@ -231,5 +231,73 @@ describe("gethen worker config", () => {
     ];
     expect(parseWorkerConfig([...base, "--isolation", "process"]).isolation).toBe("process");
     expect(() => parseWorkerConfig([...base, "--isolation", "namespace"])).toThrow(/isolation/);
+  });
+});
+
+describe("worker hello registration", () => {
+  const base = [
+    "--master-url",
+    "wss://m.example/gethen/worker",
+    "--token",
+    "t",
+    "--worker-id",
+    "worker-1",
+    "--provider",
+    "p",
+    "--model",
+    "deepseek-v4.1-flash",
+    "--workspace",
+    "/srv/projects",
+    "--quota",
+    "2",
+  ];
+
+  it("reports workspaces, model, quota, health and capability hints", () => {
+    const config = parseWorkerConfig(
+      [
+        ...base,
+        "--machine",
+        "build-1",
+        "--cost-class",
+        "low",
+        "--workspace-map",
+        '{"\\/srv\\/projects":"\\/home\\/me\\/projects"}',
+      ],
+      { cwd: "/tmp" },
+    );
+    const manifest = workerManifest(config, "2026-11-18T00:00:00.000Z");
+    expect(manifest).toMatchObject({
+      id: "worker-1",
+      machine: "build-1",
+      runtime: "dsh",
+      models: ["deepseek-v4.1-flash"],
+      costClass: "low",
+      load: { running: 0, quota: 2 },
+      health: { state: "online", lastHeartbeatAt: "2026-11-18T00:00:00.000Z" },
+      capabilities: { permissions: "approval", steer: true, fork: false },
+    });
+    expect(manifest.workspaces).toEqual([{ id: "/srv/projects" }]);
+  });
+
+  it("rejects unknown cost classes and capability values at startup", () => {
+    expect(() => parseWorkerConfig([...base, "--cost-class", "free"])).toThrow(/costClass/);
+    const dir = mkdtempSync(join(tmpdir(), "gethen-worker-"));
+    const path = join(dir, "worker.json");
+    writeFileSync(
+      path,
+      JSON.stringify({
+        masterUrl: "wss://m.example/gethen/worker",
+        token: "t",
+        workerId: "w",
+        provider: "p",
+        model: "m",
+        capabilities: { permissions: "root" },
+      }),
+    );
+    try {
+      expect(() => parseWorkerConfig(["--config", path])).toThrow(/permissions/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

@@ -18,7 +18,8 @@
     "@gethen/bridge-mailbox": "workspace:*",
     "@gethen/mailbox": "workspace:*",
     "@gethen/mailbox-link": "workspace:*",
-    "@gethen/transport": "workspace:*"
+    "@gethen/transport": "workspace:*",
+    "@gethen/worker-bridge": "workspace:*"
   },
   "description": "Control-plane assembly shared by `gethen serve` and the DSH plugin: MasterService + L1 ws transport + L2 sqlite mailbox + mailbox-link + bridge-mailbox launch"
 }
