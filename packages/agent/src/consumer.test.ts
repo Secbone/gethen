@@ -440,6 +440,66 @@ describe("MailboxAgent failures and limits", () => {
     expect(agent.active).toBe(0);
   });
 
+  it("returns the retained report on status while result delivery still fails", async () => {
+    const { agent, mailbox, harness } = setup({ retryDelayMs: 60_000 });
+    mailbox.enqueue(MAILBOX, assignEnvelope());
+    await agent.runOnce();
+
+    // Emit the report, then make its result envelope undeliverable. The entry
+    // stays settled but present; a status probe must still see the report.
+    mailbox.failSendTimes = 1;
+    harness.report(0, { kind: "ready", summary: "kept for status" });
+    await tick();
+    expect(mailbox.sentByType(MESSAGE_TYPES.result)).toHaveLength(0);
+    expect(agent.active).toBe(1);
+
+    mailbox.failSendTimes = 1;
+    mailbox.enqueue(
+      MAILBOX,
+      newEnvelope({
+        id: "env-status-lost",
+        source: "master:router",
+        type: MESSAGE_TYPES.status,
+        to: MAILBOX,
+        time: AT,
+        data: { assignmentId: "a1" },
+        correlationId: "a1",
+        replyTo: "mailbox:master",
+      }),
+    );
+    await agent.runOnce();
+
+    const reply = mailbox.lastSent(MESSAGE_TYPES.statusResult);
+    expect(reply?.data).toMatchObject({
+      assignmentId: "a1",
+      state: { assignmentId: "a1", phase: "done", lastMessage: "kept for status" },
+      report: { assignmentId: "a1", kind: "ready", summary: "kept for status" },
+    });
+    expect(agent.active).toBe(0);
+
+    mailbox.failSendTimes = 0;
+    await agent.flush();
+  });
+
+  it("retries a failed result send without another inbound message", async () => {
+    const { agent, mailbox, harness } = setup({
+      retryDelayMs: 10,
+      pollIntervalMs: 10_000,
+    });
+    agent.start();
+    mailbox.enqueue(MAILBOX, assignEnvelope());
+    await agent.runOnce();
+
+    mailbox.failSendTimes = 1;
+    harness.report(0, { kind: "ready", summary: "retried" });
+    await tick();
+    expect(mailbox.sentByType(MESSAGE_TYPES.result)).toHaveLength(0);
+
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(mailbox.sentByType(MESSAGE_TYPES.result)).toHaveLength(1);
+    expect(mailbox.ackIds()).toContain("env-assign-1");
+  });
+
   it("throttles progress events when configured", async () => {
     let clock = new Date(AT);
     const { agent, mailbox, harness } = setup({

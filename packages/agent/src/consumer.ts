@@ -540,6 +540,7 @@ class MailboxAgentImpl implements MailboxAgent {
   private stopping = false;
   private stoppingPromise: Promise<void> | undefined;
   private flushing: Promise<number> | undefined;
+  private outboxRetryTimer: NodeJS.Timeout | undefined;
   private ticking = false;
 
   constructor(options: MailboxAgentOptions) {
@@ -591,6 +592,10 @@ class MailboxAgentImpl implements MailboxAgent {
     }
     this.unsubscribe?.();
     this.unsubscribe = undefined;
+    if (this.outboxRetryTimer !== undefined) {
+      clearTimeout(this.outboxRetryTimer);
+      this.outboxRetryTimer = undefined;
+    }
     this.stoppingPromise = this.drainAndCancel();
     return this.stoppingPromise;
   }
@@ -650,6 +655,10 @@ class MailboxAgentImpl implements MailboxAgent {
       } catch (error) {
         this.reportError(error, { phase: "outgoing" });
         item.onFailed?.(error);
+        // Push-mode links have no polling tick to retry for us: schedule a
+        // bounded retry so a transient send failure cannot strand the result
+        // envelope until an unrelated message arrives.
+        this.scheduleOutboxRetry();
         return delivered;
       }
       this.outbox.shift();
@@ -657,6 +666,16 @@ class MailboxAgentImpl implements MailboxAgent {
       await item.onDelivered?.();
     }
     return delivered;
+  }
+
+  private scheduleOutboxRetry(): void {
+    if (this.stopping || this.outboxRetryTimer !== undefined) return;
+    const timer = setTimeout(() => {
+      this.outboxRetryTimer = undefined;
+      void this.flush();
+    }, this.retryDelayMs);
+    timer.unref?.();
+    this.outboxRetryTimer = timer;
   }
 
   // ------------------------------------------------------------- intake
@@ -895,16 +914,17 @@ class MailboxAgentImpl implements MailboxAgent {
     try {
       const data = asRecord(envelope.data) ?? {};
       const requestedId = stringValue(data.assignmentId) ?? stringValue(envelope.subject);
-      const entry = this.findExecution(requestedId, envelope.correlationId);
-      const assignmentId = entry?.task.assignmentId ?? requestedId ?? "";
+      const found = this.findExecution(requestedId, envelope.correlationId);
+      // A settled entry can still be present until its result envelope is
+      // delivered/acked. It must not hide the retained report: that is exactly
+      // the state a status probe sees when the result envelope was lost.
+      const entry = found !== undefined && !found.settled ? found : undefined;
+      const assignmentId = found?.task.assignmentId ?? requestedId ?? "";
       const at = this.now().toISOString();
       // A finished assignment keeps its report for a dedupe window: answer a
       // status probe with it so the Master can recover a result envelope that
       // was lost instead of failing the launch as a silence timeout.
-      const finished =
-        entry === undefined && requestedId !== undefined
-          ? this.completedResult(requestedId)
-          : undefined;
+      const finished = requestedId === undefined ? undefined : this.completedResult(requestedId);
       const state =
         entry !== undefined
           ? this.snapshotState(entry)
@@ -939,6 +959,13 @@ class MailboxAgentImpl implements MailboxAgent {
         } satisfies TaskStatusResultPayload,
       });
       await this.mailbox.send(reply);
+      // A settled entry whose result envelope is still undelivered must not
+      // keep consuming Worker quota after the Master has the report from this
+      // status reply. The outbox may still deliver the original envelope (the
+      // Master treats it as a late duplicate), but capacity is released now.
+      if (found?.settled && finished !== undefined) {
+        this.completeEntry(found);
+      }
       await this.ack(envelope.id);
     } catch (error) {
       this.reportError(error, { phase: "status", envelope });

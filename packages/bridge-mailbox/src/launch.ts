@@ -375,6 +375,8 @@ export interface BridgeSettlementMetrics {
   directCompleted: number;
   /** Reports recovered by probing the Worker after the envelope was lost. */
   recoveredCompleted: number;
+  /** Recovered settlements where the Worker had no report content left. */
+  recoveredWithoutReport: number;
 }
 
 export interface MailboxLaunchBridge {
@@ -547,6 +549,7 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
   const settlementCounts: BridgeSettlementMetrics = {
     directCompleted: 0,
     recoveredCompleted: 0,
+    recoveredWithoutReport: 0,
   };
   const batchSize = options.batchSize ?? DEFAULT_BATCH_SIZE;
   const maxTaskEvents = positiveInteger(
@@ -743,6 +746,7 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
           at: nowIso(),
         },
         "recovered",
+        parsed !== undefined,
       );
       return;
     }
@@ -844,7 +848,7 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
       at: nowIso(),
     };
     if (!recoveryCandidateConfirmed(pending, report)) return;
-    settleReport(pending, report, "recovered");
+    settleReport(pending, report, "recovered", parsed !== undefined);
   }
 
   /**
@@ -1092,9 +1096,13 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
     pending: PendingLaunch,
     report: Report,
     source: "direct" | "recovered" = "direct",
+    hasReport = true,
   ): void {
     if (source === "direct") settlementCounts.directCompleted += 1;
-    else settlementCounts.recoveredCompleted += 1;
+    else {
+      settlementCounts.recoveredCompleted += 1;
+      if (!hasReport) settlementCounts.recoveredWithoutReport += 1;
+    }
     pending.lastActivityAt = Math.max(pending.lastActivityAt, Date.parse(report.at) || 0);
     appendTaskEvent(pending.request.assignment.id, {
       type: "gethen.result",

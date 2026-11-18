@@ -550,7 +550,7 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
         escalations: 0,
         mailbox: { pending: 0, leased: 0, dead: 0 },
         scheduling: emptySchedulingMetrics(),
-        settlements: { directCompleted: 0, recoveredCompleted: 0 },
+        settlements: { directCompleted: 0, recoveredCompleted: 0, recoveredWithoutReport: 0 },
       };
     }
     const tickets = service.store.tickets.list();
@@ -566,6 +566,7 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
       settlements: mailboxBridge?.settlementMetrics() ?? {
         directCompleted: 0,
         recoveredCompleted: 0,
+        recoveredWithoutReport: 0,
       },
     };
   }
@@ -611,7 +612,11 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
     workers: () => directory.snapshots(),
     scheduling: () => (routedPort ?? { metrics: emptySchedulingMetrics }).metrics(),
     settlements: () =>
-      mailboxBridge?.settlementMetrics() ?? { directCompleted: 0, recoveredCompleted: 0 },
+      mailboxBridge?.settlementMetrics() ?? {
+        directCompleted: 0,
+        recoveredCompleted: 0,
+        recoveredWithoutReport: 0,
+      },
     ...(options.now === undefined ? {} : { now: options.now }),
   });
   // Archive/close stale Tickets even when no operator or agent is polling.
@@ -656,7 +661,11 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
     workers: () => directory.snapshots(),
     scheduling: () => (routedPort ?? { metrics: emptySchedulingMetrics }).metrics(),
     settlements: () =>
-      mailboxBridge?.settlementMetrics() ?? { directCompleted: 0, recoveredCompleted: 0 },
+      mailboxBridge?.settlementMetrics() ?? {
+        directCompleted: 0,
+        recoveredCompleted: 0,
+        recoveredWithoutReport: 0,
+      },
     health,
     close,
   };

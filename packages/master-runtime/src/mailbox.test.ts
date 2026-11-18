@@ -299,7 +299,7 @@ describe("createMasterRuntime mailbox stack", () => {
         maxQueueDepth: 0,
         parked: 0,
       },
-      settlements: { directCompleted: 0, recoveredCompleted: 0 },
+      settlements: { directCompleted: 0, recoveredCompleted: 0, recoveredWithoutReport: 0 },
     });
     expect(runtime.bridge?.workerMailbox).toBe(WORKER_MAILBOX);
     expect(runtime.bridge?.masterMailbox).toBe(MASTER_MAILBOX);
@@ -367,6 +367,7 @@ describe("createMasterRuntime mailbox stack", () => {
     expect(runtime.health().settlements).toEqual({
       directCompleted: 1,
       recoveredCompleted: 0,
+      recoveredWithoutReport: 0,
     });
   });
 
@@ -389,6 +390,7 @@ describe("createMasterRuntime mailbox stack", () => {
     expect(runtime.health().settlements).toEqual({
       directCompleted: 0,
       recoveredCompleted: 1,
+      recoveredWithoutReport: 0,
     });
   });
 
@@ -552,6 +554,45 @@ describe("createMasterRuntime mailbox stack", () => {
     await expect(link.receive({ limit: 1, timeoutMs: 100 })).resolves.toEqual([]);
   });
 
+  it("counts a recovery that had no report content", async () => {
+    const harness = await startHarness({ reconcileIntervalMs: 1_000, recoveryGraceMs: 0 });
+    const runtime = harness.runtime;
+    const { link } = await attachWorker(harness);
+
+    const resultPromise = runtime.bridge?.launchPort.launch(launchRequest());
+    if (resultPromise === undefined) throw new Error("expected a mailbox bridge");
+    const assign = await receiveOne(link);
+    await link.ack([assign.envelope.id]);
+    const status = await receiveOne(link, 4_000);
+    expect(status.envelope.type).toBe("gethen.task.status");
+    await link.ack([status.envelope.id]);
+    const data = status.envelope.data as Record<string, unknown>;
+    const assignmentId = String(data.assignmentId);
+    await link.send(
+      newEnvelope({
+        source: `agent:${WORKER}`,
+        type: "gethen.task.status.result",
+        subject: assignmentId,
+        time: AT,
+        data: {
+          assignmentId,
+          // Finished, but without a retained report or message.
+          state: { assignmentId, phase: "done", step: 1, seq: 1, lastEventAt: AT },
+        },
+        correlationId: status.envelope.id,
+        to: status.envelope.replyTo ?? MASTER_MAILBOX,
+      }),
+    );
+
+    const result = await resultPromise;
+    expect(result.report.summary).toBe("worker finished without a delivered result");
+    expect(runtime.health().settlements).toEqual({
+      directCompleted: 0,
+      recoveredCompleted: 1,
+      recoveredWithoutReport: 1,
+    });
+  });
+
   it("answers a parked escalation and applies the resumed result to the ticket", async () => {
     const harness = await startHarness();
     const runtime = harness.runtime;
@@ -615,6 +656,7 @@ describe("createMasterRuntime mailbox stack", () => {
     expect(runtime.health().settlements).toEqual({
       directCompleted: 1,
       recoveredCompleted: 0,
+      recoveredWithoutReport: 0,
     });
   });
 
@@ -774,7 +816,7 @@ describe("createMasterRuntime mailbox stack", () => {
         maxQueueDepth: 0,
         parked: 0,
       },
-      settlements: { directCompleted: 0, recoveredCompleted: 0 },
+      settlements: { directCompleted: 0, recoveredCompleted: 0, recoveredWithoutReport: 0 },
     });
     await expect(runtime.close()).resolves.toBeUndefined();
 

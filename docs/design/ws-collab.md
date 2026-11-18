@@ -64,8 +64,13 @@ result envelope 永远优先，receipt 不应带 `(recovered from worker status)
 |---|---|
 | `directCompleted` | Worker 通过 `gethen.task.result` envelope 直接结算的次数 |
 | `recoveredCompleted` | 15s 对账/10min silence 探测从 Worker status 恢复 report 的次数 |
+| `recoveredWithoutReport` | 恢复时 Worker 已无 report 内容、只能落占位 summary 的次数（退化告警） |
 
-计数是 Master 进程内值，重启归零；receipt 仍是持久记录。恢复候选以
+计数是 Master 进程内值，重启归零；receipt 仍是持久记录。
+
+Worker 在 report 生成时先写入 status 可读的 retained cache，再排队发送 result
+envelope；outbox 只有收到投递/ack 后才清理，push 模式发送失败会按 `retryDelayMs`
+自动重试，不依赖下一条入站消息。恢复候选以
 `kind + summary` 作为稳定身份：Worker 保留的 report 不变时，跨两个宽限窗口后
 恢复；如果 summary 每次探测都变化，说明 Worker 状态本身不稳定，bridge 会继续等待
 而不是用不一致的数据结算。需要更快恢复时可把 `reconcileIntervalMs` 调到 5s、

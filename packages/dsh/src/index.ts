@@ -327,7 +327,7 @@ function registerTools(ctx: DshContext, deps: ToolDeps): void {
               directCompleted: { type: "number" },
               recoveredCompleted: { type: "number" },
             },
-            required: ["directCompleted", "recoveredCompleted"],
+            required: ["directCompleted", "recoveredCompleted", "recoveredWithoutReport"],
           },
           scheduling: {
             type: "object",
@@ -400,7 +400,11 @@ function registerTools(ctx: DshContext, deps: ToolDeps): void {
         escalations: status.counts.escalations,
         launch: deps.launch(),
         workers: deps.workers(),
-        settlements: deps.settlements?.() ?? { directCompleted: 0, recoveredCompleted: 0 },
+        settlements: deps.settlements?.() ?? {
+          directCompleted: 0,
+          recoveredCompleted: 0,
+          recoveredWithoutReport: 0,
+        },
         scheduling: deps.scheduling?.() ?? {
           queued: 0,
           running: 0,
