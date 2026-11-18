@@ -1137,8 +1137,10 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
   }
 
   function handleProgress(pending: PendingLaunch, data: Record<string, unknown> | undefined): void {
-    // New activity invalidates any status-recovery candidate seen earlier.
-    pending.recoveryCandidate = undefined;
+    // Do not clear a status-recovery candidate here: heartbeat progress can
+    // arrive after the Worker already finished, and clearing on every beat
+    // would prevent a lost result from ever being recovered. A genuinely new
+    // report changes kind/summary and replaces the candidate naturally.
     // A parked launch must not be killed by the silence timer: the Worker is
     // blocked on a person, and late progress after the answer must not re-arm.
     if (!pending.launchSettled) {

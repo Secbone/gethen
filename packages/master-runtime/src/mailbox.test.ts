@@ -855,6 +855,178 @@ describe("multi-worker routing", () => {
     };
   }
 
+  it("recovers a routed assignment from a status probe after its result is lost", async () => {
+    const harness = await startHarness({
+      tokens: [
+        { workerId: "worker-a", token: "secret-a" },
+        { workerId: "worker-b", token: "secret-b" },
+      ],
+      reconcileIntervalMs: 1_000,
+      recoveryGraceMs: 500,
+    });
+    const runtime = harness.runtime;
+    const a = await attachWorker(harness, {
+      token: "secret-a",
+      mailbox: "mailbox:worker-a",
+      worker: manifest("worker-a", "/ws-a", 1),
+    });
+    await attachWorker(harness, {
+      token: "secret-b",
+      mailbox: "mailbox:worker-b",
+      worker: manifest("worker-b", "/ws-b", 1),
+    });
+    await waitFor(() => runtime.workers().filter((worker) => worker.registered).length === 2);
+
+    const trigger: Trigger = {
+      id: "trigger-routed-recovery",
+      source: "local",
+      thread: "local",
+      actor: "local-user",
+      bot: false,
+      addressed: "mention",
+      text: "recover me",
+      at: AT,
+      meta: { scope: "local", workspace: "/ws-a" },
+    };
+    const submitted = runtime.service.submit(trigger);
+    const assign = await receiveOne(a.link);
+    const assignmentId = assignmentIdOf(assign.envelope);
+    await a.link.ack([assign.envelope.id]);
+
+    // Do not send a result envelope: only the routed port's status probe can
+    // settle this assignment. The probe still goes through the shared bridge.
+    // Two successful probes are needed with the grace window; a stale progress
+    // heartbeat after the first must not discard the candidate.
+    let statusId = "";
+    for (let probe = 0; probe < 2; probe += 1) {
+      const status = await receiveOne(a.link, 4_000);
+      expect(status.envelope.type).toBe("gethen.task.status");
+      await a.link.ack([status.envelope.id]);
+      const data = status.envelope.data as Record<string, unknown>;
+      statusId = String(data.assignmentId);
+      await a.link.send(
+        newEnvelope({
+          source: "agent:worker-a",
+          type: "gethen.task.status.result",
+          subject: statusId,
+          time: AT,
+          data: {
+            assignmentId: statusId,
+            state: { assignmentId: statusId, phase: "done", step: 1, seq: 1, lastEventAt: AT },
+            report: { assignmentId: statusId, kind: "ready", summary: "routed status done" },
+          },
+          correlationId: status.envelope.id,
+          to: MASTER_MAILBOX,
+        }),
+      );
+      if (probe === 0) {
+        await a.link.send(
+          newEnvelope({
+            source: "agent:worker-a",
+            type: "gethen.task.progress",
+            subject: statusId,
+            time: AT,
+            data: {
+              assignmentId: statusId,
+              seq: 1,
+              state: { assignmentId: statusId, phase: "done", step: 1, seq: 1, lastEventAt: AT },
+            },
+            correlationId: assign.envelope.id,
+            to: MASTER_MAILBOX,
+          }),
+        );
+      }
+    }
+
+    await submitted;
+    const ticketId = runtime.service.store.tickets.list().at(-1)?.id;
+    if (ticketId === undefined) throw new Error("expected a ticket");
+    await waitFor(
+      () => runtime.service.store.tickets.get(ticketId)?.latestReport === "ready",
+      2_500,
+    );
+    const receipt = runtime.service.store.listReceipts().at(-1);
+    expect(receipt).toMatchObject({
+      assignment: assignmentId,
+      outcome: "completed",
+      summary: "routed status done (recovered from worker status)",
+    });
+    expect(runtime.service.store.assignments.get(assignmentId)?.state).toBe("ended");
+    expect(runtime.health().settlements).toEqual({
+      directCompleted: 0,
+      recoveredCompleted: 1,
+      recoveredWithoutReport: 0,
+    });
+  });
+
+  it("recovers a routed assignment through the silence-timeout probe", async () => {
+    const harness = await startHarness({
+      tokens: [
+        { workerId: "worker-a", token: "secret-a" },
+        { workerId: "worker-b", token: "secret-b" },
+      ],
+      launchTimeoutMs: 200,
+      reconcileIntervalMs: 0,
+    });
+    const runtime = harness.runtime;
+    const a = await attachWorker(harness, {
+      token: "secret-a",
+      mailbox: "mailbox:worker-a",
+      worker: manifest("worker-a", "/ws-a", 1),
+    });
+    await attachWorker(harness, {
+      token: "secret-b",
+      mailbox: "mailbox:worker-b",
+      worker: manifest("worker-b", "/ws-b", 1),
+    });
+    await waitFor(() => runtime.workers().filter((worker) => worker.registered).length === 2);
+
+    const submitted = runtime.service.submit({
+      id: "trigger-routed-silence",
+      source: "local",
+      thread: "local",
+      actor: "local-user",
+      bot: false,
+      addressed: "mention",
+      text: "silent routed recovery",
+      at: AT,
+      meta: { scope: "local", workspace: "/ws-a" },
+    });
+    const assign = await receiveOne(a.link);
+    const assignmentId = assignmentIdOf(assign.envelope);
+    await a.link.ack([assign.envelope.id]);
+
+    const status = await receiveOne(a.link, 3_000);
+    expect(status.envelope.type).toBe("gethen.task.status");
+    await a.link.ack([status.envelope.id]);
+    const data = status.envelope.data as Record<string, unknown>;
+    const statusId = String(data.assignmentId);
+    await a.link.send(
+      newEnvelope({
+        source: "agent:worker-a",
+        type: "gethen.task.status.result",
+        subject: statusId,
+        time: AT,
+        data: {
+          assignmentId: statusId,
+          state: { assignmentId: statusId, phase: "done", step: 1, seq: 1, lastEventAt: AT },
+          report: { assignmentId: statusId, kind: "ready", summary: "silent routed done" },
+        },
+        correlationId: status.envelope.id,
+        to: MASTER_MAILBOX,
+      }),
+    );
+
+    const launch = await submitted;
+    expect(launch.decision?.outcome).toBe("accept");
+    const receipt = runtime.service.store.listReceipts().at(-1);
+    expect(receipt).toMatchObject({
+      assignment: assignmentId,
+      outcome: "completed",
+      summary: "silent routed done (recovered from worker status)",
+    });
+  });
+
   it("routes each assignment to a different worker and exposes both in the fleet view", async () => {
     const harness = await startHarness({
       tokens: [

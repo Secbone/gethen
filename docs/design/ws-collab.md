@@ -74,4 +74,6 @@ envelope；outbox 只有收到投递/ack 后才清理，push 模式发送失败�
 `kind + summary` 作为稳定身份：Worker 保留的 report 不变时，跨两个宽限窗口后
 恢复；如果 summary 每次探测都变化，说明 Worker 状态本身不稳定，bridge 会继续等待
 而不是用不一致的数据结算。需要更快恢复时可把 `reconcileIntervalMs` 调到 5s、
-`recoveryGraceMs` 调到 2s。
+`recoveryGraceMs` 调到 2s。心跳 progress 不会清掉恢复候选（完成的 Worker 仍可能发
+stale heartbeat），因此丢失 result envelope 的 routed assignment 会在下一个对账窗口
+由 status.result 结算；silence-timeout 探测走同一条 parse/settle 路径。
