@@ -279,7 +279,7 @@ export function createRoutedLaunchPort(options: RoutedLaunchPortOptions): Launch
   const { directory } = options;
   const now = options.now ?? (() => new Date());
   const routing = options.routing ?? {};
-  const queueTimeoutMs = positive(routing.queueTimeoutMs, 30_000);
+  const queueTimeoutMs = positive(routing.queueTimeoutMs, 300_000);
   const queuePollMs = positive(routing.queuePollMs, 100);
 
   function requirementFor(request: LaunchRequest): TaskRequirement {

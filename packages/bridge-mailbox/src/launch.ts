@@ -335,6 +335,8 @@ export interface MailboxLaunchOptions {
   onError?: (error: unknown, envelope: Envelope) => void;
   /** Per-launch timeout; defaults to {@link DEFAULT_MAILBOX_LAUNCH_TIMEOUT_MS}. */
   timeoutMs?: number;
+  /** Periodic status reconciliation interval; defaults to 15s, 0 disables. */
+  reconcileIntervalMs?: number;
   /**
    * JSON file that persists unresolved/parked launches across a Master restart.
    * Restored entries keep their parked escalation answerable and deliver a late
@@ -696,14 +698,18 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
     }
     const activityAt = latestActivityAt(pending, state);
     if (state !== undefined && (state.phase === "done" || state.phase === "failed")) {
-      settleReport(pending, {
-        kind: state.phase === "failed" ? "failed" : "ready",
-        summary:
-          state.lastMessage !== undefined && state.lastMessage.length > 0
-            ? `${state.lastMessage} (recovered from worker state)`
-            : "worker finished without a delivered result",
-        at: nowIso(),
-      });
+      const parsed = reportFromMessage(state.lastMessage);
+      settleReport(
+        pending,
+        parsed ?? {
+          kind: state.phase === "failed" ? "failed" : "ready",
+          summary:
+            state.lastMessage !== undefined && state.lastMessage.length > 0
+              ? `${state.lastMessage} (recovered from worker state)`
+              : "worker finished without a delivered result",
+          at: nowIso(),
+        },
+      );
       return;
     }
     const sinceActivity = Date.now() - activityAt;
@@ -750,6 +756,59 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
       return undefined;
     }
   }
+  /** Extract a structured report from a raw assistant message, if present. */
+  function reportFromMessage(text: string | undefined): Report | undefined {
+    if (text === undefined) return undefined;
+    const start = text.indexOf("[GETHEN-REPORT]");
+    const end = text.indexOf("[/GETHEN-REPORT]");
+    if (start < 0 || end < 0 || end < start) return undefined;
+    const raw = text.slice(start + "[GETHEN-REPORT]".length, end).trim();
+    try {
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      const kind = parsed.kind === "failed" || parsed.status === "failed" ? "failed" : "ready";
+      const summary =
+        typeof parsed.summary === "string" && parsed.summary.length > 0
+          ? parsed.summary
+          : raw.slice(0, 500);
+      return { kind, summary, at: typeof parsed.at === "string" ? parsed.at : nowIso() };
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Periodic reconciliation: a Worker may finish while its result envelope is
+   * lost (mailbox lease, restart, a report left inline in the transcript). Poll
+   * the Worker's retained state so the launch settles in seconds instead of
+   * waiting for the silence timeout.
+   */
+  async function reconcilePending(pending: PendingLaunch): Promise<void> {
+    if (closed || pending.settled || pending.launchSettled) return;
+    const probe = await probeStatusQuietly(pending);
+    if (closed || pending.settled || pending.launchSettled) return;
+    if (probe?.report !== undefined) {
+      settleReport(pending, {
+        ...probe.report,
+        summary: `${probe.report.summary} (recovered from worker status)`,
+      });
+      return;
+    }
+    const state = probe?.state ?? states.get(pending.request.assignment.id);
+    if (state === undefined || (state.phase !== "done" && state.phase !== "failed")) return;
+    const parsed = reportFromMessage(state.lastMessage);
+    settleReport(
+      pending,
+      parsed ?? {
+        kind: state.phase === "failed" ? "failed" : "ready",
+        summary:
+          state.lastMessage !== undefined && state.lastMessage.length > 0
+            ? state.lastMessage
+            : "worker finished without a delivered result",
+        at: nowIso(),
+      },
+    );
+  }
+
   /** Live/recent assignment states, keyed by assignment id (retained after result). */
   const states = new Map<string, TaskState>();
   /** In-flight `gethen.task.status` requests, keyed by request envelope id. */
@@ -763,6 +822,7 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
     "maxSessionListTimeoutMs",
   );
   let timer: ReturnType<typeof setInterval> | undefined;
+  let reconcileTimer: ReturnType<typeof setInterval> | undefined;
   let closed = false;
 
   function notify(callback: (() => void) | undefined): void {
@@ -1263,6 +1323,15 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
       pollOnce();
     }, pollIntervalMs);
     timer.unref();
+    const reconcileMs = options.reconcileIntervalMs ?? 15_000;
+    if (reconcileMs > 0) {
+      reconcileTimer = setInterval(() => {
+        for (const pending of [...pendingByAssignment.values()]) {
+          void reconcilePending(pending);
+        }
+      }, Math.max(1000, reconcileMs));
+      reconcileTimer.unref();
+    }
   }
 
   function close(): void {
@@ -1273,6 +1342,10 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
     if (timer !== undefined) {
       clearInterval(timer);
       timer = undefined;
+    }
+    if (reconcileTimer !== undefined) {
+      clearInterval(reconcileTimer);
+      reconcileTimer = undefined;
     }
     for (const pending of [...pendingByAssignment.values()]) {
       if (pending.launchSettled) {
