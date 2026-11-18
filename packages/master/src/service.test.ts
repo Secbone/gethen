@@ -56,6 +56,55 @@ function fakeLaunch(report: Report, fail = false): LaunchPort {
 }
 
 describe("MasterService", () => {
+  it("returns from dispatch-only submit while a long launch is still in flight", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "gethen-master-service-"));
+    let release: (() => void) | undefined;
+    const blocked: LaunchPort = {
+      launch() {
+        return new Promise((resolve) => {
+          release = () =>
+            resolve({
+              report: { kind: "ready", summary: "late", at: "2026-11-16T00:10:00.000Z" },
+              receipt: {
+                assignment: "assignment",
+                ticket: "ticket",
+                worker: "",
+                workspace: "/ws",
+                packDigest: "p",
+                at: "2026-11-16T00:10:00.000Z",
+                outcome: "completed",
+                summary: "late",
+                events: 0,
+              },
+            });
+        });
+      },
+    };
+    const service = new MasterService({
+      dbPath: join(dir, "master.sqlite"),
+      policy,
+      launch: blocked,
+      clock: clock(),
+    });
+    service.start();
+    try {
+      const started = Date.now();
+      const result = await service.submit(trigger, { awaitEffects: false });
+      // The dispatch-and-poll contract: submit must not wait for the Worker.
+      expect(Date.now() - started).toBeLessThan(1_000);
+      expect(result.decision?.outcome).toBe("accept");
+      const ticket = service.store.tickets.list().at(-1);
+      if (ticket === undefined) throw new Error("missing ticket");
+      const settlement = await service.waitForTicket(ticket.id, { timeoutMs: 20 });
+      expect(settlement.settled).toBe(false);
+      release?.();
+      const settled = await service.waitForTicket(ticket.id, { timeoutMs: 1_000 });
+      expect(settled.settled).toBe(true);
+    } finally {
+      service.stop();
+    }
+  });
+
   it("runs a trigger through eval, launch and receipt, then persists across restart", async () => {
     const dir = mkdtempSync(join(tmpdir(), "gethen-master-service-"));
     const dbPath = join(dir, "master.sqlite");

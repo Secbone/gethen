@@ -31,6 +31,17 @@ export interface SubmitResult {
   decision?: ReturnType<Engine["decide"]>;
 }
 
+export interface SubmitOptions {
+  /**
+   * Wait for the outbox to finish the launch effect before returning. Defaults
+   * to `true` for CLI-style callers. Dispatch-and-poll hosts (the DSH tool and
+   * `POST /gethen/run`) pass `false` so a long Worker turn cannot hold the
+   * tool call/HTTP request open; they then bound the wait with
+   * {@link MasterService.waitForTicket}.
+   */
+  awaitEffects?: boolean;
+}
+
 /** Snapshot returned by {@link MasterService.waitForTicket}. */
 export interface TicketSettlement {
   ticket: Ticket | undefined;
@@ -104,7 +115,7 @@ export class MasterService {
   }
 
   /** Accept one Trigger end to end: intake, eval, accept, persist and run effects. */
-  async submit(trigger: Trigger): Promise<SubmitResult> {
+  async submit(trigger: Trigger, options: SubmitOptions = {}): Promise<SubmitResult> {
     this.assertRunning();
     const stored = this.engine.receive(trigger);
     if (stored === "duplicate") return { stored };
@@ -113,6 +124,12 @@ export class MasterService {
     if (candidate === undefined) return { stored };
     const decision = this.engine.decide(trigger.id, "accept", [{ code: "master-accept" }]);
     this.flush();
+    if (options.awaitEffects === false) {
+      // Kick the claim without awaiting the handler: the launch port can block
+      // for a whole Worker turn, which must not hold the caller.
+      void this.outbox.runDue();
+      return { stored, decision };
+    }
     await this.outbox.runDue();
     return { stored, decision };
   }

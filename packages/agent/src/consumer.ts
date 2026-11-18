@@ -148,6 +148,8 @@ export interface TaskStatusResultPayload {
   at: string;
   /** Session the execution runs in, when known. */
   sessionId?: string;
+  /** Retained final report when the Assignment already finished. */
+  report?: TaskResultPayload;
 }
 
 export interface TaskSessionListPayload {
@@ -463,6 +465,8 @@ const DEFAULTS = {
 interface CompletedAssignment {
   expiresAt: number;
   result?: TaskResultPayload;
+  /** When the execution finished; used as `lastEventAt` in a status reply. */
+  at: string;
 }
 
 interface Outgoing {
@@ -894,9 +898,30 @@ class MailboxAgentImpl implements MailboxAgent {
       const entry = this.findExecution(requestedId, envelope.correlationId);
       const assignmentId = entry?.task.assignmentId ?? requestedId ?? "";
       const at = this.now().toISOString();
-      const state = entry === undefined ? null : this.snapshotState(entry);
+      // A finished assignment keeps its report for a dedupe window: answer a
+      // status probe with it so the Master can recover a result envelope that
+      // was lost instead of failing the launch as a silence timeout.
+      const finished =
+        entry === undefined && requestedId !== undefined
+          ? this.completedResult(requestedId)
+          : undefined;
+      const state =
+        entry !== undefined
+          ? this.snapshotState(entry)
+          : finished === undefined
+            ? null
+            : ({
+                assignmentId,
+                phase: finished.result?.kind === "failed" ? "failed" : "done",
+                step: 0,
+                lastEventAt: finished.at,
+                seq: 0,
+                ...(finished.result === undefined ? {} : { lastMessage: finished.result.summary }),
+              } satisfies HarnessTaskState);
       const sessionId =
-        entry === undefined ? undefined : this.rememberSessionId(entry, state?.sessionId);
+        entry !== undefined
+          ? this.rememberSessionId(entry, state?.sessionId)
+          : (finished?.result?.sessionId ?? undefined);
       const reply = newEnvelope({
         source: `agent:${this.workerId}`,
         type: MESSAGE_TYPES.statusResult,
@@ -910,6 +935,7 @@ class MailboxAgentImpl implements MailboxAgent {
           state,
           at,
           ...(sessionId === undefined ? {} : { sessionId }),
+          ...(finished?.result === undefined ? {} : { report: finished.result }),
         } satisfies TaskStatusResultPayload,
       });
       await this.mailbox.send(reply);
@@ -1218,6 +1244,7 @@ class MailboxAgentImpl implements MailboxAgent {
     this.completed.set(entry.task.assignmentId, {
       expiresAt: this.now().getTime() + this.dedupeWindowMs,
       result: payload,
+      at: this.now().toISOString(),
     });
     const sessionId = this.sessionIdOf(entry);
     if (sessionId !== undefined) payload.sessionId = sessionId;
@@ -1281,6 +1308,7 @@ class MailboxAgentImpl implements MailboxAgent {
     if (cached === undefined) {
       this.completed.set(entry.task.assignmentId, {
         expiresAt: this.now().getTime() + this.dedupeWindowMs,
+        at: this.now().toISOString(),
       });
     }
     this.resolveEntry(entry);

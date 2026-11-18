@@ -294,6 +294,24 @@ export function createRoutedLaunchPort(options: RoutedLaunchPortOptions): Launch
     };
   }
 
+  /**
+   * Single-Worker plan: dispatch when the Worker is unknown (legacy setups) or
+   * has capacity, otherwise queue. Capability/workspace filters stay bypassed
+   * exactly as before.
+   */
+  function singleWorkerPlan(worker: string): RoutePlan {
+    const route: RoutePlan["route"] = { candidates: [], rejected: [] };
+    const snapshot = directory.snapshots().find((entry) => entry.id === worker);
+    const quota = snapshot?.load.quota ?? 0;
+    if (snapshot === undefined || !snapshot.registered || quota <= 0) {
+      return { action: "start", worker, reason: "single-worker", route };
+    }
+    if (snapshot.load.running < quota) {
+      return { action: "start", worker, reason: "single-worker", route };
+    }
+    return { action: "queue", worker, reason: "quota-exhausted", route };
+  }
+
   function planFor(request: LaunchRequest): RoutePlan {
     return directory.plan(
       requirementFor(request),
@@ -341,23 +359,20 @@ export function createRoutedLaunchPort(options: RoutedLaunchPortOptions): Launch
 
   return {
     async launch(request: LaunchRequest): Promise<LaunchResult> {
-      // Single-Worker compatibility: dispatch exactly as before, without the
-      // multi-Worker filters or capacity queue.
+      // Single-Worker compatibility: keep the direct dispatch (no capability or
+      // workspace filters) but honor the Worker's advertised quota. Otherwise a
+      // second dispatch is pushed at a busy single Worker and dropped when its
+      // agent runs out of delivery attempts instead of waiting for a slot.
       const known = directory.knownIds();
       const single = known.length === 1 ? known[0] : undefined;
       if (single !== undefined) {
-        const plan: RoutePlan = {
-          action: "start",
-          worker: single,
-          reason: "single-worker",
-          route: { candidates: [], rejected: [] },
-        };
-        return dispatch(request, plan, single);
+        const plan = singleWorkerPlan(single);
+        if (plan.action === "start") return dispatch(request, plan, single);
       }
 
       const deadline = Date.now() + queueTimeoutMs;
       for (;;) {
-        const plan = planFor(request);
+        const plan = single === undefined ? planFor(request) : singleWorkerPlan(single);
         if ((plan.action === "start" || plan.action === "reuse") && plan.worker !== undefined) {
           return dispatch(request, plan, plan.worker);
         }

@@ -215,8 +215,10 @@ gethen task status <assignmentId> --master https://<master>
 
 # 报告必达：DSH 事件流静默时，worker 先从会话日志恢复最终 report；恢复失败才报 failed。
 # 回合正常结束却没有最终 report 也按 failed 结算（不再留成无问题的 waiting）。
-# Master 的 launch 静默超时也会落 failed 并发布 assignment.result(timedOut) 通知，
-# 不会只停在“等超时”。
+# Master 的 launch 静默超时先向 worker 查询状态：worker 已结束时用其保留的 report
+# 结算（summary 带 recovered from worker status），仍在活动则续期；确认无活动才落
+# failed 并发布 assignment.result(timedOut) 通知，不会把已完成的任务误判为超时。
+# 超时 receipt 记录实际路由到的 worker/workspace 与最后活动时间，便于归属排查。
 #
 # Ticket 收敛：默认 overview 只列 needs-action；ready/failed 报告无人处理 7 天后自动
 # close（completed/dropped），再按 outcome retention 归档；Master 每 5 分钟自动 sweep。

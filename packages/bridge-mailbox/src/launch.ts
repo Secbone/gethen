@@ -328,6 +328,11 @@ export interface MailboxLaunchOptions {
   onLateResult?: (input: LateLaunchResult) => void;
   /** Called for every result, including ones that settled normally. */
   onResult?: (input: LateLaunchResult & { late: boolean }) => void;
+  /**
+   * Handler fault on one received envelope. The envelope is requeued (not
+   * acked) so a transient bug cannot silently drop a Worker report.
+   */
+  onError?: (error: unknown, envelope: Envelope) => void;
   /** Per-launch timeout; defaults to {@link DEFAULT_MAILBOX_LAUNCH_TIMEOUT_MS}. */
   timeoutMs?: number;
   /**
@@ -432,6 +437,12 @@ interface PendingLaunch {
   readonly escalations: EscalationRecord[];
   readonly seenEscalations: Set<string>;
   events: number;
+  /**
+   * Epoch milliseconds of the last observed Worker activity (progress/ask) or
+   * launch time. The silence window is measured from this clock, not from the
+   * timer's last arm, so a state update can never be older than the timeout.
+   */
+  lastActivityAt: number;
   /** The launch promise has settled (waiting) but the Worker may still report. */
   launchSettled: boolean;
   settled: boolean;
@@ -448,9 +459,20 @@ interface PendingLaunch {
 
 interface PendingStatusRequest {
   readonly assignmentId: string;
-  readonly resolve: (state: TaskState | null) => void;
+  readonly resolve: (probe: TaskStatusProbe) => void;
   readonly reject: (error: Error) => void;
   readonly timer: ReturnType<typeof setTimeout>;
+}
+
+/** A `gethen.task.status` reply: live state plus a report the Worker retained. */
+interface TaskStatusProbe {
+  state: TaskState | null;
+  /**
+   * The completed Assignment's final report, when the Worker still remembers it.
+   * This lets the Master recover a report whose `gethen.task.result` envelope
+   * was lost instead of failing a finished task as a silence timeout.
+   */
+  report?: Report;
 }
 
 interface PendingSessionRequest {
@@ -632,28 +654,99 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
 
   /**
    * (Re)arm the inactivity timer for one launch. `timeoutMs` is a *silence*
-   * window: progress/ask traffic keeps a long task alive, while a genuinely
-   * stuck worker still fails. A fixed total-duration timeout used to kill
-   * legitimate 10-minute tasks.
+   * window measured from the last observed activity, not a fixed total
+   * duration, so a long task stays alive while it makes progress.
    *
-   * A timeout rejects the launch but keeps the pending entry: the task was
-   * dispatched and may still report, so its late result is delivered through
-   * `onLateResult` instead of being dropped.
+   * A timeout does not fail blindly: a Worker may have finished while its
+   * `gethen.task.result` envelope was lost (transport hiccup, Master restart,
+   * ack race). Before rejecting, the bridge probes the Worker's status and
+   * recovers a retained report when one exists.
    */
   function armLaunchTimer(pending: PendingLaunch): void {
     if (pending.timer !== undefined) clearTimeout(pending.timer);
+    const remaining = Math.max(25, pending.lastActivityAt + timeoutMs - Date.now());
     pending.timer = setTimeout(() => {
       pending.timer = undefined;
-      pending.launchSettled = true;
-      persistPendingState();
-      pending.reject(
-        new MailboxLaunchError(
-          LAUNCH_TIMEOUT_CODE,
-          `assignment ${pending.request.assignment.id} produced no activity within ${timeoutMs}ms`,
-        ),
-      );
-    }, timeoutMs);
+      void settleSilenceTimeout(pending);
+    }, remaining);
     pending.timer.unref();
+  }
+
+  /**
+   * Decide what a silence window means. The cached task state and the Worker's
+   * own answer are both authoritative evidence of activity; only when neither
+   * shows a live or finished task does the launch fail.
+   */
+  async function settleSilenceTimeout(pending: PendingLaunch): Promise<void> {
+    if (pending.settled || pending.launchSettled) return;
+    const probe = await probeStatusQuietly(pending);
+    if (pending.settled || pending.launchSettled) return;
+
+    const state = probe?.state ?? states.get(pending.request.assignment.id);
+    if (probe?.report !== undefined) {
+      // The Worker finished; the result envelope was lost on the way. Settle
+      // with the retained report instead of a false timeout.
+      settleReport(pending, {
+        ...probe.report,
+        summary: `${probe.report.summary} (recovered from worker status)`,
+      });
+      return;
+    }
+    const activityAt = latestActivityAt(pending, state);
+    if (state !== undefined && (state.phase === "done" || state.phase === "failed")) {
+      settleReport(pending, {
+        kind: state.phase === "failed" ? "failed" : "ready",
+        summary:
+          state.lastMessage !== undefined && state.lastMessage.length > 0
+            ? `${state.lastMessage} (recovered from worker state)`
+            : "worker finished without a delivered result",
+        at: nowIso(),
+      });
+      return;
+    }
+    const sinceActivity = Date.now() - activityAt;
+    if (sinceActivity < timeoutMs) {
+      // The Worker or its last event is newer than the timer believed (a
+      // delayed delivery, a restored state, or a status reply): re-arm.
+      pending.lastActivityAt = activityAt;
+      armLaunchTimer(pending);
+      return;
+    }
+    pending.launchSettled = true;
+    persistPendingState();
+    pending.reject(
+      new MailboxLaunchError(
+        LAUNCH_TIMEOUT_CODE,
+        `assignment ${pending.request.assignment.id} produced no activity within ${timeoutMs}ms ` +
+          `(worker=${pending.worker} lastActivityAt=${new Date(activityAt).toISOString()} ` +
+          `phase=${state?.phase ?? "unknown"} events=${pending.events})`,
+      ),
+    );
+  }
+
+  /**
+   * The newest activity timestamp the bridge can prove for one launch.
+   *
+   * Only the Worker's own `lastEventAt` counts here: `updatedAt` is Master-side
+   * bookkeeping stamped when the bridge *received* a message, so trusting it
+   * would make every status probe look like fresh work and defeat the timeout.
+   */
+  function latestActivityAt(pending: PendingLaunch, state: TaskState | undefined): number {
+    const parsed = state === undefined ? Number.NaN : Date.parse(state.lastEventAt);
+    return Number.isFinite(parsed) && parsed > pending.lastActivityAt
+      ? parsed
+      : pending.lastActivityAt;
+  }
+
+  /** A bounded status probe; a missing/offline Worker simply yields no evidence. */
+  async function probeStatusQuietly(pending: PendingLaunch): Promise<TaskStatusProbe | undefined> {
+    try {
+      return await probeStatus(pending.request.assignment.id, {
+        timeoutMs: Math.min(DEFAULT_STATUS_TIMEOUT_MS, timeoutMs),
+      });
+    } catch {
+      return undefined;
+    }
   }
   /** Live/recent assignment states, keyed by assignment id (retained after result). */
   const states = new Map<string, TaskState>();
@@ -791,6 +884,7 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
       escalations: [],
       seenEscalations: new Set(),
       events: 0,
+      lastActivityAt: Date.now(),
       launchSettled: false,
       settled: false,
       restored: false,
@@ -862,6 +956,17 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
           summary: `invalid task result: ${parsed.reasons.join("; ")}`,
           at: nowIso(),
         };
+    settleReport(pending, report);
+  }
+
+  /**
+   * Settle one launch with a Report, whether it arrived as a result envelope or
+   * was recovered from the Worker after the silence window. Late reports (after
+   * a timeout or a parked `waiting`) only update observability, never resolve a
+   * promise twice.
+   */
+  function settleReport(pending: PendingLaunch, report: Report): void {
+    pending.lastActivityAt = Math.max(pending.lastActivityAt, Date.parse(report.at) || 0);
     appendTaskEvent(pending.request.assignment.id, {
       type: "gethen.result",
       at: report.at,
@@ -897,7 +1002,10 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
   function handleProgress(pending: PendingLaunch, data: Record<string, unknown> | undefined): void {
     // A parked launch must not be killed by the silence timer: the Worker is
     // blocked on a person, and late progress after the answer must not re-arm.
-    if (!pending.launchSettled) armLaunchTimer(pending);
+    if (!pending.launchSettled) {
+      pending.lastActivityAt = Date.now();
+      armLaunchTimer(pending);
+    }
     pending.events += 1;
     const assignmentId = pending.request.assignment.id;
 
@@ -940,13 +1048,16 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
     if (pending === undefined) return;
     statusRequests.delete(requestId);
     clearTimeout(pending.timer);
-    pending.resolve(parseStatusResult(data, nowIso()));
+    pending.resolve(parseStatusProbe(data, nowIso()));
   }
 
   function handleAsk(pending: PendingLaunch, envelope: Envelope): void {
     // A launch that already timed out keeps its entry only to receive the late
     // result/ask; do not restart the silence timer for it.
-    if (!pending.launchSettled) armLaunchTimer(pending);
+    if (!pending.launchSettled) {
+      pending.lastActivityAt = Date.now();
+      armLaunchTimer(pending);
+    }
     const data = asRecord(envelope.data);
     if (data === undefined) return;
     const escalationId = stringValue(data.escalationId);
@@ -1110,14 +1221,23 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
       try {
         handleEnvelope(message.envelope);
         handled += 1;
-      } catch {
-        // Malformed envelopes are dropped (acked) rather than redelivered forever.
-      } finally {
+      } catch (error) {
+        // A handler fault is not proof the message is poison: a result that
+        // cannot be processed right now must be retried (the lease expires) or
+        // the Worker's report would be lost forever. Only envelopes that keep
+        // failing run out of attempts and become dead letters.
+        notify(() => options.onError?.(error, message.envelope));
         try {
-          client.ack(masterMailbox, [message.envelope.id]);
+          client.nack(masterMailbox, [message.envelope.id], { action: "requeue", delayMs: 250 });
         } catch {
-          // The lease will expire and redeliver if the ack failed.
+          // If the nack fails the lease expires and redelivers anyway.
         }
+        continue;
+      }
+      try {
+        client.ack(masterMailbox, [message.envelope.id]);
+      } catch {
+        // The lease will expire and redeliver if the ack failed.
       }
     }
     return handled;
@@ -1407,6 +1527,18 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
     assignmentId: string,
     requestOptions: { timeoutMs?: number } = {},
   ): Promise<TaskState | null> {
+    return probeStatus(assignmentId, requestOptions).then((probe) => probe.state);
+  }
+
+  /**
+   * Ask the Worker for its live state and, when the Assignment already
+   * finished, the report it retained. Used by the silence-timeout arbitration
+   * so a lost result envelope cannot turn a finished task into a failure.
+   */
+  function probeStatus(
+    assignmentId: string,
+    requestOptions: { timeoutMs?: number } = {},
+  ): Promise<TaskStatusProbe> {
     if (closed) {
       return Promise.reject(
         new MailboxLaunchError(
@@ -1425,7 +1557,7 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
       );
     }
     const requestTimeoutMs = positiveTimeout(requestOptions.timeoutMs ?? DEFAULT_STATUS_TIMEOUT_MS);
-    return new Promise<TaskState | null>((resolve, reject) => {
+    return new Promise<TaskStatusProbe>((resolve, reject) => {
       const request = newEnvelope({
         source: "master:router",
         type: MESSAGE_TYPES.status,
@@ -1851,14 +1983,24 @@ function parseToolState(value: unknown): TaskToolState | undefined {
 }
 
 /** `gethen.task.status.result` payload: the state, or null when unavailable. */
-function parseStatusResult(
+function parseStatusProbe(
   data: Record<string, unknown> | undefined,
   receivedAt: string,
-): TaskState | null {
-  if (data === undefined) return null;
+): TaskStatusProbe {
+  if (data === undefined) return { state: null };
+  const probe: TaskStatusProbe = { state: null };
   const raw = data.state;
-  if (raw === undefined || raw === null) return null;
-  return parseTaskState(raw, receivedAt) ?? null;
+  if (raw !== undefined && raw !== null) {
+    probe.state = parseTaskState(raw, receivedAt) ?? null;
+  }
+  // A finished Worker answers with the report it retained, so the Master can
+  // recover a result whose envelope never arrived.
+  const report = asRecord(data.report);
+  if (report !== undefined) {
+    const parsed = parseTaskResult(report, receivedAt);
+    if (parsed.ok) probe.report = parsed.report;
+  }
+  return probe;
 }
 
 function isTaskPhase(value: string): value is TaskPhase {

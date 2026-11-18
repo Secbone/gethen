@@ -388,6 +388,39 @@ describe("MailboxAgent failures and limits", () => {
     expect(harness.tasks.map((task) => task.assignmentId)).toEqual(["a1", "a2"]);
   });
 
+  it("answers a status probe for a finished assignment with its retained report", async () => {
+    const { agent, mailbox, harness } = setup();
+    mailbox.enqueue(MAILBOX, assignEnvelope());
+    await agent.runOnce();
+    harness.report(0, { kind: "ready", summary: "A-done" });
+    await tick();
+    expect(agent.active).toBe(0);
+
+    // The result envelope may be lost on the way to the Master; a later status
+    // probe must still recover the report instead of reporting "unknown".
+    mailbox.enqueue(
+      MAILBOX,
+      newEnvelope({
+        id: "env-status-1",
+        source: "master:router",
+        type: MESSAGE_TYPES.status,
+        to: MAILBOX,
+        time: AT,
+        data: { assignmentId: "a1" },
+        correlationId: "a1",
+        replyTo: "mailbox:master",
+      }),
+    );
+    await agent.runOnce();
+
+    const reply = mailbox.lastSent(MESSAGE_TYPES.statusResult);
+    expect(reply?.data).toMatchObject({
+      assignmentId: "a1",
+      state: { assignmentId: "a1", phase: "done", lastMessage: "A-done" },
+      report: { assignmentId: "a1", kind: "ready", summary: "A-done" },
+    });
+  });
+
   it("keeps a result queued when its send fails and ack after a later flush", async () => {
     const { agent, mailbox, harness } = setup();
     mailbox.enqueue(MAILBOX, assignEnvelope());

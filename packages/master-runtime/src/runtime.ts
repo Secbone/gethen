@@ -665,6 +665,11 @@ function mailboxPrefixFor(masterMailbox: string): string {
  * The engine persists assignments without a workspace or pack digest, which the
  * mailbox assign payload rejects. Fill host-level defaults in at the launch
  * boundary only; the engine's own rows stay untouched.
+ *
+ * The normalization is applied *in place* on the request's Assignment: a routed
+ * launch port records the selected Worker by mutating `request.assignment`, and
+ * the launch executor reads that object back to attribute a settled/timeout
+ * receipt. Copying it here would hide the routed Worker from the receipt.
  */
 function withLaunchDefaults(
   port: LaunchPort,
@@ -672,22 +677,16 @@ function withLaunchDefaults(
 ): LaunchPort {
   return {
     launch(request: LaunchRequest) {
-      const assignment = {
-        ...request.assignment,
-        workspace:
-          request.assignment.workspace.length > 0
-            ? request.assignment.workspace
-            : defaults.workspace,
-        packDigest:
-          request.assignment.packDigest.length > 0
-            ? request.assignment.packDigest
-            : defaults.packDigest,
-      };
-      return port.launch({
-        ...request,
-        assignment,
-        packDigest: request.packDigest.length > 0 ? request.packDigest : defaults.packDigest,
-      });
+      if (request.assignment.workspace.length === 0) {
+        request.assignment.workspace = defaults.workspace;
+      }
+      if (request.assignment.packDigest.length === 0) {
+        request.assignment.packDigest = defaults.packDigest;
+      }
+      if (request.packDigest.length === 0) {
+        request.packDigest = defaults.packDigest;
+      }
+      return port.launch(request);
     },
   };
 }

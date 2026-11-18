@@ -196,7 +196,12 @@ function stateProgressEnvelope(assignmentId: string, state: Record<string, unkno
   });
 }
 
-function statusResultEnvelope(requestId: string, assignmentId: string, state: unknown): Envelope {
+function statusResultEnvelope(
+  requestId: string,
+  assignmentId: string,
+  state: unknown,
+  report?: Record<string, unknown>,
+): Envelope {
   seq += 1;
   return newEnvelope({
     id: `status-result-${seq}`,
@@ -204,7 +209,7 @@ function statusResultEnvelope(requestId: string, assignmentId: string, state: un
     type: "gethen.task.status.result",
     subject: assignmentId,
     time: AT,
-    data: { assignmentId, state, at: AT },
+    data: { assignmentId, state, at: AT, ...(report === undefined ? {} : { report }) },
     correlationId: requestId,
     to: "mailbox:master",
   });
@@ -575,6 +580,55 @@ describe("createMailboxLaunchPort", () => {
     bridge.handleEnvelope(resultEnvelope("assignment-1"));
     const result = await pending;
     expect(result.report.kind).toBe("ready");
+  });
+
+  it("recovers a finished report from a status probe instead of timing out", async () => {
+    const client = new FakeMailbox();
+    const bridge = makeBridge(client, { timeoutMs: 120 });
+    const pending = bridge.launchPort.launch(launchRequest());
+
+    // The result envelope was lost; the silence window expires and the bridge
+    // asks the Worker, which still remembers the report.
+    await waitFor(() => client.sent.some((envelope) => envelope.type === "gethen.task.status"));
+    const status = client.sent.find((envelope) => envelope.type === "gethen.task.status");
+    if (status === undefined) throw new Error("missing status request");
+    bridge.handleEnvelope(
+      statusResultEnvelope(
+        status.id,
+        "assignment-1",
+        rawState({ phase: "done", step: 2, lastMessage: "A-done" }),
+        { assignmentId: "assignment-1", kind: "ready", summary: "A-done" },
+      ),
+    );
+
+    const result = await pending;
+    expect(result.report.kind).toBe("ready");
+    expect(result.report.summary).toContain("A-done");
+    expect(result.receipt.outcome).toBe("completed");
+    expect(bridge.taskState("assignment-1")?.phase).toBe("done");
+  });
+
+  it("re-arms when the status probe proves recent activity", async () => {
+    const client = new FakeMailbox();
+    // A real clock keeps the probed state timestamps comparable to the timer.
+    const bridge = makeBridge(client, { timeoutMs: 120, now: () => new Date() });
+    const pending = bridge.launchPort.launch(launchRequest());
+
+    await waitFor(() => client.sent.some((envelope) => envelope.type === "gethen.task.status"));
+    const status = client.sent.find((envelope) => envelope.type === "gethen.task.status");
+    if (status === undefined) throw new Error("missing status request");
+    bridge.handleEnvelope(
+      statusResultEnvelope(status.id, "assignment-1", {
+        phase: "tool",
+        step: 2,
+        lastEventAt: new Date().toISOString(),
+        seq: 4,
+      }),
+    );
+    bridge.handleEnvelope(resultEnvelope("assignment-1", { summary: "finished later" }));
+
+    const result = await pending;
+    expect(result.report).toMatchObject({ kind: "ready", summary: "finished later" });
   });
 
   it("fails with MAILBOX_LAUNCH_TIMEOUT when no result arrives", async () => {

@@ -422,7 +422,7 @@ function registerTools(ctx: DshContext, deps: ToolDeps): void {
           ...(deps.workspace === undefined ? {} : { workspace: deps.workspace }),
         },
       };
-      const result = await service.submit(trigger);
+      const result = await service.submit(trigger, { awaitEffects: false });
       const created = service.store.tickets.list().find((item) => !before.has(item.id));
       // A failed first launch attempt is retried by the outbox; snapshotting
       // tickets/receipts immediately can observe `failed`/0 while the retry

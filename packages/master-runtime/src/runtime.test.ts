@@ -93,6 +93,25 @@ describe("createMasterRuntime", () => {
     expect(runtime.service.store.policy.current()).toEqual(DEFAULT_MASTER_POLICY);
   });
 
+  it("attributes a silence-timeout receipt to the routed Worker and workspace", async () => {
+    const runtime = makeRuntime({
+      tokens: [{ workerId: "worker-a", token: "secret-a" }],
+      workspace: "/ws",
+      launchTimeoutMs: 60,
+      pollIntervalMs: 5,
+    });
+    const result = await runtime.service.submit(defaultedTrigger());
+    expect(result.decision?.outcome).toBe("accept");
+
+    const receipt = runtime.service.store.listReceipts().at(-1);
+    expect(receipt).toMatchObject({
+      worker: "worker-a",
+      workspace: "/ws",
+      outcome: "failed",
+    });
+    expect(receipt?.summary).toContain("MAILBOX_LAUNCH_TIMEOUT");
+  });
+
   it("treats an empty token list as fake mode too", () => {
     const runtime = makeRuntime({ tokens: [] });
     expect(runtime.launch).toBe("fake");

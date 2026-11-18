@@ -232,6 +232,7 @@ export async function startServe(config: ServeConfig = {}): Promise<ServeHandle>
           const waitMs = optionalWaitMs(body.waitMs) ?? 5_000;
           const result = await service.submit(
             session === undefined ? trigger : { ...trigger, meta: { ...trigger.meta, session } },
+            { awaitEffects: false },
           );
           const created = service.store.tickets.list().at(-1);
           // Wait for the launch effect + receipt: an immediate snapshot can race

@@ -194,6 +194,32 @@ describe("createRoutedLaunchPort", () => {
     await two;
   });
 
+  it("queues a second launch on a single Worker with quota 1", async () => {
+    const directory = new WorkerDirectory(["worker-a"]);
+    directory.register(manifest("worker-a", "/ws", { load: { running: 0, quota: 1 } }), AT);
+    const first = deferredPort();
+    const port = createRoutedLaunchPort({
+      directory,
+      ports: new Map([["worker-a", first.port]]),
+      routing: { queuePollMs: 1, queueTimeoutMs: 500 },
+    });
+
+    const one = port.launch(request("assignment-1", "/ws"));
+    const two = port.launch(request("assignment-2", "/ws"));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    // Exactly one dispatch: the second waits for the quota slot instead of
+    // being pushed at the busy Worker (where its delivery would be dropped).
+    expect(first.calls).toHaveLength(1);
+
+    first.calls[0]?.resolve(result("worker-a"));
+    await one;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(first.calls).toHaveLength(2);
+    expect(first.calls[1]?.request.assignment.id).toBe("assignment-2");
+    first.calls[1]?.resolve(result("worker-a"));
+    await two;
+  });
+
   it("returns a terminal failed receipt when no worker can serve the workspace", async () => {
     const directory = new WorkerDirectory(["worker-a", "worker-b"]);
     directory.register(manifest("worker-a", "/ws-a"), AT);

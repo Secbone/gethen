@@ -97,10 +97,15 @@ export function createLaunchHandler(deps: LaunchHandlerDeps): LaunchHandler {
       // effect would launch a second Worker on the same Assignment, so settle it
       // here; a later result for it supersedes the provisional failure.
       if (isLaunchTimeout(error)) {
+        // Attribute the failure to the Worker the router actually selected. The
+        // request assignment is the same object the launch port mutates; the
+        // payload snapshot can still be empty for hosts that copy the request.
+        const routedWorker =
+          request.assignment.worker.length > 0 ? request.assignment.worker : assignment.worker;
         deps.receipts.append({
           assignment: assignment.id,
           ticket: ticket.id,
-          worker: assignment.worker,
+          worker: routedWorker,
           workspace: assignment.workspace,
           packDigest,
           at,
