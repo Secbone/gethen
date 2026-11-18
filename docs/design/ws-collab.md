@@ -45,3 +45,13 @@
   交付，需要并行修改时请拆成不同 workstream。
 - `workspaceMap` 保留给跨机显式映射；它不是默认路径，不会把 Master 仓库暴露给 Worker。
 - 队列计数是进程内实时值，Master 重启后归零；Ticket/receipt 仍是持久记录。
+
+## 结果直达结算
+
+`gethen_report` 成功后调用 DSH 的 `ToolRunContext.concludeTurn()`，工具结果是终态，
+agent loop 提交 `tool/result` 后直接发 `turn/end`。executor 另外识别 `gethen_report`
+的 `tool/result` 立即结算，避免宿主漏发 `turn/end` 时任务悬挂。
+
+bridge 的 15s 对账只作兜底：状态探测可能和 Worker 的 result envelope 竞争，因此恢复
+候选必须跨过一个宽限窗口（`recoveryGraceMs`，默认 5s）才允许结算；宽限内到达的
+result envelope 永远优先，receipt 不应带 `(recovered from worker status)`。

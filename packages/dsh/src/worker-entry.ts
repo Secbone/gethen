@@ -139,10 +139,15 @@ function isReportKind(value: unknown): value is ReportKindLike {
  * does, so without this the session can sit in `thinking` with the report tool
  * still shown as the last call. Older hosts pass a plain `{}`; stay compatible.
  */
-function markTurnConcluded(exec: unknown): void {
-  if (typeof exec !== "object" || exec === null) return;
+function markTurnConcluded(exec: unknown): boolean {
+  if (typeof exec !== "object" || exec === null) return false;
   const conclude = (exec as { concludeTurn?: unknown }).concludeTurn;
-  if (typeof conclude === "function") (conclude as () => void).call(exec);
+  if (typeof conclude !== "function") return false;
+  (conclude as () => void).call(exec);
+  if (process.env.GETHEN_DEBUG) {
+    process.stderr.write("[gethen-worker] gethen_report -> concludeTurn\n");
+  }
+  return true;
 }
 
 /**
@@ -264,7 +269,10 @@ export function applyWorker(ctx: WorkerDshContext, config: WorkerConfig = {}): v
       const block = buildReportText(report);
       // Only a successful report concludes the turn; a validation/build error
       // above propagates as a failed tool call and never marks the turn done.
-      markTurnConcluded(exec);
+      const concluded = markTurnConcluded(exec);
+      if (process.env.GETHEN_DEBUG && !concluded) {
+        process.stderr.write("[gethen-worker] gethen_report: no concludeTurn on tool context\n");
+      }
       return { text: block };
     },
   });

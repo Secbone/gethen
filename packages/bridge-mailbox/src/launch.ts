@@ -338,6 +338,13 @@ export interface MailboxLaunchOptions {
   /** Periodic status reconciliation interval; defaults to 15s, 0 disables. */
   reconcileIntervalMs?: number;
   /**
+   * How long a status-recovery candidate must persist before the bridge settles
+   * from it. This keeps a status probe sent just before a result envelope from
+   * winning the race; defaults to 5s. The result envelope always wins when it
+   * arrives during the grace window.
+   */
+  recoveryGraceMs?: number;
+  /**
    * JSON file that persists unresolved/parked launches across a Master restart.
    * Restored entries keep their parked escalation answerable and deliver a late
    * result through `onLateResult` instead of being dropped.
@@ -455,6 +462,8 @@ interface PendingLaunch {
   parkedAsk?: Envelope;
   /** Loaded from `pendingStateFile` after a Master restart (no launch caller). */
   restored?: boolean;
+  /** A status probe saw a finished report; settle only after the grace window. */
+  recoveryCandidate?: { report: Report; seenAt: number };
   resolve(result: LaunchResult): void;
   reject(error: Error): void;
 }
@@ -516,6 +525,12 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
   const firstWorkerId = (): string => defaultWorkerId ?? workerIds.values().next().value ?? "";
   const masterMailbox = `${prefix}${MASTER_MAILBOX}`;
   const timeoutMs = positiveTimeout(options.timeoutMs ?? DEFAULT_MAILBOX_LAUNCH_TIMEOUT_MS);
+  // A negative/non-finite grace would disable the race guard; fall back to 5s.
+  const configuredGrace = options.recoveryGraceMs;
+  const recoveryGraceMs =
+    configuredGrace !== undefined && Number.isFinite(configuredGrace) && configuredGrace >= 0
+      ? configuredGrace
+      : 5_000;
   const pollIntervalMs =
     options.pollIntervalMs ?? client.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
   const leaseMs = options.leaseMs ?? DEFAULT_LEASE_MS;
@@ -787,6 +802,7 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
     const probe = await probeStatusQuietly(pending);
     if (closed || pending.settled || pending.launchSettled) return;
     if (probe?.report !== undefined) {
+      if (!recoveryCandidateConfirmed(pending, probe.report)) return;
       settleReport(pending, {
         ...probe.report,
         summary: `${probe.report.summary} (recovered from worker status)`,
@@ -796,17 +812,36 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
     const state = probe?.state ?? states.get(pending.request.assignment.id);
     if (state === undefined || (state.phase !== "done" && state.phase !== "failed")) return;
     const parsed = reportFromMessage(state.lastMessage);
-    settleReport(
-      pending,
-      parsed ?? {
-        kind: state.phase === "failed" ? "failed" : "ready",
-        summary:
-          state.lastMessage !== undefined && state.lastMessage.length > 0
-            ? state.lastMessage
-            : "worker finished without a delivered result",
-        at: nowIso(),
-      },
-    );
+    const report = parsed ?? {
+      kind: state.phase === "failed" ? "failed" : "ready",
+      summary:
+        state.lastMessage !== undefined && state.lastMessage.length > 0
+          ? state.lastMessage
+          : "worker finished without a delivered result",
+      at: nowIso(),
+    };
+    if (!recoveryCandidateConfirmed(pending, report)) return;
+    settleReport(pending, report);
+  }
+
+  /**
+   * A status probe can race the Worker's own result envelope: the probe is
+   * sent just before the result is delivered, and the status reply may be
+   * polled first. Require a finished report to survive more than one grace
+   * window before recovering it, so a result that arrives in between settles
+   * the launch as a direct delivery (no `recovered from worker status`).
+   */
+  function recoveryCandidateConfirmed(pending: PendingLaunch, report: Report): boolean {
+    const candidate = pending.recoveryCandidate;
+    // `at` is the bridge's receive time, not the Worker's fixed report time, so
+    // compare the stable report identity only (kind + summary).
+    const same =
+      candidate !== undefined &&
+      candidate.report.kind === report.kind &&
+      candidate.report.summary === report.summary;
+    if (same && Date.now() - candidate.seenAt >= recoveryGraceMs) return true;
+    pending.recoveryCandidate = { report, seenAt: Date.now() };
+    return false;
   }
 
   /** Live/recent assignment states, keyed by assignment id (retained after result). */
@@ -1062,6 +1097,8 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
   }
 
   function handleProgress(pending: PendingLaunch, data: Record<string, unknown> | undefined): void {
+    // New activity invalidates any status-recovery candidate seen earlier.
+    pending.recoveryCandidate = undefined;
     // A parked launch must not be killed by the silence timer: the Worker is
     // blocked on a person, and late progress after the answer must not re-arm.
     if (!pending.launchSettled) {

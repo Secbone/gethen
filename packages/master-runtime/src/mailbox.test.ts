@@ -69,6 +69,8 @@ interface HarnessOptions {
   workerId?: string;
   masterMailbox?: string;
   launchTimeoutMs?: number;
+  reconcileIntervalMs?: number;
+  recoveryGraceMs?: number;
   withServer?: boolean;
 }
 
@@ -125,6 +127,10 @@ async function startHarness(options: HarnessOptions = {}): Promise<Harness> {
     ...(options.onEscalation === undefined ? {} : { onEscalation: options.onEscalation }),
     ...(options.onResolution === undefined ? {} : { onResolution: options.onResolution }),
     ...(options.launchTimeoutMs === undefined ? {} : { launchTimeoutMs: options.launchTimeoutMs }),
+    ...(options.reconcileIntervalMs === undefined
+      ? {}
+      : { reconcileIntervalMs: options.reconcileIntervalMs }),
+    ...(options.recoveryGraceMs === undefined ? {} : { recoveryGraceMs: options.recoveryGraceMs }),
   };
   const runtime = createMasterRuntime(runtimeOptions);
   const harness: Harness = { runtime };
@@ -208,6 +214,25 @@ function resultEnvelope(
     },
     correlationId: assign.id,
     to: assign.replyTo ?? MASTER_MAILBOX,
+  });
+}
+
+/** A reply to a `gethen.task.status` probe carrying the retained report. */
+function statusResultEnvelope(status: Envelope, summary: string): Envelope {
+  const data = status.data as Record<string, unknown>;
+  const assignmentId = String(data.assignmentId);
+  return newEnvelope({
+    source: `agent:${WORKER}`,
+    type: "gethen.task.status.result",
+    subject: assignmentId,
+    time: AT,
+    data: {
+      assignmentId,
+      state: { assignmentId, phase: "done", step: 1, seq: 1, lastEventAt: AT },
+      report: { assignmentId, kind: "ready", summary },
+    },
+    correlationId: status.id,
+    to: status.replyTo ?? MASTER_MAILBOX,
   });
 }
 
@@ -305,6 +330,32 @@ describe("createMasterRuntime mailbox stack", () => {
     });
     await waitFor(() => runtime.health().mailbox.pending === 0);
     expect(runtime.health()).toMatchObject({ launch: "ws", workers: 1 });
+  });
+
+  it("lets the direct result win over a concurrent status recovery", async () => {
+    const harness = await startHarness({ reconcileIntervalMs: 1_000, recoveryGraceMs: 5_000 });
+    const runtime = harness.runtime;
+    const { link } = await attachWorker(harness);
+
+    const resultPromise = runtime.bridge?.launchPort.launch(launchRequest());
+    if (resultPromise === undefined) throw new Error("expected a mailbox bridge");
+    const assign = await receiveOne(link);
+    await link.ack([assign.envelope.id]);
+
+    // The bridge's periodic reconciliation sends a status probe. Answer it with
+    // the retained report, then deliver the real result envelope moments later.
+    // The direct result must settle the launch; the probe must only become a
+    // recovery candidate after the grace window.
+    const status = await receiveOne(link, 4_000);
+    expect(status.envelope.type).toBe("gethen.task.status");
+    await link.ack([status.envelope.id]);
+    await link.send(statusResultEnvelope(status.envelope, "probe-only"));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await link.send(resultEnvelope(assign.envelope, { summary: "direct" }));
+
+    const result = await resultPromise;
+    expect(result.report.summary).toBe("direct");
+    expect(result.report.summary).not.toContain("recovered from worker status");
   });
 
   it("answers a parked escalation and applies the late result to the ticket", async () => {

@@ -229,6 +229,10 @@ export interface MasterRuntimeOptions {
   masterMailbox?: string;
   /** Lease/visibility timeout for mailbox deliveries. */
   visibilityTimeoutMs?: number;
+  /** Periodic status reconciliation interval; defaults to the bridge's 15s. */
+  reconcileIntervalMs?: number;
+  /** Grace before a status probe may settle a launch; defaults to the bridge's 5s. */
+  recoveryGraceMs?: number;
   /** Poll interval for the master mailbox and link delivery loops. */
   pollIntervalMs?: number;
 }
@@ -391,6 +395,12 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
       ...(options.visibilityTimeoutMs === undefined
         ? {}
         : { leaseMs: options.visibilityTimeoutMs }),
+      ...(options.reconcileIntervalMs === undefined
+        ? {}
+        : { reconcileIntervalMs: options.reconcileIntervalMs }),
+      ...(options.recoveryGraceMs === undefined
+        ? {}
+        : { recoveryGraceMs: options.recoveryGraceMs }),
       ...(options.pollIntervalMs === undefined ? {} : { pollIntervalMs: options.pollIntervalMs }),
       ...(options.resolveEscalation === undefined
         ? {}

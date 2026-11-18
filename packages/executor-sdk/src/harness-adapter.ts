@@ -1101,6 +1101,10 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
     // the host never emits turn/end, so a missing event cannot leave the task
     // in `thinking` until the Master's 15s reconciliation notices the report.
     if (type === "tool/result" && this.concludingReportResult(state, notification.event)) {
+      this.emitLog(state, {
+        phase: "report",
+        text: "settled from gethen_report tool result (no turn/end required)",
+      });
       this.finish(state, this.reportFor(state));
       return;
     }
