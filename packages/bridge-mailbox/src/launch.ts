@@ -527,6 +527,8 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
     "maxEventBytes",
   );
   const pendingByAssignment = new Map<string, PendingLaunch>();
+  /** Results that arrived before the launch registered its pending entry. */
+  const earlyResults = new Map<string, Envelope>();
   /**
    * Assignment -> Worker binding, retained after a result so task control can
    * still reach the right Worker (or report that it was a different one).
@@ -1147,8 +1149,11 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
     const assignmentId = request.assignment.id;
     const pending = createPending(request);
     pendingByAssignment.set(assignmentId, pending);
+    const early = earlyResults.get(assignmentId);
+    if (early !== undefined) earlyResults.delete(assignmentId);
     armLaunchTimer(pending);
     persistPendingState();
+    if (early !== undefined) handleResult(pending, early);
 
     try {
       client.send(assignEnvelope(pending));
@@ -1173,6 +1178,15 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
         const pending =
           assignmentId === undefined ? undefined : pendingByAssignment.get(assignmentId);
         if (pending !== undefined) handleResult(pending, envelope);
+        else if (assignmentId !== undefined) {
+          // dispatch-and-poll hosts may submit before the launch effect runs;
+          // keep the Worker's result so registration can settle immediately.
+          earlyResults.set(assignmentId, envelope);
+          if (earlyResults.size > 100) {
+            const oldest = earlyResults.keys().next().value;
+            if (oldest !== undefined) earlyResults.delete(oldest);
+          }
+        }
         return;
       }
       case MESSAGE_TYPES.progress: {
