@@ -11,6 +11,7 @@ import {
   finalizeDelivery,
   parseWorkstreams,
   prepareWorkstream,
+  resolveWorkspaceTarget,
   type WorkstreamConfig,
   WorkstreamError,
 } from "./workstream";
@@ -226,5 +227,60 @@ describe("Worker-owned workstream workspaces", () => {
     expect(() => parseWorkstreams([{ id: "x", repo: fixture.repo, branch: "main" }])).toThrow(
       /branch must be "feat\/x"/,
     );
+  });
+});
+
+describe("resolveWorkspaceTarget", () => {
+  const prepared = (id: string) => ({
+    id,
+    branch: `feat/${id}`,
+    repo: "/worker/source",
+    path: `/worker/worktrees/${id}`,
+    remote: "origin",
+    isolation: "worktree" as const,
+    created: false,
+  });
+  const base = {
+    workstreams: ["gethen"],
+    prepare: prepared,
+    exists: () => true,
+    cwd: "/worker/cwd",
+  };
+
+  it("uses a configured defaultWorkstream for an unowned absolute path", () => {
+    expect(
+      resolveWorkspaceTarget("/srv/projects", { ...base, defaultWorkstream: "gethen" }),
+    ).toEqual({
+      requested: "/srv/projects",
+      resolved: "/worker/worktrees/gethen",
+      source: "default-workstream",
+    });
+  });
+
+  it("uses a configured defaultWorkspace when no default workstream is set", () => {
+    expect(
+      resolveWorkspaceTarget("/srv/projects", {
+        ...base,
+        defaultWorkspace: "/worker/default",
+      }),
+    ).toEqual({
+      requested: "/srv/projects",
+      resolved: "/worker/default",
+      source: "default-workspace",
+    });
+  });
+
+  it("prefers an explicit map over defaults", () => {
+    expect(
+      resolveWorkspaceTarget("/srv/projects", {
+        ...base,
+        workspaceMap: { "/srv/projects": "/worker/mapped" },
+        defaultWorkspace: "/worker/default",
+      }),
+    ).toMatchObject({ resolved: "/worker/mapped", source: "map" });
+  });
+
+  it("fails fast for an unowned path when no default exists", () => {
+    expect(() => resolveWorkspaceTarget("/srv/projects", base)).toThrow(/WORKSTREAM_NOT_OWNED/);
   });
 });

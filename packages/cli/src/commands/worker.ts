@@ -8,7 +8,6 @@ import { createMailboxClientLink, type MailboxClientLink } from "@gethen/mailbox
 import { createWsTransport, type TransportSession } from "@gethen/transport";
 import {
   assertWorkstreamId,
-  isFilesystemPath,
   parseWorkerManifest,
   type WorkerCapabilities,
   type WorkerManifest,
@@ -16,7 +15,6 @@ import {
   workstreamBranch,
 } from "@gethen/worker-bridge";
 import {
-  assertOwnedWorkspace,
   defaultWorkspaceRoot,
   deliveryInstructions,
   deliverySummary,
@@ -24,6 +22,7 @@ import {
   type PreparedWorkstream,
   parseWorkstreams,
   prepareWorkstream,
+  resolveWorkspaceTarget,
   type WorkstreamConfig,
   WorkstreamError,
 } from "../workstream";
@@ -498,57 +497,40 @@ async function runMailboxWorker(config: WorkerConfig): Promise<number> {
    * the Master's repository.
    */
   function resolveWorkspace(workspace: string): string {
-    const prepared = preparedFor(workspace);
-    if (prepared !== undefined) return prepared.path;
-    const mapped = config.workspaceMap?.[workspace];
-    if (workstreamConfigs.size > 0) {
-      if (mapped !== undefined) {
-        if (!existsSync(mapped)) {
-          throw new WorkstreamError(
-            "WORKSTREAM_CONFIG",
-            `mapped workspace "${mapped}" does not exist on this Worker`,
-          );
+    const options = {
+      workstreams: workstreamConfigs.keys(),
+      prepare: (id: string): PreparedWorkstream => {
+        const prepared = preparedFor(id);
+        if (prepared === undefined) {
+          throw new WorkstreamError("WORKSTREAM_UNKNOWN", `unknown workstream "${id}"`);
         }
-        return mapped;
-      }
-      if (!isFilesystemPath(workspace)) {
-        throw new WorkstreamError(
-          "WORKSTREAM_UNKNOWN",
-          `workstream "${workspace}" is not configured on this Worker ` +
-            `(known: ${[...workstreamConfigs.keys()].join(", ") || "none"})`,
-        );
-      }
-      // Absolute paths are exactly the Master-repo pollution vector this
-      // contract removes; only an explicit workspaceMap may opt into one.
-      assertOwnedWorkspace(workspace, undefined);
-    }
-    if (mapped !== undefined && existsSync(mapped)) return mapped;
-    if (config.defaultWorkstream !== undefined) {
-      const fallback = preparedFor(config.defaultWorkstream);
-      if (fallback !== undefined) {
-        process.stderr.write(
-          `worker: workspace "${workspace}" unavailable; using default workstream ` +
-            `"${config.defaultWorkstream}" at ${fallback.path}\n`,
-        );
-        return fallback.path;
-      }
-    }
-    if (config.defaultWorkspace !== undefined && existsSync(config.defaultWorkspace)) {
+        return prepared;
+      },
+      ...(config.workspaceMap === undefined ? {} : { workspaceMap: config.workspaceMap }),
+      ...(config.defaultWorkstream === undefined
+        ? {}
+        : { defaultWorkstream: config.defaultWorkstream }),
+      ...(config.defaultWorkspace === undefined
+        ? {}
+        : { defaultWorkspace: config.defaultWorkspace }),
+      workspaces: config.workspaces,
+      cwd: process.cwd(),
+      exists: existsSync,
+    } as const;
+    try {
+      const target = resolveWorkspaceTarget(workspace, options);
       process.stderr.write(
-        `worker: workspace "${workspace}" unavailable; using default workspace ` +
-          `"${config.defaultWorkspace}"\n`,
+        `worker: workspace-resolve requested=${target.requested} ` +
+          `resolved=${target.resolved} source=${target.source}\n`,
       );
-      return config.defaultWorkspace;
+      return target.resolved;
+    } catch (error) {
+      process.stderr.write(
+        `worker: workspace-resolve requested=${workspace} source=error ` +
+          `reason=${messageOf(error)}\n`,
+      );
+      throw error;
     }
-    if (existsSync(workspace)) return workspace;
-    const configured = config.workspaces.find((candidate) => existsSync(candidate));
-    if (configured !== undefined) return configured;
-    if (workstreamConfigs.size === 0) return process.cwd();
-    throw new WorkstreamError(
-      "WORKSTREAM_UNKNOWN",
-      `workspace "${workspace}" is not owned or mapped by this Worker and no ` +
-        "defaultWorkspace/defaultWorkstream is configured",
-    );
   }
 
   const baseHarness = createSdkHarnessExecutor({

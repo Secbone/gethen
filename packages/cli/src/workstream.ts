@@ -461,3 +461,96 @@ export function assertOwnedWorkspace(value: string, mapped: string | undefined):
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
+
+/** Where a resolved workspace came from; logged and reported for attribution. */
+export type WorkspaceResolutionSource =
+  | "exact"
+  | "map"
+  | "default-workstream"
+  | "default-workspace"
+  | "legacy"
+  | "error";
+
+export interface WorkspaceTarget {
+  /** Requested workspace id/path from the dispatch. */
+  requested: string;
+  /** Worker-local directory the execution will use. */
+  resolved: string;
+  source: WorkspaceResolutionSource;
+}
+
+export interface WorkspaceResolutionOptions {
+  /** Known workstream ids; exact and default ids are looked up here. */
+  workstreams: Iterable<string>;
+  /** Materialize one declared workstream (may throw WorkstreamError). */
+  prepare(workstreamId: string): PreparedWorkstream;
+  workspaceMap?: Record<string, string>;
+  defaultWorkstream?: string;
+  defaultWorkspace?: string;
+  /** Legacy path allowlist when no workstreams are configured. */
+  workspaces?: readonly string[];
+  cwd: string;
+  exists(path: string): boolean;
+}
+
+/**
+ * Resolve a dispatch workspace to a Worker-owned directory.
+ *
+ * Order: exact workstream -> workspaceMap -> defaultWorkstream -> defaultWorkspace
+ * -> legacy workspaces/cwd -> a clear error. A Master filesystem path may only
+ * become a default target when the operator configured one; otherwise it fails
+ * fast instead of silently running in the Master's directory.
+ */
+export function resolveWorkspaceTarget(
+  requested: string,
+  options: WorkspaceResolutionOptions,
+): WorkspaceTarget {
+  const known = new Set(options.workstreams);
+  if (known.has(requested)) {
+    return { requested, resolved: options.prepare(requested).path, source: "exact" };
+  }
+  const mapped = options.workspaceMap?.[requested];
+  if (mapped !== undefined) {
+    if (!options.exists(mapped)) {
+      throw new WorkstreamError(
+        "WORKSTREAM_CONFIG",
+        `mapped workspace "${mapped}" does not exist on this Worker`,
+      );
+    }
+    return { requested, resolved: mapped, source: "map" };
+  }
+  if (options.defaultWorkstream !== undefined && known.has(options.defaultWorkstream)) {
+    return {
+      requested,
+      resolved: options.prepare(options.defaultWorkstream).path,
+      source: "default-workstream",
+    };
+  }
+  if (options.defaultWorkspace !== undefined && options.exists(options.defaultWorkspace)) {
+    return {
+      requested,
+      resolved: options.defaultWorkspace,
+      source: "default-workspace",
+    };
+  }
+  if (known.size === 0) {
+    if (options.exists(requested)) return { requested, resolved: requested, source: "legacy" };
+    const configured = options.workspaces?.find((candidate) => options.exists(candidate));
+    if (configured !== undefined) {
+      return { requested, resolved: configured, source: "legacy" };
+    }
+    return { requested, resolved: options.cwd, source: "legacy" };
+  }
+  if (isFilesystemPath(requested)) {
+    throw new WorkstreamError(
+      "WORKSTREAM_NOT_OWNED",
+      `workspace "${requested}" is a Master filesystem path and no defaultWorkspace/` +
+        "defaultWorkstream is configured; map it explicitly or dispatch a workstream id",
+    );
+  }
+  throw new WorkstreamError(
+    "WORKSTREAM_UNKNOWN",
+    `workstream "${requested}" is not configured on this Worker ` +
+      `(known: ${[...known].join(", ") || "none"})`,
+  );
+}
