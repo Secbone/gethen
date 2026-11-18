@@ -354,6 +354,22 @@ const RECONNECT_MAX_MS = 30_000;
  * hints, quota and health). The declarations are not permissions; the DSH
  * sandbox/approval policy on this machine stays authoritative.
  */
+/** Build identity from CI/build injection; unknown when not provided. */
+export function workerBuild(env: NodeJS.ProcessEnv = process.env): {
+  commit: string;
+  builtAt?: string;
+  bundle?: string;
+} {
+  const commit = env.GETHEN_BUILD_COMMIT?.trim() || "unknown";
+  const builtAt = env.GETHEN_BUILT_AT?.trim();
+  const bundle = env.GETHEN_BUILD_BUNDLE?.trim();
+  return {
+    commit,
+    ...(builtAt === undefined || builtAt.length === 0 ? {} : { builtAt }),
+    ...(bundle === undefined || bundle.length === 0 ? {} : { bundle }),
+  };
+}
+
 export function workerManifest(
   config: WorkerConfig,
   at = new Date().toISOString(),
@@ -381,6 +397,7 @@ export function workerManifest(
     costClass: config.costClass ?? ("mid" as const),
     load: { running: 0, quota: config.quota ?? 1 },
     health: { state: "online" as const, lastHeartbeatAt: at },
+    build: workerBuild(),
   };
   const parsed = parseWorkerManifest(manifest);
   if (!parsed.ok) throw new Error(`worker registration is invalid: ${parsed.reason}`);

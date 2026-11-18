@@ -26,6 +26,13 @@ export interface WorkerCapabilities {
   fork: boolean;
 }
 
+/** Build identity a Worker reports in hello (commit/builtAt/bundle may be unknown). */
+export interface WorkerBuild {
+  commit: string;
+  builtAt?: string;
+  bundle?: string;
+}
+
 export interface WorkerWorkspace {
   id: WorkspaceId;
   repo?: string;
@@ -43,6 +50,8 @@ export interface WorkerManifest {
   costClass: CostClass;
   load: { running: number; quota: number };
   health: { state: WorkerHealth; lastHeartbeatAt: string; detail?: string };
+  /** Build identity; absent on older Workers. */
+  build?: WorkerBuild;
 }
 
 /** One Assignment sent to a Worker. */

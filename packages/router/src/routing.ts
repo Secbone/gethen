@@ -62,6 +62,10 @@ export interface RouteOptions {
   weights?: RoutingWeights;
   /** Operator pin; honored only when the Worker passes the hard filters. */
   prefer?: string;
+  /** Reject Workers whose build commit differs from the expected commit. */
+  rejectStaleWorkers?: boolean;
+  /** Master's expected build commit; `unknown` is treated as unset. */
+  expectedBuildCommit?: string;
 }
 
 export interface RouteResult {
@@ -84,8 +88,17 @@ function round(value: number): number {
 export function rejectReason(
   manifest: WorkerManifest,
   requirement: TaskRequirement,
+  options: RouteOptions = {},
 ): string | undefined {
   if (manifest.health.state === "offline") return "offline";
+  if (
+    options.rejectStaleWorkers === true &&
+    options.expectedBuildCommit !== undefined &&
+    options.expectedBuildCommit !== "unknown"
+  ) {
+    const commit = manifest.build?.commit ?? "unknown";
+    if (commit !== options.expectedBuildCommit) return `stale-build:${commit}`;
+  }
   if (manifest.load.quota <= 0 || manifest.load.running >= manifest.load.quota)
     return "at-capacity";
   if (requirement.workspace !== undefined) {
@@ -163,7 +176,7 @@ export function routeWorkers(
   const rejected: RejectedWorker[] = [];
   const candidates: WorkerScore[] = [];
   for (const manifest of manifests) {
-    const reason = rejectReason(manifest, requirement);
+    const reason = rejectReason(manifest, requirement, options);
     if (reason !== undefined) {
       rejected.push({ worker: manifest.id, reason });
       continue;

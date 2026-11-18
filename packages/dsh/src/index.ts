@@ -148,6 +148,8 @@ export interface GethenConfig {
   retentionMs?: number;
   /** Close stale ready/failed Tickets after this window (all outcomes). */
   staleCloseMs?: number;
+  /** Master build commit Workers should match; defaults to GETHEN_BUILD_COMMIT. */
+  buildCommit?: string;
   /** Thresholds for health warnings; each defaults to 1. */
   warnings?: WarningThresholds;
 }
@@ -646,6 +648,7 @@ export function apply(ctx: DshContext, config: GethenConfig = {}): void {
     ...(ws?.packDigest === undefined ? {} : { packDigest: ws.packDigest }),
     ...(config.retentionMs === undefined ? {} : { retentionMs: config.retentionMs }),
     ...(config.staleCloseMs === undefined ? {} : { staleCloseMs: config.staleCloseMs }),
+    ...(config.buildCommit === undefined ? {} : { buildCommit: config.buildCommit }),
     ...(config.warnings === undefined ? {} : { warnings: config.warnings }),
     ...(ws?.workerId === undefined ? {} : { workerId: ws.workerId }),
     ...(ws?.workers === undefined ? {} : { workers: ws.workers }),

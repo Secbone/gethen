@@ -247,6 +247,8 @@ export interface MasterRuntimeOptions {
   retentionMs?: number;
   /** Close stale ready/failed Tickets after this window (all outcomes). */
   staleCloseMs?: number;
+  /** Master build commit Workers should match; defaults to GETHEN_BUILD_COMMIT. */
+  buildCommit?: string;
   /** Poll interval for the master mailbox and link delivery loops. */
   pollIntervalMs?: number;
 }
@@ -309,6 +311,7 @@ export interface MasterRuntime {
  */
 export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntime {
   const workspace = options.workspace ?? DEFAULT_WORKSTREAM;
+  const expectedBuildCommit = options.buildCommit ?? process.env.GETHEN_BUILD_COMMIT ?? "unknown";
   const packDigest = options.packDigest ?? DEFAULT_PACK_DIGEST;
   const nowIso = (): string => (options.now?.() ?? new Date()).toISOString();
 
@@ -498,6 +501,7 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
           directory,
           ports: new Map(workerIds.map((workerId) => [workerId, mailboxBridge.launchPort])),
           routing,
+          expectedBuildCommit,
           evidence: () => evidenceFromReceipts(serviceRef?.store.listReceipts() ?? []),
           onRoute: (request) => {
             // Persist the routed Worker before the launch can block, so task
@@ -613,6 +617,7 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
           mailbox: mailboxHealth(),
           workers: directory.snapshots(),
           scheduling: (routedPort ?? { metrics: emptySchedulingMetrics }).metrics(),
+          expectedBuildCommit,
         },
         options.warnings,
       ),

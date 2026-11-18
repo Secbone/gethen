@@ -220,6 +220,30 @@ describe("createRoutedLaunchPort", () => {
     await two;
   });
 
+  it("rejects stale Worker builds when configured", async () => {
+    const directory = new WorkerDirectory(["worker-old", "worker-new"]);
+    directory.register(manifest("worker-old", "/ws", { build: { commit: "old" } }), AT);
+    directory.register(manifest("worker-new", "/ws", { build: { commit: "new" } }), AT);
+    const next = deferredPort();
+    const plans: string[] = [];
+    const port = createRoutedLaunchPort({
+      directory,
+      ports: new Map([
+        ["worker-old", next.port],
+        ["worker-new", next.port],
+      ]),
+      expectedBuildCommit: "new",
+      routing: { rejectStaleWorkers: true },
+      onRoute: (_request, plan) => plans.push(plan.reason),
+    });
+    const launched = port.launch(request("assignment-build", "/ws"));
+    const call = next.calls[0];
+    expect(call?.request.assignment.worker).toBe("worker-new");
+    expect(plans[0]).toBe("start-free-capacity");
+    call?.resolve(result("worker-new"));
+    await launched;
+  });
+
   it("soft-falls back to an available worker when the workspace is not advertised", async () => {
     const directory = new WorkerDirectory(["worker-a", "worker-b"]);
     directory.register(manifest("worker-a", "/ws-a"), AT);

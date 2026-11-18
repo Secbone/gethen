@@ -24,7 +24,7 @@ import {
   type WorkerCapabilities,
   type WorkerManifest,
 } from "@gethen/router";
-import type { WorkerHealth } from "@gethen/worker-bridge";
+import type { WorkerBuild, WorkerHealth } from "@gethen/worker-bridge";
 
 /** A zeroed scheduling snapshot (fake launch, closed runtime, no routing). */
 export function emptySchedulingMetrics(): SchedulingMetrics {
@@ -55,6 +55,8 @@ export interface RoutingOptions {
   queueTimeoutMs?: number;
   /** Poll interval while queued; defaults to 100ms. */
   queuePollMs?: number;
+  /** Reject Workers whose build commit differs from the Master's expected commit. */
+  rejectStaleWorkers?: boolean;
   /**
    * When no Worker advertises the requested workspace, route to the best
    * otherwise-eligible Worker instead of parking. Default false (strict
@@ -106,6 +108,7 @@ export interface WorkerSnapshot {
   models: string[];
   capabilities?: WorkerCapabilities;
   costClass?: WorkerManifest["costClass"];
+  build?: WorkerBuild;
   load: { running: number; quota: number };
   lastHeartbeatAt?: string;
   /** Assignment ids currently dispatched to this Worker. */
@@ -242,10 +245,21 @@ export class WorkerDirectory {
   }
 
   /** Plan one dispatch with the current manifests and operator options. */
-  plan(requirement: TaskRequirement, evidence: EvidenceMap = {}, reuseWorker?: string): RoutePlan {
+  plan(
+    requirement: TaskRequirement,
+    evidence: EvidenceMap = {},
+    reuseWorker?: string,
+    build?: { rejectStaleWorkers?: boolean; expectedBuildCommit?: string },
+  ): RoutePlan {
     return planTaskRoute(this.manifests(), requirement, evidence, {
       ...(this.preferWorker === undefined ? {} : { prefer: this.preferWorker }),
       ...(reuseWorker === undefined ? {} : { reuseWorker }),
+      ...(build?.rejectStaleWorkers === undefined
+        ? {}
+        : { rejectStaleWorkers: build.rejectStaleWorkers }),
+      ...(build?.expectedBuildCommit === undefined
+        ? {}
+        : { expectedBuildCommit: build.expectedBuildCommit }),
     });
   }
 
@@ -265,6 +279,7 @@ export class WorkerDirectory {
         models: manifest?.models ?? [],
         ...(manifest === undefined ? {} : { capabilities: manifest.capabilities }),
         ...(manifest === undefined ? {} : { costClass: manifest.costClass }),
+        ...(manifest?.build === undefined ? {} : { build: manifest.build }),
         load: manifest?.load ?? { running: entry.active.size, quota: 0 },
         ...(entry.lastHeartbeatAt === undefined ? {} : { lastHeartbeatAt: entry.lastHeartbeatAt }),
         active: entry.active.size,
@@ -305,6 +320,8 @@ export function evidenceFromReceipts(receipts: readonly AssignmentReceipt[]): Ev
 
 export interface RoutedLaunchPortOptions {
   directory: WorkerDirectory;
+  /** Master build commit used by `routing.rejectStaleWorkers`. */
+  expectedBuildCommit?: string;
   /** One launch port per Worker, usually `bridge.launchPort` for the shared bridge. */
   ports: ReadonlyMap<string, LaunchPort>;
   /** Called once a Worker is selected (before dispatch) so the host persists it. */
@@ -373,10 +390,19 @@ export function createRoutedLaunchPort(options: RoutedLaunchPortOptions): Routed
 
   function planFor(request: LaunchRequest): RoutePlan {
     const requirement = requirementFor(request);
+    const build = {
+      ...(routing.rejectStaleWorkers === undefined
+        ? {}
+        : { rejectStaleWorkers: routing.rejectStaleWorkers }),
+      ...(options.expectedBuildCommit === undefined
+        ? {}
+        : { expectedBuildCommit: options.expectedBuildCommit }),
+    };
     const plan = directory.plan(
       requirement,
       options.evidence?.() ?? {},
       directory.sessionWorker(request.assignment.session),
+      build,
     );
     if (
       routing.allowWorkspaceFallback !== true ||
@@ -393,6 +419,7 @@ export function createRoutedLaunchPort(options: RoutedLaunchPortOptions): Routed
       { ...requirement, workspace: undefined },
       options.evidence?.() ?? {},
       directory.sessionWorker(request.assignment.session),
+      build,
     );
     if (fallback.action !== "start" && fallback.action !== "reuse") return plan;
     return {

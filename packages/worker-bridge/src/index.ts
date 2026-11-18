@@ -19,6 +19,7 @@ export type {
   TicketId,
   TranscriptEvent,
   TranscriptPage,
+  WorkerBuild,
   WorkerCapabilities,
   WorkerHealth,
   WorkerId,

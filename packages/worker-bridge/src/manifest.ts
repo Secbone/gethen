@@ -7,6 +7,7 @@
 import type {
   CostClass,
   RuntimeKind,
+  WorkerBuild,
   WorkerCapabilities,
   WorkerHealth,
   WorkerManifest,
@@ -111,6 +112,22 @@ export function parseWorkerManifest(value: unknown): WorkerManifestResult {
   if (typeof quota !== "number" || !Number.isInteger(quota) || quota < 0)
     return { ok: false, reason: "worker.load.quota must be a non-negative integer" };
 
+  let build: WorkerBuild | undefined;
+  if (value.build !== undefined) {
+    if (!isRecord(value.build)) return { ok: false, reason: "worker.build must be an object" };
+    if (!filled(value.build.commit))
+      return { ok: false, reason: "worker.build.commit must be a non-empty string" };
+    if (value.build.builtAt !== undefined && typeof value.build.builtAt !== "string")
+      return { ok: false, reason: "worker.build.builtAt must be a string" };
+    if (value.build.bundle !== undefined && typeof value.build.bundle !== "string")
+      return { ok: false, reason: "worker.build.bundle must be a string" };
+    build = {
+      commit: value.build.commit,
+      ...(value.build.builtAt === undefined ? {} : { builtAt: value.build.builtAt }),
+      ...(value.build.bundle === undefined ? {} : { bundle: value.build.bundle }),
+    };
+  }
+
   if (!isRecord(value.health)) return { ok: false, reason: "worker.health must be an object" };
   if (!(HEALTH as readonly unknown[]).includes(value.health.state))
     return { ok: false, reason: "worker.health.state is invalid" };
@@ -135,6 +152,7 @@ export function parseWorkerManifest(value: unknown): WorkerManifestResult {
         lastHeartbeatAt: value.health.lastHeartbeatAt,
         ...(value.health.detail === undefined ? {} : { detail: value.health.detail }),
       },
+      ...(build === undefined ? {} : { build }),
     },
   };
 }

@@ -54,6 +54,18 @@ describe("runtimeWarnings", () => {
     expect(warnings[1]).toMatchObject({ count: 2 });
   });
 
+  it("reports Worker build skew against the expected commit", () => {
+    const warnings = runtimeWarnings({
+      ...healthy,
+      workers: [
+        worker("w1", true, "online"),
+        { ...worker("w2", true, "online"), build: { commit: "old" } },
+      ],
+      expectedBuildCommit: "new",
+    });
+    expect(warnings.map((warning) => warning.code)).toContain("worker_version_mismatch");
+  });
+
   it("honours configured thresholds and ignores unregistered workers", () => {
     expect(
       runtimeWarnings(

@@ -55,6 +55,8 @@ export interface ServeConfig {
   retentionMs?: number;
   /** Close stale ready/failed Tickets after this window (all outcomes). */
   staleCloseMs?: number;
+  /** Master build commit Workers should match; defaults to GETHEN_BUILD_COMMIT. */
+  buildCommit?: string;
   /** Thresholds for health warnings; each defaults to 1. */
   warnings?: WarningThresholds;
   /** Restrict dispatch to this Worker; defaults to every configured token. */
@@ -181,6 +183,7 @@ export async function startServe(config: ServeConfig = {}): Promise<ServeHandle>
     ...(config.packDigest === undefined ? {} : { packDigest: config.packDigest }),
     ...(config.retentionMs === undefined ? {} : { retentionMs: config.retentionMs }),
     ...(config.staleCloseMs === undefined ? {} : { staleCloseMs: config.staleCloseMs }),
+    ...(config.buildCommit === undefined ? {} : { buildCommit: config.buildCommit }),
     ...(config.warnings === undefined ? {} : { warnings: config.warnings }),
     ...(config.resolveEscalation === undefined
       ? {}
@@ -784,6 +787,7 @@ export async function serveCommand(
         "mailbox:master.\n" +
         "--retention-ms (or GETHEN_RETENTION_MS) archives terminal tickets after n ms\n" +
         "--stale-close-ms (or GETHEN_STALE_CLOSE_MS) closes stale ready/failed tickets\n" +
+        "--build-commit (or GETHEN_BUILD_COMMIT) is the expected Worker build\n" +
         "--workspace is the logical workstream id dispatched with assignments\n" +
         "(the engine has no per-assignment workspace yet).\n" +
         "--escalation auto|park (default park): park waits for a person (the run\n" +
@@ -824,6 +828,7 @@ export async function serveCommand(
   const masterMailbox = option("--master-mailbox");
   const retentionFlag = option("--retention-ms") ?? env.GETHEN_RETENTION_MS;
   const staleFlag = option("--stale-close-ms") ?? env.GETHEN_STALE_CLOSE_MS;
+  const buildCommit = option("--build-commit") ?? env.GETHEN_BUILD_COMMIT;
   let staleCloseMs: number | undefined;
   if (staleFlag !== undefined) {
     staleCloseMs = Number(staleFlag);
@@ -854,6 +859,7 @@ export async function serveCommand(
       ...(masterMailbox === undefined ? {} : { masterMailbox }),
       ...(retentionMs === undefined ? {} : { retentionMs }),
       ...(staleCloseMs === undefined ? {} : { staleCloseMs }),
+      ...(buildCommit === undefined ? {} : { buildCommit }),
     });
   } catch (error) {
     writeError(`gethen serve: ${messageOf(error)}`);

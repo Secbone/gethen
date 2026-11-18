@@ -226,7 +226,8 @@ agent 用 `gethen_run` 工具派活，`/gethen/worker` 由 DSH 的 webServer 托
 `GET /health`、`gethen_status`、`gethen_task action=status` 返回：
 
 - `warnings: []`：非零退化项。默认阈值为 1，可用 `warnings` 配置项调整；当前覆盖
-  `recovered_without_report`、`mailbox_dead`、`worker_offline`、`queue_timeout`。
+  `recovered_without_report`、`mailbox_dead`、`worker_offline`、`queue_timeout`、
+  `worker_version_mismatch`。
 - `settlements`：`directCompleted` / `recoveredCompleted` / `recoveredWithoutReport` /
   `lateCompleted`（超时或 waiting 后迟到结果回写成功的次数）。
 - `scheduling`：队列/运行/复用/超时计数。
@@ -535,6 +536,32 @@ GETHEN_FORCE_APPROVAL=1 gethen worker --config /etc/gethen/worker.json
 6. **验收**：从 Master 发一个 `echo` canary 到该 workstream，确认 receipt 的 worker 是
    新 id、summary 含真实内容、`directCompleted` +1；再让两个 workstream 并发各改一个
    文件，确认各自 `feat/<id>` 分支和 worktree 不共享。
+
+### 2.7 Worker 版本与升级
+
+Worker 在 hello 中上报 `build: {commit, builtAt?, bundle?}`。构建/启动时注入：
+
+```bash
+export GETHEN_BUILD_COMMIT="$(git rev-parse --short HEAD)"
+export GETHEN_BUILT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+export GETHEN_BUILD_BUNDLE="/root/workspace/.gethen-edge/dsh-build/worker.js"
+gethen worker --config /etc/gethen/worker.json
+```
+
+未注入时 `build.commit` 为 `unknown`。Master 侧：
+
+```bash
+gethen serve ... --build-commit "$(git rev-parse --short HEAD)"
+```
+
+DSH 插件用 `config.buildCommit`。`gethen_status` / `/gethen/workers` 的
+`workerDetails[].build` 显示每个 Worker 的版本；`warnings` 中
+`worker_version_mismatch` 在 Worker 之间版本不一致、或与 Master 期望不一致时告警。
+需要硬性隔离旧 Worker 时设置 `routing.rejectStaleWorkers: true`（默认 false）；旧 build
+会被从候选过滤，reasons 记 `stale-build:<commit>`。
+
+升级步骤：先构建/更新 Worker bundle -> 注入新的 `GETHEN_BUILD_COMMIT` -> 重启 Worker ->
+在 `/gethen/workers` 确认 build 与 Master 一致 -> 再开启 `rejectStaleWorkers` 收紧。
 
 ## 3. 本机验证
 

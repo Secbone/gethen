@@ -2,7 +2,12 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { normalizeMasterUrl, parseWorkerConfig, workerManifest } from "./commands/worker";
+import {
+  normalizeMasterUrl,
+  parseWorkerConfig,
+  workerBuild,
+  workerManifest,
+} from "./commands/worker";
 
 describe("gethen worker config", () => {
   it("builds config from simple flags and normalizes a bare master origin", () => {
@@ -336,6 +341,22 @@ describe("worker hello registration", () => {
       if (previous === undefined) delete process.env.GETHEN_FORCE_APPROVAL;
       else process.env.GETHEN_FORCE_APPROVAL = previous;
     }
+  });
+
+  it("reports build identity from injected environment", () => {
+    expect(workerBuild({})).toEqual({ commit: "unknown" });
+    const build = workerBuild({
+      GETHEN_BUILD_COMMIT: "abc123",
+      GETHEN_BUILT_AT: "2026-11-18T00:00:00.000Z",
+      GETHEN_BUILD_BUNDLE: "worker.js",
+    });
+    expect(build).toEqual({
+      commit: "abc123",
+      builtAt: "2026-11-18T00:00:00.000Z",
+      bundle: "worker.js",
+    });
+    const config = parseWorkerConfig([...base]);
+    expect(workerManifest(config).build?.commit).toBe("unknown");
   });
 
   it("rejects unknown cost classes and capability values at startup", () => {

@@ -10,7 +10,8 @@ export type RuntimeWarningCode =
   | "recovered_without_report"
   | "mailbox_dead"
   | "worker_offline"
-  | "queue_timeout";
+  | "queue_timeout"
+  | "worker_version_mismatch";
 
 export interface RuntimeWarning {
   code: RuntimeWarningCode;
@@ -24,6 +25,8 @@ export interface WarningThresholds {
   mailboxDead?: number;
   offlineWorkers?: number;
   queueTimeouts?: number;
+  /** Threshold for build-commit skew; defaults to 1 (warn on any skew). */
+  workerVersionMismatch?: number;
 }
 
 export interface WarningInput {
@@ -31,6 +34,8 @@ export interface WarningInput {
   mailbox: { dead: number };
   workers: readonly WorkerSnapshot[];
   scheduling: SchedulingMetrics;
+  /** Master's expected build commit; `unknown` disables expected-only checks. */
+  expectedBuildCommit?: string;
 }
 
 function threshold(value: number | undefined): number {
@@ -78,6 +83,23 @@ export function runtimeWarnings(
       code: "queue_timeout",
       count: input.scheduling.queueTimeouts,
       message: "at least one dispatch hit ROUTER_QUEUE_TIMEOUT; check Worker capacity",
+    });
+  }
+  const expected = input.expectedBuildCommit?.trim() ?? "unknown";
+  const commits = input.workers
+    .filter((worker) => worker.registered)
+    .map((worker) => worker.build?.commit ?? "unknown");
+  const unique = [...new Set(commits)];
+  const skew =
+    unique.length > 1 || (expected !== "unknown" && unique.some((commit) => commit !== expected));
+  const versionThreshold = threshold(thresholds.workerVersionMismatch);
+  if (skew && commits.length >= versionThreshold) {
+    warnings.push({
+      code: "worker_version_mismatch",
+      count: unique.length,
+      message:
+        `Worker build commits ${JSON.stringify(unique)} do not match expected "${expected}"; ` +
+        "upgrade stale Workers or set routing.rejectStaleWorkers",
     });
   }
   return warnings;
