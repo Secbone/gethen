@@ -128,6 +128,11 @@ export class GethenNotifier {
   /** Bind the live Master agent (captured from a tool execution context). */
   bind(agent: AgentLike): void {
     this.agent = agent;
+    // Events that arrived before the first tool call are still undelivered;
+    // merge them so the first wake covers the whole backlog.
+    for (const row of this.notifications.pending(MAX_ROWS_PER_WAKE * 4)) {
+      this.queued.set(row.id, row);
+    }
     if (this.queued.size > 0) this.schedule();
   }
 
@@ -143,7 +148,10 @@ export class GethenNotifier {
       // Auto-wake disabled: keep the durable row for gethen_wait/manual polling.
       return;
     }
-    if (this.target() === undefined && this.sessionId === undefined) return;
+    if (this.queued.size >= MAX_ROWS_PER_WAKE * 4) {
+      // Keep the durable row; gethen_wait or a later bind can still consume it.
+      return;
+    }
     this.queued.set(row.id, row);
     this.schedule();
   }

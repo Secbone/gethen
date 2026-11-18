@@ -180,6 +180,10 @@ gethen task steer <assignmentId> "改用最小改动" --master https://<master>
 gethen task cancel <assignmentId> --reason "验证取消" --master https://<master>
 gethen task logs <assignmentId> --master https://<master>
 
+# 自动唤醒（默认）：worker 完成/需要决策会直接唤醒 Master 会话，无需轮询
+# 需要时可用 gethen_wait 显式等待下一个事件（fallback）
+gethen task status <assignmentId> --master https://<master>
+
 # 升级闭环：run 返回 waiting 后先看 escalation，再回答
 gethen task answer <assignmentId> --option allow --text "允许" --master https://<master>
 

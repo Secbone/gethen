@@ -79,6 +79,18 @@ describe("GethenNotifier", () => {
     expect(source.delivered).toEqual(["early"]);
   });
 
+  it("delivers an event published before the agent was bound", async () => {
+    const source = new FakeSource();
+    const notifier = new GethenNotifier({ notifications: source, batchWindowMs: 1 });
+    notifier.start();
+    source.publish(row({ id: "before-bind" }));
+    const agent = fakeAgent();
+    notifier.bind(agent);
+    await settle();
+    expect(agent.steered).toHaveLength(1);
+    expect(source.delivered).toEqual(["before-bind"]);
+  });
+
   it("batches a burst into one wake message", async () => {
     const source = new FakeSource();
     const notifier = new GethenNotifier({ notifications: source, batchWindowMs: 5 });
