@@ -11,6 +11,7 @@ import {
   type StageFacts,
   type Ticket,
   type TicketAck,
+  type TicketCloseOutcome,
   type TicketOutcome,
   type TicketStage,
   ticketStage,
@@ -33,6 +34,20 @@ export const DEFAULT_ARCHIVE_POLICY: ArchivePolicy = Object.freeze({
     dropped: DAY_MS,
     stopped: DAY_MS,
   }),
+});
+
+/** How long open work may wait for a person before it is closed automatically. */
+export interface StalePolicy {
+  /** A `ready` report awaiting review becomes `completed`. */
+  readonly readyAfterMs: number;
+  /** A `failed`/`blocked` report awaiting a person becomes `dropped`. */
+  readonly failedAfterMs: number;
+}
+
+/** Default stale window: one week for both review and failure parking. */
+export const DEFAULT_STALE_POLICY: StalePolicy = Object.freeze({
+  readyAfterMs: 7 * DAY_MS,
+  failedAfterMs: 7 * DAY_MS,
 });
 
 /** The terminal state of a Ticket; archived implies closed. */
@@ -101,6 +116,52 @@ export function acknowledgeTicket(
     fingerprint: ticketFingerprint(ticket, stage),
   };
   return { ...ticket, ack };
+}
+
+/** Last stored activity on a Ticket: its own open time or its latest Assignment. */
+export function ticketActivityAt(ticket: Ticket, assignments: readonly Assignment[]): string {
+  const ids = new Set(ticket.assignments);
+  let latest = ticket.openedAt;
+  for (const assignment of assignments) {
+    if (!ids.has(assignment.id)) continue;
+    for (const at of [assignment.startedAt, assignment.endedAt]) {
+      if (at === undefined) continue;
+      if (Date.parse(at) > Date.parse(latest)) latest = at;
+    }
+  }
+  return latest;
+}
+
+/**
+ * Open Tickets whose report has waited past the policy without a live
+ * Assignment or a pending question. Auto-closing these is what keeps the
+ * needs-action list from growing forever; an answered/parked escalation is
+ * never closed behind the person's back.
+ */
+export function staleCandidates(
+  tickets: readonly Ticket[],
+  assignments: readonly Assignment[],
+  now: Date,
+  policy: StalePolicy = DEFAULT_STALE_POLICY,
+): Array<{ ticket: Ticket; outcome: TicketCloseOutcome }> {
+  const due: Array<{ ticket: Ticket; outcome: TicketCloseOutcome }> = [];
+  for (const ticket of tickets) {
+    if (ticket.endedAt !== undefined || ticket.archivedAt !== undefined) continue;
+    if (ticket.attention !== undefined) continue;
+    if (hasLiveAssignment(ticket, assignments)) continue;
+    const report = ticket.latestReport;
+    const retainMs =
+      report === "ready"
+        ? policy.readyAfterMs
+        : report === "failed" || report === "blocked"
+          ? policy.failedAfterMs
+          : undefined;
+    if (retainMs === undefined || !Number.isFinite(retainMs)) continue;
+    const activity = Date.parse(ticketActivityAt(ticket, assignments));
+    if (!Number.isFinite(activity) || activity + retainMs > now.getTime()) continue;
+    due.push({ ticket, outcome: report === "ready" ? "completed" : "dropped" });
+  }
+  return due;
 }
 
 /** Archive a terminal Ticket. */

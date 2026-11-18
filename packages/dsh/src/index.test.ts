@@ -163,6 +163,35 @@ describe("Gethen DSH plugin", () => {
     expect(service.store.listNotifications({ pendingOnly: true })).toEqual([]);
   });
 
+  it("accepts a string-encoded timeoutMs from the tool host", async () => {
+    const { ctx, services, tools } = context();
+    apply(ctx, { dir: stateDir() });
+    const service = serviceOf(services);
+    service.store.enqueueNotification({
+      kind: "assignment.result",
+      assignment: "assignment-1",
+    });
+    const queued = (await tool(tools, "gethen_wait").execute({ timeoutMs: "1000" }, {})) as {
+      event: { assignment?: string };
+      timedOut: boolean;
+    };
+    expect(queued).toMatchObject({ timedOut: false, event: { assignment: "assignment-1" } });
+    const empty = (await tool(tools, "gethen_wait").execute({ timeoutMs: "0" }, {})) as {
+      timedOut: boolean;
+    };
+    expect(empty.timedOut).toBe(true);
+  });
+
+  it("rejects a non-numeric or out-of-range timeoutMs", async () => {
+    const { ctx, tools } = context();
+    apply(ctx, { dir: stateDir() });
+    const wait = (timeoutMs: unknown) => tool(tools, "gethen_wait").execute({ timeoutMs }, {});
+    await expect(wait("soon")).rejects.toThrow(/timeoutMs/);
+    await expect(wait("")).rejects.toThrow(/timeoutMs/);
+    await expect(wait(-1)).rejects.toThrow(/timeoutMs/);
+    await expect(wait(3_600_001)).rejects.toThrow(/timeoutMs/);
+  });
+
   it("runs one local request into an accepted ticket with a ready report", async () => {
     const { ctx, services, tools } = context();
     apply(ctx, { dir: stateDir() });

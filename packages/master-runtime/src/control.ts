@@ -118,7 +118,7 @@ export interface ControlPlane {
    * a report-only Attention is resolved locally without a Worker.
    */
   answer(request: ControlAnswerRequest): Promise<ControlAnswerResult>;
-  /** Apply the retention policy and return the archived Ticket ids. */
+  /** Close stale open Tickets, apply retention and return the archived ids. */
   autoArchive(now?: Date): string[];
   /** Cached live task states, keyed by assignment id. */
   states(): Record<string, TaskState>;
@@ -182,7 +182,7 @@ export function createControlPlane(options: ControlPlaneOptions): ControlPlane {
   }
 
   function autoArchive(at?: Date): string[] {
-    const archived = service.engine.archiveDue(at ?? now());
+    const archived = service.engine.convergeDue(at ?? now());
     if (archived.length > 0) service.flush();
     return archived;
   }

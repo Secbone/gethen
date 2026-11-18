@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { Engine } from "./engine";
-import { createOutboxHandlers } from "./executor";
+import { createOutboxHandlers, type LaunchFailure } from "./executor";
 import { FileLock } from "./lock";
 import type { Policy, Ticket, Trigger } from "./model";
 import { OutboxRunner } from "./outbox";
@@ -22,6 +22,8 @@ export interface MasterServiceOptions {
   receipts?: ReceiptSink;
   outboxIntervalMs?: number;
   objective?: (request: LaunchRequest) => string;
+  /** Notified when a launch is settled locally as failed (silence timeout). */
+  onLaunchFailure?: (failure: LaunchFailure) => void;
 }
 
 export interface SubmitResult {
@@ -87,6 +89,7 @@ export class MasterService {
           receipts: options.receipts ?? this.store,
           ...(options.clock ? { clock: options.clock } : {}),
           ...(options.objective ? { objective: options.objective } : {}),
+          ...(options.onLaunchFailure ? { onSettledFailure: options.onLaunchFailure } : {}),
         }),
         ...(options.clock ? { now: () => options.clock?.now() ?? new Date() } : {}),
       });

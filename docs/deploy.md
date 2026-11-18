@@ -425,6 +425,8 @@ gethen doctor --json
 | 连接被 404 / 立即断开 | 升级路径不是 `/gethen/worker`；或 Master 没配 tokens（此时 `/health.launch == "fake"`，端点不存在）。先 `curl -s http://127.0.0.1:8080/health` |
 | `workers: 0`，投递后 report 为 `failed` | 没有 Worker 在线：检查 Worker 进程、网络/VPN、TLS 证书与代理的 Upgrade 头 |
 | 运行结束 report 为 `waiting`、ticket 停在 `person/answer` | Worker 的升级（DSH approval / user-question）被 **parked**：当前独立 serve 没有交互式 resolver，需要面板/后续 `--escalation` 才能自动应答 |
+| Worker 已做完但 Master 没收到最终 report | 事件流静默时 worker 会从 DSH 会话日志恢复 report，恢复不到才报 `failed`；Master 的 launch 静默超时也会发 `assignment.result`(`timedOut`) 通知，可用 `gethen_wait` 或 `gethen_status` 查看 |
+| overview 里历史 ticket 一直堆积 | `ready`/`failed` 报告无人处理 7 天后会自动 close 并按 outcome retention 归档；`gethen_overview filter=all` 可查看全部 |
 | `dsh --profile sdk --help` 失败 | `gethen doctor` 会 warn：安装/升级 DSH，或设 `GETHEN_DSH` 指向正确二进制 |
 | `credentials: none of ... is set` | Worker 运行环境没有模型凭证；写入 systemd `EnvironmentFile` 后重启 Worker |
 | `state-dir ... not writable` | 修权限/属主，或设 `GETHEN_STATE_DIR` 到可写目录（systemd 用 `StateDirectory=`） |

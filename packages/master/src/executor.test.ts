@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { Engine } from "./engine";
-import { createLaunchHandler, createOutboxHandlers, type LaunchHandlerDeps } from "./executor";
+import {
+  createLaunchHandler,
+  createOutboxHandlers,
+  type LaunchFailure,
+  type LaunchHandlerDeps,
+} from "./executor";
 import { MemoryRepositories } from "./memory";
 import type { Assignment, AssignmentReceipt, Effect, Report, Ticket } from "./model";
 import { type EffectQueue, OutboxRunner } from "./outbox";
@@ -150,12 +155,14 @@ describe("createLaunchHandler", () => {
     const receipts = new MemoryReceipts();
     const report = vi.spyOn(engine, "report");
 
+    const settled: LaunchFailure[] = [];
     await expect(
       createLaunchHandler({
         engine,
         launch: failingLaunch(error),
         receipts,
         clock: { now: () => new Date(NOW) },
+        onSettledFailure: (failure) => settled.push(failure),
       })(payload),
     ).rejects.toThrow("bridge down");
 
@@ -172,6 +179,7 @@ describe("createLaunchHandler", () => {
       summary: "Error: bridge down",
       at: NOW,
     });
+    expect(settled).toEqual([]);
   });
 
   it("settles a silence timeout without retrying and files a provisional receipt", async () => {
@@ -182,12 +190,14 @@ describe("createLaunchHandler", () => {
       { code: "MAILBOX_LAUNCH_TIMEOUT" },
     );
 
+    const settled: LaunchFailure[] = [];
     await expect(
       createLaunchHandler({
         engine,
         launch: failingLaunch(timeout),
         receipts,
         clock: { now: () => new Date(NOW) },
+        onSettledFailure: (failure) => settled.push(failure),
       })(payload),
     ).resolves.toBeUndefined();
 
@@ -201,6 +211,17 @@ describe("createLaunchHandler", () => {
         events: 0,
         at: NOW,
       }),
+    ]);
+    expect(settled).toEqual([
+      {
+        request: expect.objectContaining({ ticket: expect.objectContaining({ id: "ticket-1" }) }),
+        report: {
+          kind: "failed",
+          summary: "Error: MAILBOX_LAUNCH_TIMEOUT: assignment-1 produced no activity within 100ms",
+          at: NOW,
+        },
+        timedOut: true,
+      },
     ]);
   });
 

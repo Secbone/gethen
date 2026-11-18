@@ -723,6 +723,26 @@ describe("ticket lifecycle commands", () => {
     expect(ctx.engine.archiveDue()).toEqual([]);
   });
 
+  it("closes stale open reports and archives them after retention", () => {
+    const ctx = setup();
+    const { ticket } = accepted(ctx);
+    const assignmentId = ticket.assignments[0];
+    if (assignmentId === undefined) throw new Error("expected an assignment");
+    ctx.engine.assignmentStarted(ticket.id, assignmentId);
+    ctx.engine.report(ticket.id, { kind: "ready", summary: "done", at: ctx.at() });
+
+    ctx.advance(8 * 86_400_000);
+    expect(ctx.engine.convergeDue()).toEqual([]);
+    expect(ctx.repos.tickets.get(ticket.id)).toMatchObject({
+      endedAt: ctx.at(),
+      outcome: "completed",
+    });
+
+    ctx.advance(8 * 86_400_000);
+    expect(ctx.engine.convergeDue()).toEqual([ticket.id]);
+    expect(ctx.repos.tickets.get(ticket.id)?.archivedAt).toBe(ctx.at());
+  });
+
   it("persists the routed worker before the launch settles", () => {
     const ctx = setup();
     const { ticket } = accepted(ctx);

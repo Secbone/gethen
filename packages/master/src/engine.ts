@@ -18,6 +18,9 @@ import {
   acknowledgeTicket as applyAck,
   archiveCandidates,
   DEFAULT_ARCHIVE_POLICY,
+  DEFAULT_STALE_POLICY,
+  type StalePolicy,
+  staleCandidates,
   archiveTicket as stampArchived,
 } from "./lifecycle";
 import {
@@ -441,6 +444,29 @@ export class Engine {
     return due.map((ticket) => ticket.id);
   }
 
+  /**
+   * Close stale open Tickets and archive everything whose retention elapsed.
+   * The caller runs this from a clock-bearing surface (overview/status/timer);
+   * the engine itself owns no timer.
+   */
+  convergeDue(
+    now: Date = this.clock.now(),
+    stalePolicy: StalePolicy = DEFAULT_STALE_POLICY,
+    archivePolicy: ArchivePolicy = DEFAULT_ARCHIVE_POLICY,
+  ): string[] {
+    const at = now.toISOString();
+    for (const { ticket, outcome } of staleCandidates(
+      this.repos.tickets.list(),
+      this.repos.assignments.list(),
+      now,
+      stalePolicy,
+    )) {
+      const current = this.repos.tickets.get(ticket.id);
+      if (current !== undefined) this.endTicket(current, outcome, at);
+    }
+    return this.archiveDue(now, archivePolicy);
+  }
+
   /** Read one Ticket; used by host-side guards such as the launch effect. */
   ticket(ticketId: string): Ticket | undefined {
     return this.repos.tickets.get(ticketId);
@@ -737,7 +763,7 @@ export class Engine {
     }
   }
 
-  private endTicket(ticket: Ticket, outcome: TicketOutcome): Ticket {
+  private endTicket(ticket: Ticket, outcome: TicketOutcome, at: string = this.timestamp()): Ticket {
     if (ticket.endedAt !== undefined) {
       if (ticket.outcome === outcome) return ticket;
       throw new EngineError(
@@ -745,7 +771,6 @@ export class Engine {
           `refusing to close it as ${outcome}`,
       );
     }
-    const at = this.timestamp();
     ticket.endedAt = at;
     ticket.outcome = outcome;
     delete ticket.attention;

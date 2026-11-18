@@ -228,6 +228,19 @@ interface ToolDeps {
   notifications?: MasterRuntime["notifications"];
 }
 
+/**
+ * Tool hosts may JSON-encode numeric arguments as strings; accept both forms
+ * rather than failing a valid 0/1000 wait. Everything else is rejected.
+ */
+export function parseWaitTimeoutMs(value: unknown): number | undefined {
+  if (value === undefined) return undefined;
+  const parsed = typeof value === "string" && value.trim().length > 0 ? Number(value) : value;
+  if (typeof parsed !== "number" || !Number.isFinite(parsed) || parsed < 0 || parsed > 3_600_000) {
+    throw new Error('gethen_wait "timeoutMs" must be a number between 0 and 3600000');
+  }
+  return parsed;
+}
+
 /** Register the read/write tool surface against one master service. */
 function registerTools(ctx: DshContext, deps: ToolDeps): void {
   const { service } = deps;
@@ -257,21 +270,12 @@ function registerTools(ctx: DshContext, deps: ToolDeps): void {
       render: (_args, value) => text(value),
     },
     async execute(raw, exec) {
-      const args = raw as { timeoutMs?: unknown };
-      if (
-        args.timeoutMs !== undefined &&
-        (typeof args.timeoutMs !== "number" ||
-          !Number.isFinite(args.timeoutMs) ||
-          args.timeoutMs < 0 ||
-          args.timeoutMs > 3_600_000)
-      ) {
-        throw new Error('gethen_wait "timeoutMs" must be a number between 0 and 3600000');
-      }
+      const timeoutMs = parseWaitTimeoutMs((raw as { timeoutMs?: unknown }).timeoutMs);
       const hub = deps.notifications;
       if (hub === undefined) throw new Error("gethen_wait requires the master notifications hub");
       const signal = (exec as { signal?: AbortSignal } | undefined)?.signal;
       const row = await hub.waitForNext({
-        timeoutMs: args.timeoutMs ?? 30_000,
+        timeoutMs: timeoutMs ?? 30_000,
         ...(signal === undefined ? {} : { signal }),
       });
       if (row === undefined) {

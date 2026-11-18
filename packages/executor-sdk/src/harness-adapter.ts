@@ -89,6 +89,10 @@ export const DEFAULT_INTERRUPT_GRACE_MS = 1_000;
 export const DEFAULT_MAX_EXECUTION_MS = 60 * 60 * 1000;
 /** Open-turn sessionswithout activity for this long are reported as stale. */
 export const DEFAULT_STALE_SESSION_MS = 10 * 60 * 1000;
+/** Session-history tail read when salvaging a report after silence. */
+const SALVAGE_HISTORY_LIMIT = 500;
+/** Bound for the salvage read; a wedged store must not delay the failure report. */
+const SALVAGE_TIMEOUT_MS = 2_000;
 /** Steering message sent before a hard interrupt. */
 export const STOP_STEER_TEXT =
   "Stop the current work immediately and summarize what you have done so far.";
@@ -249,6 +253,8 @@ interface ExecutionState {
   // ---- session
   sessionId: string;
   sessionKey?: string;
+  /** Wall clock this execution was claimed; older history is a previous turn. */
+  startedAt: string;
   // ---- live state
   phase: HarnessTaskPhase;
   step: number;
@@ -333,6 +339,7 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
       escalationChain: Promise.resolve(),
       escalationSeq: 0,
       sessionId: task.assignmentId,
+      startedAt: this.now().toISOString(),
       phase: "starting",
       step: 0,
       lastTool: undefined,
@@ -712,8 +719,7 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
     state.deadlineTimer = setTimeout(() => {
       if (state.settled) return;
       this.emitLog(state, { phase: "deadline", text: `deadline reached at ${deadlineAt}` });
-      this.finish(state, { kind: "failed", summary: "assignment deadline passed" });
-      this.hardStop(state);
+      void this.failWithSalvage(state, "assignment deadline passed");
     }, remaining);
     state.deadlineTimer.unref?.();
   }
@@ -729,11 +735,10 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
         phase: "timeout",
         text: `execution exceeded ${this.maxExecutionMs}ms and is being released`,
       });
-      this.finish(state, {
-        kind: "failed",
-        summary: `assignment exceeded the ${this.maxExecutionMs}ms execution limit`,
-      });
-      this.hardStop(state);
+      void this.failWithSalvage(
+        state,
+        `assignment exceeded the ${this.maxExecutionMs}ms execution limit`,
+      );
     }, this.maxExecutionMs);
     state.maxDurationTimer.unref?.();
   }
@@ -748,11 +753,7 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
         phase: "watchdog",
         text: `no session events for ${this.idleTimeoutMs}ms`,
       });
-      this.finish(state, {
-        kind: "failed",
-        summary: `no session events for ${this.idleTimeoutMs}ms`,
-      });
-      this.hardStop(state);
+      void this.failWithSalvage(state, `no session events for ${this.idleTimeoutMs}ms`);
     }, this.idleTimeoutMs);
     state.watchdogTimer.unref?.();
   }
@@ -778,6 +779,35 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
       clearTimeout(state.maxDurationTimer);
       state.maxDurationTimer = undefined;
     }
+  }
+
+  /**
+   * Settle a silent/wedged execution. The final report may already be in the
+   * session log even when the event stream stopped (a finished turn whose last
+   * event was lost), so salvage it before falling back to failure.
+   */
+  private async failWithSalvage(state: ExecutionState, summary: string): Promise<void> {
+    const report = (await this.salvageReport(state)) ?? { kind: "failed", summary };
+    if (state.settled) return;
+    this.finish(state, report);
+    this.hardStop(state);
+  }
+
+  private async salvageReport(state: ExecutionState): Promise<HarnessReport | undefined> {
+    const since = Date.parse(state.startedAt);
+    const history = await withTimeout(
+      this.sessionStore.history(state.sessionId, { limit: SALVAGE_HISTORY_LIMIT }),
+      SALVAGE_TIMEOUT_MS,
+    );
+    if (history === undefined) return undefined;
+    for (const event of history) {
+      const at = Date.parse(event.at);
+      if (Number.isFinite(since) && Number.isFinite(at) && at < since) continue;
+      scanEvent(state, event);
+    }
+    if (state.reportTexts.length === 0) return undefined;
+    const report = this.reportFor(state);
+    return report.kind === "waiting" ? undefined : report;
   }
 
   private finish(state: ExecutionState, report: HarnessReport): void {
@@ -1150,7 +1180,7 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
 
   private reportFor(state: ExecutionState): HarnessReport {
     if (state.reportTexts.length === 0) {
-      return { kind: "waiting", summary: "worker produced no report" };
+      return { kind: "failed", summary: "worker ended without a report" };
     }
     // Models sometimes echo a hand-written report block after the tool result;
     // prefer the last block that actually parses instead of failing the whole
@@ -1176,7 +1206,7 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
       if (lastError !== undefined) {
         return { kind: "failed", summary: `worker report is invalid: ${messageOf(lastError)}` };
       }
-      return { kind: "waiting", summary: "worker produced no report" };
+      return { kind: "failed", summary: "worker ended without a report" };
     }
     const mapped: HarnessReport = {
       kind: harnessReportKind(report.kind),
@@ -1545,6 +1575,22 @@ function eventTimestamp(record: Record<string, unknown>): string | undefined {
   const at = record.at;
   if (typeof at === "string" && at.length > 0) return at;
   return undefined;
+}
+
+/** Resolve `promise` or `undefined` after `milliseconds` (never rejects). */
+async function withTimeout<T>(promise: Promise<T>, milliseconds: number): Promise<T | undefined> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const timed = new Promise<undefined>((resolve) => {
+      timer = setTimeout(() => resolve(undefined), milliseconds);
+      timer.unref?.();
+    });
+    return await Promise.race([promise, timed]);
+  } catch {
+    return undefined;
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
 }
 
 function delay(milliseconds: number): Promise<void> {

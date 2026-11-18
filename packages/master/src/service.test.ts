@@ -2,8 +2,9 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import type { LaunchFailure } from "./executor";
 import type { AssignmentReceipt, Report, Trigger } from "./model";
-import type { LaunchPort, LaunchRequest } from "./ports";
+import { LAUNCH_TIMEOUT_CODE, type LaunchPort, type LaunchRequest } from "./ports";
 import { MasterService } from "./service";
 
 const policy = {
@@ -162,6 +163,36 @@ describe("MasterService", () => {
       expect(settlement.receipt).toBe(true);
       expect(settlement.ticket?.latestReport).toBe("ready");
       expect(attempts).toBeGreaterThanOrEqual(2);
+    } finally {
+      service.stop();
+    }
+  });
+
+  it("reports a silence timeout to the host instead of failing silently", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "gethen-master-timeout-"));
+    const failures: LaunchFailure[] = [];
+    const service = new MasterService({
+      dbPath: join(dir, "master.sqlite"),
+      policy,
+      clock: clock(),
+      launch: {
+        async launch() {
+          throw Object.assign(new Error("assignment produced no activity"), {
+            code: LAUNCH_TIMEOUT_CODE,
+          });
+        },
+      },
+      onLaunchFailure: (failure) => failures.push(failure),
+    });
+    try {
+      await service.submit(trigger);
+      expect(failures).toHaveLength(1);
+      expect(failures[0]).toMatchObject({
+        report: { kind: "failed" },
+        timedOut: true,
+        request: { assignment: { id: expect.any(String) } },
+      });
+      expect(service.store.listReceipts()[0]?.outcome).toBe("failed");
     } finally {
       service.stop();
     }

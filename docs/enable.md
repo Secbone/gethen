@@ -210,8 +210,16 @@ gethen task cancel <assignmentId> --reason "验证取消" --master https://<mast
 gethen task logs <assignmentId> --master https://<master>
 
 # 自动唤醒（默认）：worker 完成/需要决策会直接唤醒 Master 会话，无需轮询
-# 需要时可用 gethen_wait 显式等待下一个事件（fallback）
+# 需要时可用 gethen_wait 显式等待下一个事件（fallback；timeoutMs 接受数字或数字字符串）
 gethen task status <assignmentId> --master https://<master>
+
+# 报告必达：DSH 事件流静默时，worker 先从会话日志恢复最终 report；恢复失败才报 failed。
+# 回合正常结束却没有最终 report 也按 failed 结算（不再留成无问题的 waiting）。
+# Master 的 launch 静默超时也会落 failed 并发布 assignment.result(timedOut) 通知，
+# 不会只停在“等超时”。
+#
+# Ticket 收敛：默认 overview 只列 needs-action；ready/failed 报告无人处理 7 天后自动
+# close（completed/dropped），再按 outcome retention 归档；Master 每 5 分钟自动 sweep。
 
 # 升级闭环：run 返回 waiting 后先看 escalation，再回答
 gethen task answer <assignmentId> --option allow --text "允许" --master https://<master>

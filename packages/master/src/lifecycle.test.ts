@@ -6,6 +6,7 @@ import {
   DEFAULT_ARCHIVE_POLICY,
   needsAction,
   stageForTicket,
+  staleCandidates,
   ticketFingerprint,
   ticketLifecycle,
 } from "./lifecycle";
@@ -148,5 +149,57 @@ describe("archive policy", () => {
       retainMs: { ...DEFAULT_ARCHIVE_POLICY.retainMs, completed: 0 },
     };
     expect(archiveCandidates([ended], now, policy)).toHaveLength(1);
+  });
+});
+
+describe("stale policy", () => {
+  const now = new Date("2026-11-30T00:00:00.000Z");
+  const old = new Date(now.getTime() - 8 * DAY_MS).toISOString();
+
+  it("closes a ready report after the review window", () => {
+    const ready = ticket({ latestReport: "ready", openedAt: old });
+    const ended = assignment({ state: "ended", endedAt: old });
+    expect(staleCandidates([ready], [ended], now)).toEqual([
+      { ticket: ready, outcome: "completed" },
+    ]);
+  });
+
+  it("drops a failed report after the failure window", () => {
+    const failed = ticket({ latestReport: "failed", openedAt: old });
+    const ended = assignment({ state: "ended", endedAt: old });
+    expect(staleCandidates([failed], [ended], now)).toEqual([
+      { ticket: failed, outcome: "dropped" },
+    ]);
+  });
+
+  it("keeps live, questioned, fresh and terminal Tickets", () => {
+    const live = ticket({ id: "live", latestReport: "ready", openedAt: old });
+    const asked = ticket({
+      id: "asked",
+      latestReport: "ready",
+      openedAt: old,
+      attention: { question: "merge?", askedAt: old },
+    });
+    const fresh = ticket({ id: "fresh", latestReport: "ready", openedAt: AT });
+    const closed = ticket({
+      id: "closed",
+      latestReport: "ready",
+      openedAt: old,
+      endedAt: old,
+      outcome: "completed",
+    });
+    expect(
+      staleCandidates([live, asked, fresh, closed], [assignment({ state: "running" })], now),
+    ).toEqual([]);
+  });
+
+  it("honours an explicit stale window", () => {
+    const ready = ticket({ latestReport: "ready", openedAt: AT });
+    expect(
+      staleCandidates([ready], [assignment({ state: "ended", endedAt: AT })], now, {
+        readyAfterMs: 0,
+        failedAfterMs: 0,
+      }),
+    ).toHaveLength(1);
   });
 });

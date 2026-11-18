@@ -38,6 +38,7 @@ import {
   createFakeLaunch,
   type EscalationRecord,
   type EscalationResolutionInput,
+  type LaunchFailure,
   type LaunchPort,
   type LaunchRequest,
   MasterService,
@@ -72,6 +73,9 @@ export type {
 
 /** Pack digest recorded when the engine has none (no real pack pinning yet). */
 export const DEFAULT_PACK_DIGEST = "sha256:local-unpinned";
+
+/** How often the runtime closes stale Tickets / archives expired ones. */
+export const TICKET_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
 
 /**
  * Single-operator local policy shared by the CLI and the DSH plugin: the local
@@ -289,6 +293,7 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
   let mailboxBridge: MailboxLaunchBridge | undefined;
   const serverLinks = new Set<MailboxServerLink>();
   let closed = false;
+  let ticketSweep: ReturnType<typeof setInterval> | undefined;
 
   function handleBridgeResult(input: LateLaunchResult & { late: boolean }): void {
     notificationHub?.publish({
@@ -300,6 +305,21 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
         summary: input.report.summary,
         late: input.late,
         at: input.report.at,
+      },
+    });
+  }
+
+  function handleLaunchFailure(failure: LaunchFailure): void {
+    notificationHub?.publish({
+      kind: "assignment.result",
+      ticket: failure.request.ticket.id,
+      assignment: failure.request.assignment.id,
+      data: {
+        report: failure.report.kind,
+        summary: failure.report.summary,
+        late: false,
+        timedOut: failure.timedOut,
+        at: failure.report.at,
       },
     });
   }
@@ -444,6 +464,7 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
     dbPath: options.dbPath,
     policy: options.policy ?? DEFAULT_MASTER_POLICY,
     launch: launchPort,
+    onLaunchFailure: handleLaunchFailure,
     ...(options.now === undefined ? {} : { clock: { now: options.now } }),
   });
   serviceRef = service;
@@ -550,10 +571,23 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
     workers: () => directory.snapshots(),
     ...(options.now === undefined ? {} : { now: options.now }),
   });
+  // Archive/close stale Tickets even when no operator or agent is polling.
+  ticketSweep = setInterval(() => {
+    try {
+      control.autoArchive();
+    } catch {
+      // A sweep failure must not take down the control plane; the next tick retries.
+    }
+  }, TICKET_SWEEP_INTERVAL_MS);
+  ticketSweep.unref?.();
 
   async function close(): Promise<void> {
     if (closed) return;
     closed = true;
+    if (ticketSweep !== undefined) {
+      clearInterval(ticketSweep);
+      ticketSweep = undefined;
+    }
     try {
       // Bridge first (stops launches), then the session links, the transport
       // server and the mailbox store; the service stops in `finally`.

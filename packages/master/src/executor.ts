@@ -14,11 +14,18 @@
  * transport or persistence; both arrive as ports.
  */
 import type { Engine, LaunchEffectPayload } from "./engine";
-import type { Assignment, Ticket } from "./model";
+import type { Assignment, Report, Ticket } from "./model";
 import type { OutboxHandler } from "./outbox";
 import type { Clock, LaunchPort, LaunchRequest, LaunchResult, ReceiptSink } from "./ports";
 import { isLaunchTimeout } from "./ports";
 import { buildAssignmentPrompt } from "./prompts";
+
+/** One launch settled without a Worker report (currently: silence timeout). */
+export interface LaunchFailure {
+  request: LaunchRequest;
+  report: Report;
+  timedOut: boolean;
+}
 
 /** Dependencies of the launch handler. */
 export interface LaunchHandlerDeps {
@@ -32,6 +39,12 @@ export interface LaunchHandlerDeps {
    * (the prompt is rebuilt once the real objective is known).
    */
   objective?: (request: LaunchRequest) => string;
+  /**
+   * Called when a launch is settled locally as failed instead of being retried
+   * (a silence timeout). Hosts use it to wake the Master; without it the
+   * failure would only be visible by polling status.
+   */
+  onSettledFailure?: (failure: LaunchFailure) => void;
 }
 
 /** The outbox handler shape the relay expects. */
@@ -78,7 +91,8 @@ export function createLaunchHandler(deps: LaunchHandlerDeps): LaunchHandler {
       result = await deps.launch.launch(request);
     } catch (error) {
       const at = clock.now().toISOString();
-      deps.engine.report(ticket.id, { kind: "failed", summary: String(error), at });
+      const report: Report = { kind: "failed", summary: String(error), at };
+      deps.engine.report(ticket.id, report);
       // A silence timeout still leaves the dispatched task running. Retrying the
       // effect would launch a second Worker on the same Assignment, so settle it
       // here; a later result for it supersedes the provisional failure.
@@ -94,6 +108,7 @@ export function createLaunchHandler(deps: LaunchHandlerDeps): LaunchHandler {
           summary: String(error),
           events: 0,
         });
+        deps.onSettledFailure?.({ request, report, timedOut: true });
         return;
       }
       throw error;

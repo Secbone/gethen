@@ -96,11 +96,14 @@ function dshFixture(
     openTurn?: boolean;
     withLog?: boolean;
     title?: string;
+    atMs?: number;
+    extraEvents?: Array<{ type: string; data?: unknown }>;
   } = {},
 ): { home: string; sessionId: string; store: DshSessionStore } {
   const sessionId = options.sessionId ?? "store-session";
   const cwd = options.cwd ?? "/work/project";
   const home = options.home ?? mkdtempSync(join(tmpdir(), "gethen-exec-sessions-"));
+  const atMs = options.atMs ?? FIXTURE_CREATED;
   const projcache = join(home, "storages", "session_projcache", "sessions");
   mkdirSync(projcache, { recursive: true });
   writeFileSync(
@@ -108,7 +111,7 @@ function dshFixture(
     JSON.stringify({
       version: 7,
       record: {
-        identity: { formatVersion: 4, createdAt: FIXTURE_CREATED, cwd },
+        identity: { formatVersion: 4, createdAt: atMs, cwd },
         rows: {
           turnBoundary: {
             ver: 2,
@@ -131,13 +134,21 @@ function dshFixture(
   if (options.withLog !== false) {
     const dir = join(home, "sessions", "--work-project--", sessionId);
     mkdirSync(dir, { recursive: true });
-    const lines = [
-      { type: "session", version: 4, id: sessionId, createdAt: FIXTURE_CREATED, cwd },
-      { type: "user/message", seq: 0, time: FIXTURE_CREATED + 1, data: { text: "hello" } },
-      { type: "assistant/message", seq: 1, time: FIXTURE_CREATED + 2, data: { text: "hi" } },
-      { type: "tool/call", seq: 2, time: FIXTURE_CREATED + 3, data: { name: "bash" } },
-      { type: "turn/end", seq: 3, time: FIXTURE_CREATED + 4, data: { turn: 1 } },
+    const lines: object[] = [
+      { type: "session", version: 4, id: sessionId, createdAt: atMs, cwd },
+      { type: "user/message", seq: 0, time: atMs + 1, data: { text: "hello" } },
+      { type: "assistant/message", seq: 1, time: atMs + 2, data: { text: "hi" } },
+      { type: "tool/call", seq: 2, time: atMs + 3, data: { name: "bash" } },
     ];
+    for (const [index, event] of (options.extraEvents ?? []).entries()) {
+      lines.push({ ...event, seq: 4 + index, time: atMs + 10 + index });
+    }
+    lines.push({
+      type: "turn/end",
+      seq: 3 + (options.extraEvents?.length ?? 0),
+      time: atMs + 90,
+      data: { turn: 1 },
+    });
     writeFileSync(
       join(dir, "session.v4.jsonl.zstd"),
       zstdCompressSync(Buffer.from(lines.map((line) => JSON.stringify(line)).join("\n"))),
@@ -264,8 +275,8 @@ describe("event-driven completion", () => {
     client.emitSessionEvent("a1", "turn/end", { turn: 1 });
     await tick();
 
-    expect(sink.reports).toEqual([{ kind: "waiting", summary: "worker produced no report" }]);
-    expect(execution.state?.().phase).toBe("done");
+    expect(sink.reports).toEqual([{ kind: "failed", summary: "worker ended without a report" }]);
+    expect(execution.state?.().phase).toBe("failed");
   });
 
   it("falls back to session.status idle only after evidence of a turn", async () => {
@@ -376,18 +387,18 @@ describe("session events and reports", () => {
     setupPrompt.client.emitSessionEvent("a1", "turn/end", { turn: 1 });
     await tick();
     expect(setupPrompt.sink.reports).toEqual([
-      { kind: "waiting", summary: "worker produced no report" },
+      { kind: "failed", summary: "worker ended without a report" },
     ]);
   });
 
-  it("reports waiting without a report and fails on an invalid block or wait", async () => {
+  it("fails a turn without a report and on an invalid block or wait", async () => {
     const missing = setup();
     await missing.executor.start(task(), missing.sink);
     missing.client.emitAssistantText("a1", "no report here");
     missing.client.emitSessionEvent("a1", "turn/end", { turn: 1 });
     await tick();
     expect(missing.sink.reports).toEqual([
-      { kind: "waiting", summary: "worker produced no report" },
+      { kind: "failed", summary: "worker ended without a report" },
     ]);
 
     const broken = setup();
@@ -568,7 +579,7 @@ describe("live state, steering and lifecycle timers", () => {
     client.emitSessionEvent("a1", "turn/end", { turn: 1 });
 
     const state = execution.state?.() as HarnessTaskState;
-    expect(state).toMatchObject({ phase: "done", step: 2, seq: 5, lastTool: { name: "bash" } });
+    expect(state).toMatchObject({ phase: "failed", step: 2, seq: 5, lastTool: { name: "bash" } });
     expect(state.lastEventAt).toBe(AT);
     expect(state.lastMessage).toHaveLength(500);
     if (state.lastTool !== undefined) state.lastTool.name = "mutated";
@@ -616,6 +627,26 @@ describe("live state, steering and lifecycle timers", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("salvages the final report from the session log when events stop", async () => {
+    const fixture = dshFixture({
+      sessionId: "a1",
+      atMs: Date.parse(AT),
+      extraEvents: [
+        {
+          type: "assistant/message",
+          data: {
+            text: reportBlock({ kind: "ready", summary: "pushed the branch", at: AT }),
+          },
+        },
+      ],
+    });
+    const salvaged = setup({ sessionStore: fixture.store, idleTimeoutMs: 20 });
+    await salvaged.executor.start(task({ assignmentId: "a1" }), salvaged.sink);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(salvaged.sink.reports).toEqual([{ kind: "ready", summary: "pushed the branch" }]);
+    expect(salvaged.client.closeCount).toBe(1);
   });
 
   it("does not finish with an empty report while an escalation is pending", async () => {
