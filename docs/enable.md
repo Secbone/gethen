@@ -190,7 +190,9 @@ gethen run --session-id <sessionId> "在已有会话里继续" --master https://
 # 首次：新建会话并登记 key；之后用同一个 key 复用（未知 key 会失败，不会静默新建）
 gethen run --session-id "" 2>/dev/null || true
 # 新建并登记 key 目前通过 API/DSH 工具传 session={"mode":"new","key":"project-x"}
+# run 默认 5 秒后返回 waiting/running（settled:false），用 task status 继续跟
 gethen run --reuse-key project-x "复用该 key 的会话" --master https://<master>
+gethen task status <assignmentId> --master https://<master>
 
 # 本地不花钱的两级验证
 pnpm verify:mailbox

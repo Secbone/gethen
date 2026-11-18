@@ -115,7 +115,10 @@ export interface GethenConfig {
    * escalation with this text. Without it an escalation is parked for a person.
    */
   escalation?: { answer?: string };
-  /** Upper bound for `gethen_run` waiting on the receipt; defaults to 10 minutes. */
+  /**
+   * How long `gethen_run` waits for settlement before returning `settled:false`.
+   * Defaults to 5s (dispatch-and-poll); set 600000 for blocking CLI-style runs.
+   */
   runWaitMs?: number;
 }
 
@@ -202,7 +205,7 @@ interface ToolDeps {
   mailbox?(): MailboxHealth | undefined;
   /** Runtime task state/control; fake mode reports `RUNTIME_COMMS_UNAVAILABLE`. */
   tasks?: MasterRuntimeTasks;
-  /** Upper bound for `gethen_run` waiting on settlement. */
+  /** Upper bound for `gethen_run` waiting on settlement (default 5s). */
   runWaitMs?: number;
 }
 
@@ -309,6 +312,7 @@ function registerTools(ctx: DshContext, deps: ToolDeps): void {
           report: { type: "string" },
           receipt: { type: "number" },
           settled: { type: "boolean" },
+          assignmentId: { type: "string" },
           sessionId: { type: "string" },
         },
         ["stored", "outcome", "ticket", "report", "receipt", "settled"],
@@ -346,7 +350,9 @@ function registerTools(ctx: DshContext, deps: ToolDeps): void {
         created === undefined
           ? undefined
           : await service.waitForTicket(created.id, {
-              ...(deps.runWaitMs === undefined ? {} : { timeoutMs: deps.runWaitMs }),
+              // Return quickly for long tasks; the caller polls gethen_status /
+              // gethen_task instead of blocking the agent turn for minutes.
+              timeoutMs: deps.runWaitMs ?? 5_000,
             });
       const ticket = settlement?.ticket ?? created;
       const assignmentId = ticket?.assignments.at(-1);
@@ -360,6 +366,7 @@ function registerTools(ctx: DshContext, deps: ToolDeps): void {
         report: ticket?.latestReport ?? "",
         receipt: settlement?.receipt === true ? 1 : 0,
         settled: settlement?.settled ?? false,
+        ...(assignmentId === undefined ? {} : { assignmentId }),
         ...(sessionId === undefined ? {} : { sessionId }),
       };
     },

@@ -344,6 +344,13 @@ interface TaskState { assignmentId; phase; step; lastTool?: {name,startedAt};
 - 复用语义：`reuse + sessionId` 直接 `resume`；`reuse + key` 由 worker 维护 key→sessionId 映射（`--state-dir` 下的 `<workerId>.sessions.json`，重启后可复用）；`resume` 失败即 failed，不静默新建；并发同 session/key 时第二条被拒绝；
 - session 目录是决策依据：Master 先 list/history，再选择 new 或 reuse，而不是每个任务都新建 session。
 
+### 长任务与 Master 工具调用
+
+`gethen_run` / `POST /gethen/run` 默认 **dispatch-and-poll**：等待 5 秒，快任务直接返回 receipt；
+仍在执行则返回 `settled:false` + `assignmentId`，由 Master 用 `gethen_status` / `gethen_task status`
+继续跟踪。调用方可以传 `runWaitMs` / `waitMs` 显式延长阻塞时间。这样长任务不会把 Master 的
+一次 tool call 卡住几分钟，也不会让 DSH 会话看起来"一直在执行"。
+
 ### 升级回答闭环
 
 - Worker 的阻塞 escalation 在无人自动回答时由 bridge `park()`：**launch 立即返回 `waiting`**（gethen_run 不会一直挂着），但 pending 保留；

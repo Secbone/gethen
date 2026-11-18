@@ -215,7 +215,9 @@ export async function startServe(config: ServeConfig = {}): Promise<ServeHandle>
           const body = await readJson(request);
           const session = runSessionMeta(body.session);
           const trigger = text(body.text as string | undefined, config.workspace ?? process.cwd());
-          const waitMs = optionalWaitMs(body.waitMs);
+          // Dispatch-and-poll by default: long tasks must not keep an HTTP
+          // request (or a Master tool call) blocked for minutes.
+          const waitMs = optionalWaitMs(body.waitMs) ?? 5_000;
           const result = await service.submit(
             session === undefined ? trigger : { ...trigger, meta: { ...trigger.meta, session } },
           );
@@ -225,10 +227,7 @@ export async function startServe(config: ServeConfig = {}): Promise<ServeHandle>
           const settlement =
             created === undefined
               ? undefined
-              : await service.waitForTicket(
-                  created.id,
-                  waitMs === undefined ? {} : { timeoutMs: waitMs },
-                );
+              : await service.waitForTicket(created.id, { timeoutMs: waitMs });
           const ticket = settlement?.ticket ?? created;
           send(response, 200, {
             stored: result.stored,
@@ -237,6 +236,7 @@ export async function startServe(config: ServeConfig = {}): Promise<ServeHandle>
             report: ticket?.latestReport ?? "",
             receipt: settlement?.receipt ?? false,
             settled: settlement?.settled ?? false,
+            assignmentId: ticket?.assignments.at(-1) ?? "",
           });
           return;
         }
