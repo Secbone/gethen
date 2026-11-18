@@ -46,6 +46,7 @@ import {
   type Policy,
   type Report,
   uniformArchivePolicy,
+  uniformStalePolicy,
 } from "@gethen/master";
 import {
   createMemoryTokenStore,
@@ -240,6 +241,8 @@ export interface MasterRuntimeOptions {
   warnings?: WarningThresholds;
   /** Archive every terminal Ticket after this window (all outcomes). */
   retentionMs?: number;
+  /** Close stale ready/failed Tickets after this window (all outcomes). */
+  staleCloseMs?: number;
   /** Poll interval for the master mailbox and link delivery loops. */
   pollIntervalMs?: number;
 }
@@ -509,6 +512,9 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
     ...(options.retentionMs === undefined
       ? {}
       : { archivePolicy: uniformArchivePolicy(options.retentionMs) }),
+    ...(options.staleCloseMs === undefined
+      ? {}
+      : { stalePolicy: uniformStalePolicy(options.staleCloseMs) }),
     ...(options.now === undefined ? {} : { clock: { now: options.now } }),
   });
   serviceRef = service;

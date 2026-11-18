@@ -23,11 +23,12 @@ afterEach(async () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-function makeRuntime(options: { retentionMs?: number } = {}): MasterRuntime {
+function makeRuntime(options: { retentionMs?: number; staleCloseMs?: number } = {}): MasterRuntime {
   runtime = createMasterRuntime({
     dbPath: join(dir, "master.sqlite"),
     now: () => now,
     ...(options.retentionMs === undefined ? {} : { retentionMs: options.retentionMs }),
+    ...(options.staleCloseMs === undefined ? {} : { staleCloseMs: options.staleCloseMs }),
   });
   return runtime;
 }
@@ -106,6 +107,24 @@ describe("control plane", () => {
     now = new Date(START.getTime() + 1_500);
     expect(runtime.control.autoArchive()).toContain(ticketId);
     expect(runtime.control.overview({ filter: "all" }).counts.archived).toBe(1);
+  });
+
+  it("closes stale needs-action tickets after the configured window", async () => {
+    // The fake launch stamps its report with real time, so use a short real
+    // stale window instead of asserting against the injected fake clock.
+    runtime = createMasterRuntime({
+      dbPath: join(dir, "master.sqlite"),
+      staleCloseMs: 50,
+      retentionMs: 0,
+    });
+    const ticketId = await acceptedTicket(runtime);
+    expect(runtime.control.status().counts.needsAction).toBe(1);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    expect(runtime.control.autoArchive()).toContain(ticketId);
+    const status = runtime.control.status(0).counts;
+    expect(status.needsAction).toBe(0);
+    expect(status.archived).toBe(1);
   });
 
   it("refuses to archive an open ticket and to acknowledge a closed one", async () => {

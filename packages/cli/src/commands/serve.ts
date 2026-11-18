@@ -53,6 +53,8 @@ export interface ServeConfig {
   packDigest?: string;
   /** Archive every terminal Ticket after this window (all outcomes). */
   retentionMs?: number;
+  /** Close stale ready/failed Tickets after this window (all outcomes). */
+  staleCloseMs?: number;
   /** Thresholds for health warnings; each defaults to 1. */
   warnings?: WarningThresholds;
   /** Restrict dispatch to this Worker; defaults to every configured token. */
@@ -178,6 +180,7 @@ export async function startServe(config: ServeConfig = {}): Promise<ServeHandle>
     ...(config.tokens === undefined ? {} : { tokens: config.tokens }),
     ...(config.packDigest === undefined ? {} : { packDigest: config.packDigest }),
     ...(config.retentionMs === undefined ? {} : { retentionMs: config.retentionMs }),
+    ...(config.staleCloseMs === undefined ? {} : { staleCloseMs: config.staleCloseMs }),
     ...(config.warnings === undefined ? {} : { warnings: config.warnings }),
     ...(config.resolveEscalation === undefined
       ? {}
@@ -780,6 +783,7 @@ export async function serveCommand(
         "--mailbox-db defaults to <db dir>/mailbox.sqlite and --master-mailbox to\n" +
         "mailbox:master.\n" +
         "--retention-ms (or GETHEN_RETENTION_MS) archives terminal tickets after n ms\n" +
+        "--stale-close-ms (or GETHEN_STALE_CLOSE_MS) closes stale ready/failed tickets\n" +
         "--workspace is the logical workstream id dispatched with assignments\n" +
         "(the engine has no per-assignment workspace yet).\n" +
         "--escalation auto|park (default park): park waits for a person (the run\n" +
@@ -819,6 +823,15 @@ export async function serveCommand(
   const mailboxDbPath = option("--mailbox-db");
   const masterMailbox = option("--master-mailbox");
   const retentionFlag = option("--retention-ms") ?? env.GETHEN_RETENTION_MS;
+  const staleFlag = option("--stale-close-ms") ?? env.GETHEN_STALE_CLOSE_MS;
+  let staleCloseMs: number | undefined;
+  if (staleFlag !== undefined) {
+    staleCloseMs = Number(staleFlag);
+    if (!Number.isSafeInteger(staleCloseMs) || staleCloseMs < 0) {
+      writeError("gethen serve: --stale-close-ms must be a non-negative integer");
+      return 1;
+    }
+  }
   let retentionMs: number | undefined;
   if (retentionFlag !== undefined) {
     retentionMs = Number(retentionFlag);
@@ -840,6 +853,7 @@ export async function serveCommand(
       ...(mailboxDbPath === undefined ? {} : { mailboxDbPath }),
       ...(masterMailbox === undefined ? {} : { masterMailbox }),
       ...(retentionMs === undefined ? {} : { retentionMs }),
+      ...(staleCloseMs === undefined ? {} : { staleCloseMs }),
     });
   } catch (error) {
     writeError(`gethen serve: ${messageOf(error)}`);

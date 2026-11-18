@@ -36,6 +36,11 @@ export const DEFAULT_ARCHIVE_POLICY: ArchivePolicy = Object.freeze({
   }),
 });
 
+/** One stale window applied to every outcome (operator override). */
+export function uniformStalePolicy(ms: number): StalePolicy {
+  return { readyAfterMs: ms, failedAfterMs: ms };
+}
+
 /** One retention window applied to every outcome (operator override). */
 export function uniformArchivePolicy(retainMs: number): ArchivePolicy {
   return {

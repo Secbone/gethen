@@ -60,6 +60,8 @@ export interface WorkerConfig {
   costClass?: "low" | "mid" | "high";
   /** Declared DSH capability overrides; these are filter hints, not permissions. */
   capabilities?: Partial<WorkerCapabilities>;
+  /** Ask the model to request a permission escalation before its first shell call. */
+  forceApproval?: boolean;
 }
 
 export interface WorkerConfigOptions {
@@ -109,6 +111,8 @@ interface WorkerConfigFile {
   costClass?: "low" | "mid" | "high";
   /** Declared DSH capability overrides; these are filter hints, not permissions. */
   capabilities?: Partial<WorkerCapabilities>;
+  /** Ask the model to request a permission escalation before its first shell call. */
+  forceApproval?: boolean;
 }
 
 /**
@@ -155,6 +159,10 @@ export function parseWorkerConfig(argv: string[], options: WorkerConfigOptions =
   );
   const isolation = parseIsolation(flagValue(argv, "--isolation") ?? file.isolation);
   const stateDir = flagValue(argv, "--state-dir") ?? file.stateDir;
+  const forceApproval =
+    argv.includes("--force-approval") ||
+    file.forceApproval === true ||
+    process.env.GETHEN_FORCE_APPROVAL === "1";
   const workstreams = parseWorkstreams(file.workstreams);
   const workspaceRoot = flagValue(argv, "--workspace-root") ?? file.workspaceRoot;
   if (workspaceRoot !== undefined && !isAbsolute(workspaceRoot)) {
@@ -191,6 +199,7 @@ export function parseWorkerConfig(argv: string[], options: WorkerConfigOptions =
     ...(stateDir === undefined ? {} : { stateDir }),
     ...(costClass === undefined ? {} : { costClass }),
     ...(capabilities === undefined ? {} : { capabilities }),
+    ...(forceApproval ? { forceApproval: true } : {}),
   };
 }
 
@@ -412,6 +421,13 @@ async function runMailboxWorker(config: WorkerConfig): Promise<number> {
     worker: workerManifest(config),
   });
 
+  const forceApproval = config.forceApproval === true;
+  if (forceApproval) {
+    process.stderr.write(
+      "worker: GETHEN_FORCE_APPROVAL active; the model will request a permission escalation before shell calls\n",
+    );
+  }
+
   const workstreamConfigs = new Map(
     (config.workstreams ?? []).map((workstream) => [workstream.id, workstream]),
   );
@@ -497,10 +513,16 @@ async function runMailboxWorker(config: WorkerConfig): Promise<number> {
       sink: Parameters<typeof baseHarness.start>[1],
     ) {
       const prepared = preparedFor(task.workspace);
-      const assigned =
+      let assigned =
         prepared === undefined
           ? task
           : { ...task, prompt: `${task.prompt}${deliveryInstructions(prepared)}` };
+      if (forceApproval) {
+        assigned = {
+          ...assigned,
+          prompt: `${assigned.prompt}\n\n[GETHEN-FORCE-APPROVAL]\nBefore the first shell/bash tool call, call gethen_escalate with kind="permission", question="Allow shell: <command>", options [{"id":"allow","label":"Allow"}], defaultOption="allow". Wait for the Master's resolution before executing it; then continue the assignment.`,
+        };
+      }
       process.stderr.write(
         `worker: assign ${task.assignmentId} workspace=${task.workspace} cwd=${resolveWorkspace(task.workspace)}\n`,
       );
@@ -734,6 +756,7 @@ function configFile(argv: string[]): WorkerConfigFile {
   const workstreams = parsed.workstreams;
   const costClass = optionalString(parsed, "costClass");
   const capabilities = parsed.capabilities;
+  const forceApproval = parsed.forceApproval === true;
   if (masterUrl !== undefined) file.masterUrl = masterUrl;
   if (token !== undefined) file.token = token;
   if (workerId !== undefined) file.workerId = workerId;
@@ -755,6 +778,7 @@ function configFile(argv: string[]): WorkerConfigFile {
   if (capabilities !== undefined) {
     file.capabilities = capabilities as Partial<WorkerCapabilities>;
   }
+  if (forceApproval) file.forceApproval = true;
   return file;
 }
 

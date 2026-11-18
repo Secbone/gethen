@@ -239,6 +239,15 @@ gethen serve ... --retention-ms 86400000    # 或 GETHEN_RETENTION_MS=86400000
 该值统一覆盖 merged/completed/closed/dropped/stopped 的归档窗口；DSH 插件用
 `config.retentionMs`。默认仍是 completed/closed 7 天、merged 30 天、dropped/stopped 1 天。
 
+needs-action 自动收敛：
+
+```bash
+gethen serve ... --stale-close-ms 3600000   # 或 GETHEN_STALE_CLOSE_MS=3600000
+```
+
+ready/failed 的 Ticket 在该窗口内无人处理时，下一次 overview/status/定时 sweep 会 close；
+再用 `--retention-ms 0` 可以在同一轮 archive，便于验证 backlog 收敛。默认 7 天。
+
 dead letter：
 
 ```bash
@@ -425,6 +434,25 @@ Worker 只是用 `dshArgs` 启动 `dsh --profile sdk`。DSH 0.2.2-rc.1 的 base 
 确认当前策略：Worker 日志里 `dsh --profile sdk` 的启动参数、`~/.dsh/profiles/sdk`
 的 patch 层，以及任务上的 `waiting`/`permission` 记录。Master 侧的自动/人工答复见
 [enable.md](enable.md) §5。
+
+### 2.5.1 强制 permission 审批演练
+
+`GETHEN_FORCE_APPROVAL=1`（或 `--force-approval` / 配置 `forceApproval: true`）让 Worker
+在第一次 shell 前主动调用 `gethen_escalate(kind="permission")`，可用于验证真实答复链路：
+
+```bash
+GETHEN_FORCE_APPROVAL=1 gethen worker --config /etc/gethen/worker.json
+```
+
+1. 从 Master 发一个会执行 `echo escalation-ok` 的 canary；
+2. Worker 停在 `phase=waiting`，`gethen_task action="status"` 看到 parked permission；
+3. Master 答复：
+   `gethen_task action="answer" assignmentId="<id>" kind="answer" option="allow" text="Allow shell"`
+   （HTTP 形态：`gethen task answer <id> --master <url> --option allow --text "Allow shell"`）
+4. Worker 收到 `gethen.task.answer` 后继续执行并 ready；receipt 应直达，summary 含真实内容。
+
+该开关只注入提示词，不改变 DSH 的本地权限策略；生产环境仍以 Worker 的
+`DSH_PERMISSION_MODE`/profile 为准。
 
 ### 2.6 新增第二台 worker 接入清单
 

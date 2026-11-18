@@ -325,6 +325,19 @@ describe("worker hello registration", () => {
     }
   });
 
+  it("enables the force-approval switch from a flag or env", () => {
+    const config = parseWorkerConfig([...base, "--force-approval"]);
+    expect(config.forceApproval).toBe(true);
+    const previous = process.env.GETHEN_FORCE_APPROVAL;
+    process.env.GETHEN_FORCE_APPROVAL = "1";
+    try {
+      expect(parseWorkerConfig(base).forceApproval).toBe(true);
+    } finally {
+      if (previous === undefined) delete process.env.GETHEN_FORCE_APPROVAL;
+      else process.env.GETHEN_FORCE_APPROVAL = previous;
+    }
+  });
+
   it("rejects unknown cost classes and capability values at startup", () => {
     expect(() => parseWorkerConfig([...base, "--cost-class", "free"])).toThrow(/costClass/);
     const dir = mkdtempSync(join(tmpdir(), "gethen-worker-"));

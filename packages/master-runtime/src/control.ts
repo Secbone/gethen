@@ -214,7 +214,11 @@ export function createControlPlane(options: ControlPlaneOptions): ControlPlane {
   }
 
   function autoArchive(at?: Date): string[] {
-    const archived = service.engine.convergeDue(at ?? now(), undefined, service.archivePolicy);
+    const archived = service.engine.convergeDue(
+      at ?? now(),
+      service.stalePolicy,
+      service.archivePolicy,
+    );
     if (archived.length > 0) service.flush();
     return archived;
   }

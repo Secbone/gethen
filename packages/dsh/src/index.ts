@@ -146,6 +146,8 @@ export interface GethenConfig {
   wakeBatchMs?: number;
   /** Archive terminal Tickets after this window (all outcomes). */
   retentionMs?: number;
+  /** Close stale ready/failed Tickets after this window (all outcomes). */
+  staleCloseMs?: number;
   /** Thresholds for health warnings; each defaults to 1. */
   warnings?: WarningThresholds;
 }
@@ -636,6 +638,7 @@ export function apply(ctx: DshContext, config: GethenConfig = {}): void {
     workspace: ws?.workspace ?? DEFAULT_WORKSTREAM,
     ...(ws?.packDigest === undefined ? {} : { packDigest: ws.packDigest }),
     ...(config.retentionMs === undefined ? {} : { retentionMs: config.retentionMs }),
+    ...(config.staleCloseMs === undefined ? {} : { staleCloseMs: config.staleCloseMs }),
     ...(config.warnings === undefined ? {} : { warnings: config.warnings }),
     ...(ws?.workerId === undefined ? {} : { workerId: ws.workerId }),
     ...(ws?.workers === undefined ? {} : { workers: ws.workers }),
