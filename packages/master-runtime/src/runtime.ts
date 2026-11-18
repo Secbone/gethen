@@ -18,7 +18,7 @@
  * the package owns assembly only and imports no DSH code.
  */
 import type { IncomingMessage } from "node:http";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import type { Duplex } from "node:stream";
 import {
   createMailboxLaunchPort,
@@ -180,6 +180,8 @@ export interface MasterRuntimeOptions {
   workerId?: string;
   /** Mailbox sqlite file; defaults to `<dirname(dbPath)>/mailbox.sqlite`. */
   mailboxDbPath?: string;
+  /** Pending-launch persistence file; defaults to `<dbPath>.pending.json`. */
+  pendingStateFile?: string;
   /**
    * Silence window before a dispatched launch is settled as timed out. A late
    * Worker result still lands on the Ticket; defaults to the bridge's 10 min.
@@ -283,6 +285,9 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
       ...(options.onEscalation === undefined ? {} : { onEscalation: options.onEscalation }),
       ...(options.onResolution === undefined ? {} : { onResolution: options.onResolution }),
       onLateResult: handleLateResult,
+      pendingStateFile:
+        options.pendingStateFile ??
+        join(dirname(options.dbPath), `${basename(options.dbPath)}.pending.json`),
       ...(options.launchTimeoutMs === undefined ? {} : { timeoutMs: options.launchTimeoutMs }),
       ...(options.now === undefined ? {} : { now: options.now }),
     });

@@ -147,7 +147,10 @@ GETHEN_DSH=$(command -v dsh) gethen worker --config /etc/gethen/worker.json
 # 输出：worker build-1 connecting to wss://…
 ```
 
-systemd unit 见 [deploy.md](deploy.md) §2.3。
+systemd unit 见 [deploy.md](deploy.md) §2.3。Worker 默认继承 DSH 的
+`workspace-write` + `ask` 权限策略：超出沙箱的工具调用会变成 `permission` 升级，
+无人值守时的配置方式（`DSH_PERMISSION_MODE` / approval `never`）见
+[deploy.md](deploy.md) §2.4。
 
 ## 5. 验证
 

@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -519,6 +519,50 @@ describe("createMasterRuntime mailbox stack", () => {
       { assignment: assignmentId, outcome: "completed", summary: "slept" },
     ]);
     expect(runtime.service.store.tickets.get(ticketId)?.attention).toBeUndefined();
+
+    // At-least-once mailbox: a redelivered result (new envelope id, same
+    // assignment) must not append a third receipt or move the Ticket again.
+    await link.send(resultEnvelope(assign.envelope, { summary: "slept" }));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(runtime.service.store.listReceipts()).toHaveLength(2);
+    expect(runtime.service.store.tickets.get(ticketId)?.latestReport).toBe("ready");
+  });
+
+  it("persists a parked launch under the master db directory", async () => {
+    const harness = await startHarness();
+    const runtime = harness.runtime;
+    const bridge = runtime.bridge;
+    if (bridge === undefined) throw new Error("expected a mailbox bridge");
+    const pending = bridge.launchPort.launch(launchRequest("assignment-persist"));
+
+    bridge.handleEnvelope(
+      newEnvelope({
+        source: `agent:${WORKER}`,
+        type: "gethen.task.ask",
+        time: AT,
+        data: {
+          assignmentId: "assignment-persist",
+          escalationId: "esc-persist",
+          kind: "permission",
+          question: "allow bash?",
+          options: [
+            { id: "allow", label: "Allow once" },
+            { id: "reject", label: "Reject" },
+          ],
+        },
+        to: MASTER_MAILBOX,
+        replyTo: WORKER_MAILBOX,
+      }),
+    );
+    expect((await pending).report.kind).toBe("waiting");
+
+    const file = join(dir, `master-${sequence}.sqlite.pending.json`);
+    expect(existsSync(file)).toBe(true);
+    const persisted = JSON.parse(readFileSync(file, "utf8")) as Array<{
+      request?: { assignment?: { id?: string } };
+    }>;
+    expect(persisted).toHaveLength(1);
+    expect(persisted[0]?.request?.assignment?.id).toBe("assignment-persist");
   });
 
   it("counts attached transport sessions as workers", async () => {

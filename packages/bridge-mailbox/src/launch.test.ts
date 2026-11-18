@@ -1,3 +1,6 @@
+import { mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   type EnqueueResult,
   type Envelope,
@@ -1716,6 +1719,47 @@ describe("with a real MailboxClient", () => {
     expect(result.report).toEqual({ kind: "ready", summary: "done", at: AT });
     expect(result.receipt.worker).toBe("worker-a");
     await waitFor(() => client.stats("mailbox:master").pending === 0);
+  });
+});
+
+describe("pending state persistence", () => {
+  it("restores a parked escalation and settles its late result after a restart", async () => {
+    const file = join(mkdtempSync(join(tmpdir(), "gethen-bridge-pending-")), "pending.json");
+    const firstClient = new FakeMailbox();
+    const first = makeBridge(firstClient, { pendingStateFile: file });
+    const launched = first.launchPort.launch(launchRequest());
+    first.handleEnvelope(askEnvelope("assignment-1", { escalationId: "esc-1" }));
+    const waiting = await launched;
+    expect(waiting.report.kind).toBe("waiting");
+    expect(JSON.parse(readFileSync(file, "utf8"))).toHaveLength(1);
+    first.close();
+
+    const late: LateLaunchResult[] = [];
+    const secondClient = new FakeMailbox();
+    const second = makeBridge(secondClient, {
+      pendingStateFile: file,
+      onLateResult: (input) => late.push(input),
+    });
+    const answered = second.answer("assignment-1", { kind: "answer", text: "Merge it." });
+    expect(answered.status).toBe("resolved");
+    expect(secondClient.sent.at(-1)).toMatchObject({
+      type: "gethen.task.answer",
+      correlationId: "assignment-1",
+    });
+
+    second.handleEnvelope(resultEnvelope("assignment-1", { summary: "merged" }));
+    expect(late).toHaveLength(1);
+    expect(late[0]?.report).toMatchObject({ kind: "ready", summary: "merged" });
+    expect(JSON.parse(readFileSync(file, "utf8"))).toEqual([]);
+  });
+
+  it("writes nothing without pendingStateFile", async () => {
+    const client = new FakeMailbox();
+    const bridge = makeBridge(client);
+    const launched = bridge.launchPort.launch(launchRequest());
+    bridge.handleEnvelope(askEnvelope("assignment-1", { escalationId: "esc-1" }));
+    await launched;
+    expect(client.sent.some((envelope) => envelope.type === "gethen.task.answer")).toBe(false);
   });
 });
 

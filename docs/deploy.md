@@ -326,6 +326,44 @@ SIGTERM 时的关闭顺序：停止重连 → 关闭 WS → 关闭 `dsh --profil
 Worker 断线会自动重连（指数退避 1s→30s），进行中的 assignment 不重放，
 由 Master 按 `assignmentId` 对账。
 
+### 2.4 Worker 权限策略与升级
+
+Worker 没有单独的权限配置：sandbox 与 approval 由 DSH 的 SDK profile 组合决定，
+Worker 只是用 `dshArgs` 启动 `dsh --profile sdk`。DSH 0.2.2-rc.1 的 base profile
+默认是 `workspace-write` + `ask`：
+
+- 工具调用超出 workspace-write 沙箱时，DSH 发 `approval/request`；
+- gethen executor 把它映射成 `permission` 升级（选项 `allow` / `reject`），经 mailbox
+  上报；Master 没配 resolver 时 `park()`，`gethen run` 返回 `waiting`；
+- 用 `gethen ticket answer` / `gethen task answer` / DSH `gethen_task action=answer`
+  / `POST /gethen/tasks/:id/answer` 答复；`allow` 映射为 DSH `allowed-once`，
+  其它值一律拒绝。
+
+常用策略（全部在 Worker 本机配置，Master 无法远程修改）：
+
+1. **有人值守（默认，推荐）**：保持 `workspace-write` + `ask`，靠 answer 推进；
+   `gethen task logs <assignmentId>` 可看到 DSH 的 approval 记录。
+2. **无人值守但仍要沙箱**：在 `/etc/gethen/sdk-profile.patch.yml` 里把审批策略改成
+   `never`，需要审批的调用会确定性拒绝（fail closed），不会停在那里等人：
+
+   ```yaml
+   # /etc/gethen/sdk-profile.patch.yml
+   - id: approval
+     config:
+       policy: never
+   ```
+
+   也可以保留 `ask`，在 Master 用 `--escalation auto`（按升级声明的 default/第一个
+   选项自动答复，对 permission 就是 `allow`）；这只建议在可信环境使用。
+3. **完全放开（危险）**：给 Worker 进程加环境变量
+   `DSH_PERMISSION_MODE=danger-full-access`（systemd 的 `Environment=`），base profile
+   会把 bash sandbox 设为 full access、approval 设为 `never`，不再产生 permission
+   升级。仅限一次性/隔离机器，不要在生产或共享主机启用。
+
+确认当前策略：Worker 日志里 `dsh --profile sdk` 的启动参数、`~/.dsh/profiles/sdk`
+的 patch 层，以及任务上的 `waiting`/`permission` 记录。Master 侧的自动/人工答复见
+[enable.md](enable.md) §5。
+
 ## 3. 本机验证
 
 不接真实模型的确定性验证（WS + FakeExecutor，无需 dsh/凭证）：

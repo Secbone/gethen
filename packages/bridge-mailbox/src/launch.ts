@@ -32,6 +32,8 @@
  * (memory/sqlite) or reach it through `@gethen/mailbox-link`.
  */
 
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import {
   type EnqueueResult,
   type Envelope,
@@ -309,6 +311,12 @@ export interface MailboxLaunchOptions {
   onLateResult?: (input: LateLaunchResult) => void;
   /** Per-launch timeout; defaults to {@link DEFAULT_MAILBOX_LAUNCH_TIMEOUT_MS}. */
   timeoutMs?: number;
+  /**
+   * JSON file that persists unresolved/parked launches across a Master restart.
+   * Restored entries keep their parked escalation answerable and deliver a late
+   * result through `onLateResult` instead of being dropped.
+   */
+  pendingStateFile?: string;
   now?: () => Date;
   /** Mailbox prefix for both sides; defaults to {@link DEFAULT_MAILBOX_PREFIX}. */
   mailboxPrefix?: string;
@@ -404,6 +412,8 @@ interface PendingLaunch {
   parkedEscalation?: EscalationRecord;
   /** The Worker's ask envelope; answers route back to its replyTo. */
   parkedAsk?: Envelope;
+  /** Loaded from `pendingStateFile` after a Master restart (no launch caller). */
+  restored?: boolean;
   resolve(result: LaunchResult): void;
   reject(error: Error): void;
 }
@@ -455,6 +465,76 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
   );
   const pendingByAssignment = new Map<string, PendingLaunch>();
 
+  /** Persist every still-unresolved launch so a Master restart can settle it. */
+  function persistPendingState(): void {
+    const file = options.pendingStateFile;
+    if (file === undefined || closed) return;
+    const records = [...pendingByAssignment.values()]
+      .filter((pending) => !pending.settled)
+      .map((pending) => ({
+        request: pending.request,
+        escalations: pending.escalations,
+        seenEscalations: [...pending.seenEscalations],
+        events: pending.events,
+        launchSettled: pending.launchSettled,
+        ...(pending.parkedEscalation === undefined
+          ? {}
+          : { parkedEscalation: pending.parkedEscalation }),
+        ...(pending.parkedAsk === undefined ? {} : { parkedAsk: pending.parkedAsk }),
+        ...(states.get(pending.request.assignment.id) === undefined
+          ? {}
+          : { state: states.get(pending.request.assignment.id) }),
+      }));
+    const temp = `${file}.tmp`;
+    try {
+      mkdirSync(dirname(file), { recursive: true });
+      writeFileSync(temp, `${JSON.stringify(records, null, 2)}\n`, "utf8");
+      renameSync(temp, file);
+    } catch {
+      // Best effort: the in-memory map still serves this process.
+    }
+  }
+
+  /** Restore launches persisted by a previous Master process. */
+  function restorePendingState(): void {
+    const file = options.pendingStateFile;
+    if (file === undefined) return;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(readFileSync(file, "utf8"));
+    } catch {
+      return;
+    }
+    if (!Array.isArray(parsed)) return;
+    for (const entry of parsed) {
+      if (!isRecord(entry) || !isRecord(entry.request)) continue;
+      const request = entry.request as unknown as LaunchRequest;
+      if (!isRecord(request.assignment) || typeof request.assignment.id !== "string") continue;
+      const assignmentId = request.assignment.id;
+      if (pendingByAssignment.has(assignmentId)) continue;
+      const pending = createPending(request);
+      pending.restored = true;
+      pending.launchSettled = entry.launchSettled === true;
+      if (typeof entry.events === "number" && Number.isFinite(entry.events)) {
+        pending.events = Math.max(0, Math.floor(entry.events));
+      }
+      if (Array.isArray(entry.escalations)) {
+        pending.escalations.push(...(entry.escalations as EscalationRecord[]));
+      }
+      if (Array.isArray(entry.seenEscalations)) {
+        for (const id of entry.seenEscalations) {
+          if (typeof id === "string") pending.seenEscalations.add(id);
+        }
+      }
+      if (isRecord(entry.parkedEscalation)) {
+        pending.parkedEscalation = entry.parkedEscalation as unknown as EscalationRecord;
+      }
+      if (isRecord(entry.parkedAsk)) pending.parkedAsk = entry.parkedAsk as unknown as Envelope;
+      if (isRecord(entry.state)) states.set(assignmentId, entry.state as unknown as TaskState);
+      pendingByAssignment.set(assignmentId, pending);
+    }
+  }
+
   /**
    * (Re)arm the inactivity timer for one launch. `timeoutMs` is a *silence*
    * window: progress/ask traffic keeps a long task alive, while a genuinely
@@ -470,6 +550,7 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
     pending.timer = setTimeout(() => {
       pending.timer = undefined;
       pending.launchSettled = true;
+      persistPendingState();
       pending.reject(
         new MailboxLaunchError(
           LAUNCH_TIMEOUT_CODE,
@@ -580,6 +661,7 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
       pending.timer = undefined;
     }
     pendingByAssignment.delete(pending.request.assignment.id);
+    persistPendingState();
   }
 
   function resolveWith(pending: PendingLaunch, result: LaunchResult): void {
@@ -609,6 +691,7 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
       events: 0,
       launchSettled: false,
       settled: false,
+      restored: false,
       timer: undefined,
       resolve: resolvePromise,
       reject: rejectPromise,
@@ -638,13 +721,14 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
   /** Mark one escalation parked (clearing the silence timer) for later answer. */
   function markParked(pending: PendingLaunch, record: EscalationRecord, ask?: Envelope): void {
     record.status = "parked";
+    pending.parkedEscalation = record;
+    if (ask !== undefined) pending.parkedAsk = ask;
     if (pending.timer !== undefined) {
       clearTimeout(pending.timer);
       pending.timer = undefined;
     }
-    pending.parkedEscalation = record;
-    if (ask !== undefined) pending.parkedAsk = ask;
     notify(() => options.onResolution?.(record));
+    persistPendingState();
   }
 
   /**
@@ -841,6 +925,7 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
     const pending = createPending(request);
     pendingByAssignment.set(assignmentId, pending);
     armLaunchTimer(pending);
+    persistPendingState();
 
     try {
       client.send(assignEnvelope(request));
@@ -936,6 +1021,8 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
 
   function close(): void {
     if (closed) return;
+    // Keep parked/running entries on disk for the next Master process.
+    persistPendingState();
     closed = true;
     if (timer !== undefined) {
       clearInterval(timer);
@@ -1319,9 +1406,11 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
     notify(() => options.onResolution?.(parked));
     delete pending.parkedEscalation;
     delete pending.parkedAsk;
+    persistPendingState();
     return parked;
   }
 
+  restorePendingState();
   if (options.autoStart ?? true) start();
 
   return {
