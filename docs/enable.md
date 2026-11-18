@@ -152,6 +152,35 @@ systemd unit 见 [deploy.md](deploy.md) §2.3。Worker 默认继承 DSH 的
 无人值守时的配置方式（`DSH_PERMISSION_MODE` / approval `never`）见
 [deploy.md](deploy.md) §2.4。
 
+## 4.1 多 Worker 与路由
+
+一个 Master 可以同时登记多个 Worker：`worker-tokens.json` 里每个 `workerId` 一项，
+启动时不传 `--worker-id` 就会把所有 token 都接入候选池（传 `--worker-id` 仍只允许该
+Worker，兼容原单 Worker 部署）。Worker 在 mailbox `hello` 中上报 workspace、model、
+capability、quota/health，Master 形成可选池，再按 workspace/model/capability 硬过滤和
+affinity/evidence/load 打分，产出：
+
+| 决策 | 含义 |
+|---|---|
+| `reuse` | 该会话 key/id 已绑定到某 Worker 且仍可用，继续派给它 |
+| `start` | 有合格 Worker 且有空闲配额，派给最高分者 |
+| `queue` | 合格 Worker 都在满负荷，等待空位（`routing.queueTimeoutMs`，默认 30s） |
+| `park` | 没有合法候选（workspace/model/capability 不匹配、离线或未注册） |
+
+单 Worker 时仍走原来的直接派工路径，不引入额外排队或过滤。Worker 配置新增
+`costClass`（low/mid/high）和可选的 `capabilities`（promptInjection/skills/mcp/
+permissions/streaming/steer/fork）；这些是 Worker 自报的筛选信息，**不是** Master 能
+远程强制的权限：sandbox/approval 仍由 Worker 本机 DSH profile 决定，见 §7 和
+[deploy.md](deploy.md) §2.4。
+
+观测：
+
+```bash
+curl -s https://<master>/gethen/workers   # 每个 worker 的注册/health/load
+curl -s https://<master>/health           # 额外含 workerDetails
+# DSH 形态：gethen_status 返回 workers 计数与 workerDetails
+```
+
 ## 5. 验证
 
 ```bash

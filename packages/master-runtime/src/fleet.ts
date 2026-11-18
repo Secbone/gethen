@@ -223,7 +223,7 @@ export class WorkerDirectory {
     });
   }
 
-  /** Connected + registered Workers (the number `/health.workers` reports). */
+  /** Connected Workers that have registered (a subset of transport sessions). */
   onlineCount(): number {
     return this.snapshots().filter((snapshot) => snapshot.registered && snapshot.connected).length;
   }
