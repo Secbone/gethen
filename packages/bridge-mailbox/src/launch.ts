@@ -488,7 +488,10 @@ export function createMailboxLaunchPort(options: MailboxLaunchOptions): MailboxL
     const temp = `${file}.tmp`;
     try {
       mkdirSync(dirname(file), { recursive: true });
-      writeFileSync(temp, `${JSON.stringify(records, null, 2)}\n`, "utf8");
+      writeFileSync(temp, `${JSON.stringify(records, null, 2)}\n`, {
+        encoding: "utf8",
+        mode: 0o600,
+      });
       renameSync(temp, file);
     } catch {
       // Best effort: the in-memory map still serves this process.

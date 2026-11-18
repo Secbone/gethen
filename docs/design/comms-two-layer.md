@@ -349,7 +349,11 @@ interface TaskState { assignmentId; phase; step; lastTool?: {name,startedAt};
 - Worker 的阻塞 escalation 在无人自动回答时由 bridge `park()`：**launch 立即返回 `waiting`**（gethen_run 不会一直挂着），但 pending 保留；
 - Master 通过 `gethen_escalations` / `gethen_status.escalations` 看到 parked 记录；
 - `gethen_task action:"answer"` / `gethen task answer` / `POST /gethen/tasks/:id/answer` 发送 resolution；
-- Worker 恢复执行后发 late result，runtime 的 `onLateResult` 更新 Ticket 的 `latestReport`、清 Attention 并落最终 receipt；期间 late progress/ask 仍可用。
+- Worker 恢复执行后发 late result，runtime 的 `onLateResult` 更新 Ticket 的 `latestReport`、清 Attention 并落最终 receipt；期间 late progress/ask 仍可用；
+- parked/pending 的 launch 快照（request、escalation、ask、state）落在
+  `<dbPath>.pending.json`（与 Master sqlite 同目录，可配置 `pendingStateFile`）：
+  Master 重启后会恢复 pending，仍可用同一条 answer 推进，late result 也照常结算；
+  launch/ask/answer/result/close 时以原子 rename 重写，写入失败只降级为进程内状态。
 
 ### 结果读取一致性
 
