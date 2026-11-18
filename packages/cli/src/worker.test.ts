@@ -365,6 +365,19 @@ describe("worker hello registration", () => {
     }
   });
 
+  it("carries workspaceMap/defaultWorkspace in the manifest", () => {
+    const config = parseWorkerConfig([
+      ...base,
+      "--workspace-map",
+      '{"/srv/projects":"/home/me/projects"}',
+      "--default-workspace",
+      "/home/me/default",
+    ]);
+    const manifest = workerManifest(config);
+    expect(manifest.workspaceMap).toEqual({ "/srv/projects": "/home/me/projects" });
+    expect(manifest.defaultWorkspace).toBe("/home/me/default");
+  });
+
   it("rejects unknown cost classes and capability values at startup", () => {
     expect(() => parseWorkerConfig([...base, "--cost-class", "free"])).toThrow(/costClass/);
     const dir = mkdtempSync(join(tmpdir(), "gethen-worker-"));

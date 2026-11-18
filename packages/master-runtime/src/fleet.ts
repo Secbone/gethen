@@ -109,6 +109,8 @@ export interface WorkerSnapshot {
   capabilities?: WorkerCapabilities;
   costClass?: WorkerManifest["costClass"];
   build?: WorkerBuild;
+  workspaceMap?: Record<string, string>;
+  defaultWorkspace?: string;
   load: { running: number; quota: number };
   lastHeartbeatAt?: string;
   /** Assignment ids currently dispatched to this Worker. */
@@ -249,7 +251,11 @@ export class WorkerDirectory {
     requirement: TaskRequirement,
     evidence: EvidenceMap = {},
     reuseWorker?: string,
-    build?: { rejectStaleWorkers?: boolean; expectedBuildCommit?: string },
+    build?: {
+      rejectStaleWorkers?: boolean;
+      expectedBuildCommit?: string;
+      preferredWorkspace?: string;
+    },
   ): RoutePlan {
     return planTaskRoute(this.manifests(), requirement, evidence, {
       ...(this.preferWorker === undefined ? {} : { prefer: this.preferWorker }),
@@ -260,6 +266,9 @@ export class WorkerDirectory {
       ...(build?.expectedBuildCommit === undefined
         ? {}
         : { expectedBuildCommit: build.expectedBuildCommit }),
+      ...(build?.preferredWorkspace === undefined
+        ? {}
+        : { preferredWorkspace: build.preferredWorkspace }),
     });
   }
 
@@ -280,6 +289,10 @@ export class WorkerDirectory {
         ...(manifest === undefined ? {} : { capabilities: manifest.capabilities }),
         ...(manifest === undefined ? {} : { costClass: manifest.costClass }),
         ...(manifest?.build === undefined ? {} : { build: manifest.build }),
+        ...(manifest?.workspaceMap === undefined ? {} : { workspaceMap: manifest.workspaceMap }),
+        ...(manifest?.defaultWorkspace === undefined
+          ? {}
+          : { defaultWorkspace: manifest.defaultWorkspace }),
         load: manifest?.load ?? { running: entry.active.size, quota: 0 },
         ...(entry.lastHeartbeatAt === undefined ? {} : { lastHeartbeatAt: entry.lastHeartbeatAt }),
         active: entry.active.size,
@@ -409,6 +422,7 @@ export function createRoutedLaunchPort(options: RoutedLaunchPortOptions): Routed
       ...(options.expectedBuildCommit === undefined
         ? {}
         : { expectedBuildCommit: options.expectedBuildCommit }),
+      ...(requirement.workspace === undefined ? {} : { preferredWorkspace: requirement.workspace }),
     };
     // 1. Hard filters + stale filter for the requested workspace.
     const plan = directory.plan(requirement, evidence, reuseWorker, build);

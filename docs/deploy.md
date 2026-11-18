@@ -316,6 +316,8 @@ CLI 从 mailbox 的 `gethen.task.status.result` 取真实 report。若 mailbox �
 | `workspaces` | 建议 | 旧版工作区绝对路径；与 `workstreams` 二选一，缺省为启动目录 |
 | `workstreams` | 推荐 | 逻辑 workstream 声明（`id/repo/root?/base?/remote?/isolation?`），见 §2.2 |
 | `workspaceRoot` | 可选 | Worker 拥有的 worktree/clone 父目录；默认 `<stateDir>/workstreams/<workerId>` |
+| `defaultWorkstream` | 可选 | 请求 workspace 未声明时使用的 workstream id（软回退执行目录） |
+| `defaultWorkspace` | 可选 | 请求 workspace 未声明时使用的绝对目录（无 defaultWorkstream 时） |
 | `machine` | ❌ | hello 中的机器名；缺省 `os.hostname()` |
 | `quota` | ❌ | 并发 assignment 上限，默认 `1` |
 | `dshCommand` / `dshArgs` | ❌ | 默认 `GETHEN_DSH`/`dsh`、`["--profile","sdk"]` |
@@ -360,8 +362,14 @@ worktree，绝不写 Master 的仓库：
   `failed`。
 - Worker 在任务提示后追加 `[GETHEN-DELIVERY]`，要求报告写明 commit、测试命令与结果、
   风险；验证后的证据追加到 `summary` 的 `delivery:` 行。
-- 配置了 `workstreams` 后，未映射的绝对路径会被拒绝（`WORKSTREAM_NOT_OWNED`）；
-  旧部署仍可用 `workspaces`/`workspaceMap`，但不再具备默认隔离。
+- Worker 解析顺序：精确 workstream → `workspaceMap` → `defaultWorkstream` →
+  `defaultWorkspace` → 旧 `workspaces`/cwd → 快速 failed。配置了 `workstreams` 后，
+  未映射的绝对路径不再静默落到 cwd，会返回清晰的 `WORKSTREAM_UNKNOWN`/`WORKSTREAM_NOT_OWNED`。
+- `defaultWorkstream` 适合软回退：当 Master 派来的 workspace 不在本机声明中时，在指定
+  workstream 的 worktree 里执行；`defaultWorkspace` 适合固定目录。两者都没有且无映射时，
+  任务会快速失败而不是挂到超时。
+- manifest 上报 `workspaceMap`/`defaultWorkspace`，Master 在 `allowWorkspaceFallback` 时
+  优先选能映射目标 workspace 的 Worker。
 
 ### 2.3 运行要求
 

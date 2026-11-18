@@ -66,6 +66,8 @@ export interface RouteOptions {
   rejectStaleWorkers?: boolean;
   /** Master's expected build commit; `unknown` is treated as unset. */
   expectedBuildCommit?: string;
+  /** Original workspace, used to prefer Workers that can map/default it. */
+  preferredWorkspace?: string;
 }
 
 export interface RouteResult {
@@ -123,10 +125,20 @@ export function rejectReason(
 function affinityOf(
   manifest: WorkerManifest,
   requirement: TaskRequirement,
+  preferredWorkspace?: string,
 ): { score: number; reason?: RouteReason } {
   if (requirement.workspace !== undefined) {
     const match = manifest.workspaces.some((workspace) => workspace.id === requirement.workspace);
     if (match) return { score: 1, reason: { code: "workspace-affinity" } };
+  }
+  if (
+    preferredWorkspace !== undefined &&
+    manifest.workspaceMap?.[preferredWorkspace] !== undefined
+  ) {
+    return { score: 0.9, reason: { code: "workspace-map-affinity" } };
+  }
+  if (preferredWorkspace !== undefined && manifest.defaultWorkspace !== undefined) {
+    return { score: 0.5, reason: { code: "default-workspace-affinity" } };
   }
   if (requirement.repo !== undefined) {
     const match = manifest.workspaces.some((workspace) => workspace.repo === requirement.repo);
@@ -181,7 +193,7 @@ export function routeWorkers(
       rejected.push({ worker: manifest.id, reason });
       continue;
     }
-    const affinity = affinityOf(manifest, requirement);
+    const affinity = affinityOf(manifest, requirement, options.preferredWorkspace);
     const evidenceScore = evidenceOf(manifest, requirement, evidence);
     const load = loadOf(manifest);
     const preferred = options.prefer === manifest.id;

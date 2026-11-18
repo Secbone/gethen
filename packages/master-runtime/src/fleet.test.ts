@@ -265,6 +265,38 @@ describe("createRoutedLaunchPort", () => {
     await launched;
   });
 
+  it("prefers a fallback Worker that can map the requested workspace", async () => {
+    const directory = new WorkerDirectory(["worker-map", "worker-default"]);
+    directory.register(
+      manifest("worker-map", "/other", {
+        workspaceMap: { "/srv/projects": "/home/worker/projects" },
+      }),
+      AT,
+    );
+    directory.register(
+      manifest("worker-default", "/other2", { defaultWorkspace: "/home/worker/default" }),
+      AT,
+    );
+    const mapped = deferredPort();
+    const fallback = deferredPort();
+    const plans: string[] = [];
+    const port = createRoutedLaunchPort({
+      directory,
+      ports: new Map([
+        ["worker-map", mapped.port],
+        ["worker-default", fallback.port],
+      ]),
+      routing: { allowWorkspaceFallback: true },
+      onRoute: (_request, plan) => plans.push(plan.reason),
+    });
+    const launched = port.launch(request("assignment-map-affinity", "/srv/projects"));
+    expect(mapped.calls).toHaveLength(1);
+    expect(fallback.calls).toHaveLength(0);
+    expect(plans[0]).toContain("workspace-fallback:");
+    mapped.calls[0]?.resolve(result("worker-map"));
+    await launched;
+  });
+
   it("parks with stale-build:all when every candidate is stale", async () => {
     const directory = new WorkerDirectory(["worker-a", "worker-b"]);
     directory.register(manifest("worker-a", "/ws", { build: { commit: "old" } }), AT);

@@ -7,6 +7,7 @@ import { createSdkHarnessExecutor } from "@gethen/executor-sdk";
 import { createMailboxClientLink, type MailboxClientLink } from "@gethen/mailbox-link";
 import { createWsTransport, type TransportSession } from "@gethen/transport";
 import {
+  assertWorkstreamId,
   isFilesystemPath,
   parseWorkerManifest,
   type WorkerCapabilities,
@@ -48,6 +49,10 @@ export interface WorkerConfig {
   dnsOverrides?: Record<string, string>;
   /** Master-side workspace path → local path (cross-machine workers). */
   workspaceMap?: Record<string, string>;
+  /** Default directory used when the requested workspace is not owned/mapped. */
+  defaultWorkspace?: string;
+  /** Default workstream id used when the requested workspace is not owned/mapped. */
+  defaultWorkstream?: string;
   /** Per-JSON-RPC timeout for the DSH SDK session (default 10 minutes). */
   requestTimeoutMs?: number;
   /** Process model: shared workspace runtime (default) or one runtime per assignment. */
@@ -99,6 +104,10 @@ interface WorkerConfigFile {
   dnsOverrides?: Record<string, string>;
   /** Master-side workspace path → local path (cross-machine workers). */
   workspaceMap?: Record<string, string>;
+  /** Default directory used when the requested workspace is not owned/mapped. */
+  defaultWorkspace?: string;
+  /** Default workstream id used when the requested workspace is not owned/mapped. */
+  defaultWorkstream?: string;
   /** Per-JSON-RPC timeout for the DSH SDK session (default 10 minutes). */
   requestTimeoutMs?: number;
   /** Process model: shared workspace runtime (default) or one runtime per assignment. */
@@ -165,6 +174,18 @@ export function parseWorkerConfig(argv: string[], options: WorkerConfigOptions =
     process.env.GETHEN_FORCE_APPROVAL === "1";
   const workstreams = parseWorkstreams(file.workstreams);
   const workspaceRoot = flagValue(argv, "--workspace-root") ?? file.workspaceRoot;
+  const defaultWorkspace = flagValue(argv, "--default-workspace") ?? file.defaultWorkspace;
+  const defaultWorkstream = flagValue(argv, "--default-workstream") ?? file.defaultWorkstream;
+  if (defaultWorkspace !== undefined && !isAbsolute(defaultWorkspace)) {
+    throw new Error("worker config: defaultWorkspace must be an absolute path");
+  }
+  if (defaultWorkstream !== undefined) {
+    try {
+      assertWorkstreamId(defaultWorkstream);
+    } catch (error) {
+      throw new Error(`worker config: ${messageOf(error)}`);
+    }
+  }
   if (workspaceRoot !== undefined && !isAbsolute(workspaceRoot)) {
     throw new Error("worker config: workspaceRoot must be an absolute path");
   }
@@ -188,6 +209,8 @@ export function parseWorkerConfig(argv: string[], options: WorkerConfigOptions =
           : [],
     ...(workstreams === undefined ? {} : { workstreams }),
     ...(workspaceRoot === undefined ? {} : { workspaceRoot }),
+    ...(defaultWorkspace === undefined ? {} : { defaultWorkspace }),
+    ...(defaultWorkstream === undefined ? {} : { defaultWorkstream }),
     ...(machine === undefined ? {} : { machine }),
     ...(quota === undefined ? {} : { quota }),
     ...(file.dshCommand === undefined ? {} : { dshCommand: file.dshCommand }),
@@ -398,6 +421,8 @@ export function workerManifest(
     load: { running: 0, quota: config.quota ?? 1 },
     health: { state: "online" as const, lastHeartbeatAt: at },
     build: workerBuild(),
+    ...(config.workspaceMap === undefined ? {} : { workspaceMap: config.workspaceMap }),
+    ...(config.defaultWorkspace === undefined ? {} : { defaultWorkspace: config.defaultWorkspace }),
   };
   const parsed = parseWorkerManifest(manifest);
   if (!parsed.ok) throw new Error(`worker registration is invalid: ${parsed.reason}`);
@@ -498,14 +523,32 @@ async function runMailboxWorker(config: WorkerConfig): Promise<number> {
       assertOwnedWorkspace(workspace, undefined);
     }
     if (mapped !== undefined && existsSync(mapped)) return mapped;
+    if (config.defaultWorkstream !== undefined) {
+      const fallback = preparedFor(config.defaultWorkstream);
+      if (fallback !== undefined) {
+        process.stderr.write(
+          `worker: workspace "${workspace}" unavailable; using default workstream ` +
+            `"${config.defaultWorkstream}" at ${fallback.path}\n`,
+        );
+        return fallback.path;
+      }
+    }
+    if (config.defaultWorkspace !== undefined && existsSync(config.defaultWorkspace)) {
+      process.stderr.write(
+        `worker: workspace "${workspace}" unavailable; using default workspace ` +
+          `"${config.defaultWorkspace}"\n`,
+      );
+      return config.defaultWorkspace;
+    }
     if (existsSync(workspace)) return workspace;
     const configured = config.workspaces.find((candidate) => existsSync(candidate));
-    const fallback = configured ?? process.cwd();
-    process.stderr.write(
-      `worker: workspace "${workspace}" -> "${mapped ?? workspace}" does not exist; ` +
-        `using "${fallback}"\n`,
+    if (configured !== undefined) return configured;
+    if (workstreamConfigs.size === 0) return process.cwd();
+    throw new WorkstreamError(
+      "WORKSTREAM_UNKNOWN",
+      `workspace "${workspace}" is not owned or mapped by this Worker and no ` +
+        "defaultWorkspace/defaultWorkstream is configured",
     );
-    return fallback;
   }
 
   const baseHarness = createSdkHarnessExecutor({
@@ -766,6 +809,8 @@ function configFile(argv: string[]): WorkerConfigFile {
   const quota = optionalNumber(parsed, "quota");
   const dnsOverrides = parsed.dnsOverrides;
   const workspaceMap = parsed.workspaceMap;
+  const defaultWorkspace = optionalString(parsed, "defaultWorkspace");
+  const defaultWorkstream = optionalString(parsed, "defaultWorkstream");
   const requestTimeoutMs = optionalNumber(parsed, "requestTimeoutMs");
   const isolation = optionalString(parsed, "isolation");
   const stateDir = optionalString(parsed, "stateDir");
@@ -786,6 +831,8 @@ function configFile(argv: string[]): WorkerConfigFile {
   if (quota !== undefined) file.quota = quota;
   if (dnsOverrides !== undefined) file.dnsOverrides = dnsOverrides as Record<string, string>;
   if (workspaceMap !== undefined) file.workspaceMap = workspaceMap as Record<string, string>;
+  if (defaultWorkspace !== undefined) file.defaultWorkspace = defaultWorkspace;
+  if (defaultWorkstream !== undefined) file.defaultWorkstream = defaultWorkstream;
   if (requestTimeoutMs !== undefined) file.requestTimeoutMs = requestTimeoutMs;
   if (isolation !== undefined) file.isolation = isolation as "shared" | "process";
   if (stateDir !== undefined) file.stateDir = stateDir;

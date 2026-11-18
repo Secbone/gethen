@@ -52,6 +52,10 @@ export interface WorkerManifest {
   health: { state: WorkerHealth; lastHeartbeatAt: string; detail?: string };
   /** Build identity; absent on older Workers. */
   build?: WorkerBuild;
+  /** Master path -> Worker-local path mapping, for soft workspace fallback. */
+  workspaceMap?: Record<string, string>;
+  /** Default directory a Worker uses when the requested workspace is absent. */
+  defaultWorkspace?: string;
 }
 
 /** One Assignment sent to a Worker. */

@@ -112,6 +112,18 @@ export function parseWorkerManifest(value: unknown): WorkerManifestResult {
   if (typeof quota !== "number" || !Number.isInteger(quota) || quota < 0)
     return { ok: false, reason: "worker.load.quota must be a non-negative integer" };
 
+  const workspaceMap: Record<string, string> = {};
+  if (value.workspaceMap !== undefined) {
+    if (!isRecord(value.workspaceMap))
+      return { ok: false, reason: "worker.workspaceMap must be an object" };
+    for (const [from, to] of Object.entries(value.workspaceMap)) {
+      if (typeof to !== "string" || to.length === 0)
+        return { ok: false, reason: `worker.workspaceMap["${from}"] must be a non-empty string` };
+      workspaceMap[from] = to;
+    }
+  }
+  if (value.defaultWorkspace !== undefined && typeof value.defaultWorkspace !== "string")
+    return { ok: false, reason: "worker.defaultWorkspace must be a string" };
   let build: WorkerBuild | undefined;
   if (value.build !== undefined) {
     if (!isRecord(value.build)) return { ok: false, reason: "worker.build must be an object" };
@@ -153,6 +165,8 @@ export function parseWorkerManifest(value: unknown): WorkerManifestResult {
         ...(value.health.detail === undefined ? {} : { detail: value.health.detail }),
       },
       ...(build === undefined ? {} : { build }),
+      ...(Object.keys(workspaceMap).length === 0 ? {} : { workspaceMap }),
+      ...(value.defaultWorkspace === undefined ? {} : { defaultWorkspace: value.defaultWorkspace }),
     },
   };
 }
