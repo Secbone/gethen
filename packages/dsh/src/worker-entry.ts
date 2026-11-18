@@ -133,6 +133,19 @@ function isReportKind(value: unknown): value is ReportKindLike {
 }
 
 /**
+ * DSH's tool context exposes `concludeTurn()`: marking a successful result as
+ * terminal makes the agent loop stop after committing the result instead of
+ * waiting for another model step. A report is the last thing an Assignment
+ * does, so without this the session can sit in `thinking` with the report tool
+ * still shown as the last call. Older hosts pass a plain `{}`; stay compatible.
+ */
+function markTurnConcluded(exec: unknown): void {
+  if (typeof exec !== "object" || exec === null) return;
+  const conclude = (exec as { concludeTurn?: unknown }).concludeTurn;
+  if (typeof conclude === "function") (conclude as () => void).call(exec);
+}
+
+/**
  * Mount the Worker-role tools. The Worker talks to the Master only through the
  * rendered blocks; the plugin holds no state and needs no service.
  */
@@ -235,7 +248,7 @@ export function applyWorker(ctx: WorkerDshContext, config: WorkerConfig = {}): v
       schema: objectSchema({ text: { type: "string" } }, ["text"]),
       render: (_args, value) => text(value),
     },
-    async execute(raw) {
+    async execute(raw, exec) {
       const args = raw as { kind?: unknown; summary?: unknown; question?: unknown };
       if (!isReportKind(args.kind)) {
         throw new Error(`report "kind" must be one of: ${REPORT_KINDS.join(", ")}`);
@@ -248,7 +261,11 @@ export function applyWorker(ctx: WorkerDshContext, config: WorkerConfig = {}): v
       if (typeof args.question === "string" && args.question.trim().length > 0) {
         report.question = args.question;
       }
-      return { text: buildReportText(report) };
+      const block = buildReportText(report);
+      // Only a successful report concludes the turn; a validation/build error
+      // above propagates as a failed tool call and never marks the turn done.
+      markTurnConcluded(exec);
+      return { text: block };
     },
   });
 }

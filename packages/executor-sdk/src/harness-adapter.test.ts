@@ -359,6 +359,36 @@ describe("session events and reports", () => {
     expect(last.sink.reports).toEqual([{ kind: "waiting", summary: "second" }]);
   });
 
+  it("settles a gethen_report tool result even without a trailing turn/end", async () => {
+    const { client, sink, executor } = setup();
+    const execution = await executor.start(task(), sink);
+    client.emitSessionEvent("a1", "tool/call", {
+      turn: 1,
+      step: 1,
+      callId: "call-report",
+      name: "gethen_report",
+      arguments: "{}",
+    });
+    client.emitSessionEvent("a1", "tool/result", {
+      turn: 1,
+      step: 1,
+      message: {
+        role: "tool",
+        toolCallId: "call-report",
+        content: [
+          { type: "text", text: reportBlock({ kind: "ready", summary: "reported", at: AT }) },
+        ],
+      },
+    });
+    await tick();
+
+    expect(sink.reports).toEqual([{ kind: "ready", summary: "reported" }]);
+    expect(execution.state?.()).toMatchObject({
+      phase: "done",
+      lastTool: { name: "gethen_report" },
+    });
+  });
+
   it("decodes JSON-encoded tool results that contain a report block", async () => {
     const encoded = setup();
     await encoded.executor.start(task(), encoded.sink);

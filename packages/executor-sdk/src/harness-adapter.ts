@@ -261,6 +261,8 @@ interface ExecutionState {
   lastTool: { name: string; startedAt: string } | undefined;
   /** A tool call started and has not produced its result yet. */
   toolInFlight: boolean;
+  /** Tool name by call id, so a report tool result can be recognized. */
+  toolNames: Map<string, string>;
   lastEventAt: string;
   lastMessage: string | undefined;
   seq: number;
@@ -346,6 +348,7 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
       step: 0,
       lastTool: undefined,
       toolInFlight: false,
+      toolNames: new Map(),
       lastEventAt: this.now().toISOString(),
       lastMessage: undefined,
       seq: 0,
@@ -679,6 +682,8 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
         const name = typeof data.name === "string" && data.name.length > 0 ? data.name : "tool";
         state.lastTool = { name, startedAt: state.lastEventAt };
         state.toolInFlight = true;
+        const callId = typeof data.callId === "string" ? data.callId : undefined;
+        if (callId !== undefined) state.toolNames.set(callId, name);
         return;
       }
       case "tool/result":
@@ -1091,7 +1096,24 @@ class DshHarnessExecutor implements SdkHarnessExecutor {
     scanEvent(state, notification.event);
     this.applyEventToState(state, notification.event);
     this.resetWatchdog(state);
-    if (eventTypeOf(notification.event) === "turn/end") this.onTurnEnd(state);
+    const type = eventTypeOf(notification.event);
+    // A gethen_report result is terminal by construction. Settle here even if
+    // the host never emits turn/end, so a missing event cannot leave the task
+    // in `thinking` until the Master's 15s reconciliation notices the report.
+    if (type === "tool/result" && this.concludingReportResult(state, notification.event)) {
+      this.finish(state, this.reportFor(state));
+      return;
+    }
+    if (type === "turn/end") this.onTurnEnd(state);
+  }
+
+  /** True when this tool result belongs to gethen_report and carries a report. */
+  private concludingReportResult(state: ExecutionState, event: unknown): boolean {
+    if (state.reportTexts.length === 0) return false;
+    const data = asRecord(asRecord(event)?.data);
+    const message = asRecord(data?.message);
+    const callId = typeof message?.toolCallId === "string" ? message.toolCallId : undefined;
+    return callId !== undefined && state.toolNames.get(callId) === "gethen_report";
   }
 
   private onSessionStatus(state: ExecutionState, notification: SessionStatusNotification): void {

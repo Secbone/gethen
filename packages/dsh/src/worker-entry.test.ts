@@ -177,6 +177,24 @@ describe("gethen worker entry", () => {
     expect(new Date(String(body.at)).toISOString()).toBe(body.at);
   });
 
+  it("concludes the turn when a report is accepted", async () => {
+    const { ctx, tools } = context();
+    applyWorker(ctx);
+    let concluded = 0;
+    const report = tool(tools, "gethen_report");
+    await report.execute(
+      { kind: "ready", summary: "done" },
+      { concludeTurn: () => (concluded += 1) },
+    );
+    expect(concluded).toBe(1);
+    // A rejected report must not mark the turn concluded; the failure has to
+    // reach the model/agent loop instead.
+    await expect(
+      report.execute({ kind: "finished", summary: "x" }, { concludeTurn: () => (concluded += 1) }),
+    ).rejects.toThrow(/kind/);
+    expect(concluded).toBe(1);
+  });
+
   it("passes every report kind and the optional question through", async () => {
     const { ctx, tools } = context();
     applyWorker(ctx);
