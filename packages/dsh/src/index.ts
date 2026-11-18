@@ -226,6 +226,8 @@ interface ToolDeps {
   runWaitMs?: number;
   /** Durable wake notifications, shared with the notifier / gethen_wait. */
   notifications?: MasterRuntime["notifications"];
+  /** Workspace recorded on dispatched assignments so the router can match it. */
+  workspace?: string;
 }
 
 /**
@@ -414,7 +416,11 @@ function registerTools(ctx: DshContext, deps: ToolDeps): void {
         addressed: "mention",
         text: args.text,
         at: new Date().toISOString(),
-        meta: { scope: "local", session: JSON.stringify(session) },
+        meta: {
+          scope: "local",
+          session: JSON.stringify(session),
+          ...(deps.workspace === undefined ? {} : { workspace: deps.workspace }),
+        },
       };
       const result = await service.submit(trigger);
       const created = service.store.tickets.list().find((item) => !before.has(item.id));
@@ -635,6 +641,7 @@ export function apply(ctx: DshContext, config: GethenConfig = {}): void {
     mailbox: () => (mounted.launch === "ws" ? mounted.health().mailbox : undefined),
     tasks: mounted.tasks,
     notifications: mounted.notifications,
+    workspace: config.ws?.workspace ?? process.cwd(),
     ...(config.runWaitMs === undefined ? {} : { runWaitMs: config.runWaitMs }),
   });
   ctx.effect?.(() => () => {
