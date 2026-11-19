@@ -789,7 +789,10 @@ class MailboxAgentImpl implements MailboxAgent {
         assignmentId: task.assignmentId,
         envelope,
       });
-      if (message.attempts >= this.maxAttempts) {
+      // Workspace resolution errors are deterministic configuration errors;
+      // retrying the same dispatch cannot change them. Fail the assignment on
+      // the first attempt instead of consuming maxAttempts.
+      if (isWorkspaceResolutionError(error) || message.attempts >= this.maxAttempts) {
         this.finishExecution(entry, {
           kind: "failed",
           summary: `harness failed to start: ${messageOf(error)}`,
@@ -1560,6 +1563,10 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function isWorkspaceResolutionError(error: unknown): boolean {
+  return /WORKSTREAM_(UNKNOWN|NOT_OWNED|CONFIG)/.test(messageOf(error));
 }
 
 function messageOf(error: unknown): string {

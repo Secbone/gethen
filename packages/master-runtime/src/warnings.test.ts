@@ -66,6 +66,15 @@ describe("runtimeWarnings", () => {
     expect(warnings.map((warning) => warning.code)).toContain("worker_version_mismatch");
   });
 
+  it("reports stale heartbeats separately from offline Workers", () => {
+    const warnings = runtimeWarnings({
+      ...healthy,
+      workers: [worker("w1", true, "stale")],
+    });
+    expect(warnings.map((warning) => warning.code)).toContain("worker_stale");
+    expect(warnings.map((warning) => warning.code)).not.toContain("worker_offline");
+  });
+
   it("honours configured thresholds and ignores unregistered workers", () => {
     expect(
       runtimeWarnings(

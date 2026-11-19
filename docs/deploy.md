@@ -226,8 +226,13 @@ agent 用 `gethen_run` 工具派活，`/gethen/worker` 由 DSH 的 webServer 托
 `GET /health`、`gethen_status`、`gethen_task action=status` 返回：
 
 - `warnings: []`：非零退化项。默认阈值为 1，可用 `warnings` 配置项调整；当前覆盖
-  `recovered_without_report`、`mailbox_dead`、`worker_offline`、`queue_timeout`、
-  `worker_version_mismatch`。
+  `recovered_without_report`、`mailbox_dead`、`worker_offline`、`worker_stale`、
+  `queue_timeout`、`worker_version_mismatch`；阈值键分别为
+  `recoveredWithoutReport`/`mailboxDead`/`offlineWorkers`/`staleWorkers`/`queueTimeouts`/
+  `workerVersionMismatch`。
+- 心跳：`heartbeatStaleMs`（默认 90000，0 关闭）内没有新 heartbeat 的已注册 Worker 显示
+  `health="stale"` 并触发 `worker_stale`；默认仅告警，`routing.rejectStaleHealth: true`
+  才会把 stale 视为不可用（reason `stale-health`）。
 - `settlements`：`directCompleted` / `recoveredCompleted` / `recoveredWithoutReport` /
   `lateCompleted`（超时或 waiting 后迟到结果回写成功的次数）。
 - `scheduling`：队列/运行/复用/超时计数。
@@ -399,6 +404,9 @@ Group=gethen
 WorkingDirectory=/home/gethen
 Environment=GETHEN_DSH=/usr/local/bin/dsh
 EnvironmentFile=-/etc/gethen/worker.env   # 例: OPENCODE_API_KEY=...
+Environment=GETHEN_BUILD_COMMIT=9055d93
+Environment=GETHEN_BUILT_AT=2026-11-19T00:00:00Z
+Environment=GETHEN_BUILD_BUNDLE=/root/workspace/.gethen-edge/dsh-build/worker.js
 ExecStart=/usr/local/bin/gethen worker --config /etc/gethen/worker.json
 Restart=always
 RestartSec=5

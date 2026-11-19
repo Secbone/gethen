@@ -57,6 +57,8 @@ export interface RoutingOptions {
   queuePollMs?: number;
   /** Reject Workers whose build commit differs from the Master's expected commit. */
   rejectStaleWorkers?: boolean;
+  /** Treat stale heartbeat Workers as unavailable; default false. */
+  rejectStaleHealth?: boolean;
   /**
    * When no Worker advertises the requested workspace, route to the best
    * otherwise-eligible Worker instead of parking. Default false (strict
@@ -130,12 +132,28 @@ export class WorkerDirectory {
   private readonly entries = new Map<string, WorkerEntry>();
   private readonly sessions = new Map<string, string>();
   private readonly preferWorker: string | undefined;
+  private readonly staleAfterMs: number;
+  private readonly now: () => Date;
 
-  constructor(workerIds: readonly string[] = [], options: { preferWorker?: string } = {}) {
+  constructor(
+    workerIds: readonly string[] = [],
+    options: { preferWorker?: string; staleAfterMs?: number; now?: () => Date } = {},
+  ) {
     for (const workerId of workerIds) {
       if (workerId.length > 0) this.entries.set(workerId, emptyEntry());
     }
     this.preferWorker = options.preferWorker;
+    this.staleAfterMs = options.staleAfterMs ?? 90_000;
+    this.now = options.now ?? (() => new Date());
+  }
+
+  /** Derive liveness from the last heartbeat; explicit offline wins. */
+  private healthOf(manifest: WorkerManifest): WorkerHealth {
+    if (manifest.health.state === "offline") return "offline";
+    if (this.staleAfterMs <= 0) return manifest.health.state;
+    const at = Date.parse(manifest.health.lastHeartbeatAt);
+    if (!Number.isFinite(at)) return "stale";
+    return this.now().getTime() - at > this.staleAfterMs ? "stale" : manifest.health.state;
   }
 
   /** Configured Workers, in id order. */
@@ -203,7 +221,11 @@ export class WorkerDirectory {
   manifests(): WorkerManifest[] {
     return this.knownIds()
       .map((workerId) => this.entries.get(workerId)?.manifest)
-      .filter((manifest): manifest is WorkerManifest => manifest !== undefined);
+      .filter((manifest): manifest is WorkerManifest => manifest !== undefined)
+      .map((manifest) => ({
+        ...manifest,
+        health: { ...manifest.health, state: this.healthOf(manifest) },
+      }));
   }
 
   /** Account one dispatch against a Worker's quota. */
@@ -253,6 +275,8 @@ export class WorkerDirectory {
     reuseWorker?: string,
     build?: {
       rejectStaleWorkers?: boolean;
+      /** Treat stale heartbeat Workers as unavailable; default false. */
+      rejectStaleHealth?: boolean;
       expectedBuildCommit?: string;
       preferredWorkspace?: string;
     },
@@ -263,6 +287,9 @@ export class WorkerDirectory {
       ...(build?.rejectStaleWorkers === undefined
         ? {}
         : { rejectStaleWorkers: build.rejectStaleWorkers }),
+      ...(build?.rejectStaleHealth === undefined
+        ? {}
+        : { rejectStaleHealth: build.rejectStaleHealth }),
       ...(build?.expectedBuildCommit === undefined
         ? {}
         : { expectedBuildCommit: build.expectedBuildCommit }),
@@ -281,7 +308,7 @@ export class WorkerDirectory {
         id: workerId,
         registered: manifest !== undefined,
         connected: entry.connected,
-        health: manifest?.health.state ?? "offline",
+        health: manifest === undefined ? "offline" : this.healthOf(manifest),
         ...(manifest === undefined ? {} : { machine: manifest.machine }),
         ...(manifest === undefined ? {} : { runtime: manifest.runtime }),
         workspaces: manifest?.workspaces ?? [],
@@ -395,6 +422,9 @@ export function createRoutedLaunchPort(options: RoutedLaunchPortOptions): Routed
     if (snapshot === undefined || !snapshot.registered || quota <= 0) {
       return { action: "start", worker, reason: "single-worker", route };
     }
+    if (routing.rejectStaleHealth === true && snapshot.health === "stale") {
+      return { action: "park", worker, reason: "stale-health", route };
+    }
     if (
       routing.rejectStaleWorkers === true &&
       options.expectedBuildCommit !== undefined &&
@@ -419,6 +449,9 @@ export function createRoutedLaunchPort(options: RoutedLaunchPortOptions): Routed
       ...(routing.rejectStaleWorkers === undefined
         ? {}
         : { rejectStaleWorkers: routing.rejectStaleWorkers }),
+      ...(routing.rejectStaleHealth === undefined
+        ? {}
+        : { rejectStaleHealth: routing.rejectStaleHealth }),
       ...(options.expectedBuildCommit === undefined
         ? {}
         : { expectedBuildCommit: options.expectedBuildCommit }),

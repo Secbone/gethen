@@ -51,6 +51,8 @@ export interface ServeConfig {
   workspace?: string;
   /** Pack digest recorded for dispatches without one. */
   packDigest?: string;
+  /** Heartbeat age after which a Worker is stale; defaults to 90s (0 disables). */
+  heartbeatStaleMs?: number;
   /** Archive every terminal Ticket after this window (all outcomes). */
   retentionMs?: number;
   /** Close stale ready/failed Tickets after this window (all outcomes). */
@@ -181,6 +183,7 @@ export async function startServe(config: ServeConfig = {}): Promise<ServeHandle>
     workspace: config.workspace ?? DEFAULT_WORKSTREAM,
     ...(config.tokens === undefined ? {} : { tokens: config.tokens }),
     ...(config.packDigest === undefined ? {} : { packDigest: config.packDigest }),
+    ...(config.heartbeatStaleMs === undefined ? {} : { heartbeatStaleMs: config.heartbeatStaleMs }),
     ...(config.retentionMs === undefined ? {} : { retentionMs: config.retentionMs }),
     ...(config.staleCloseMs === undefined ? {} : { staleCloseMs: config.staleCloseMs }),
     ...(config.buildCommit === undefined ? {} : { buildCommit: config.buildCommit }),
@@ -788,6 +791,7 @@ export async function serveCommand(
         "--retention-ms (or GETHEN_RETENTION_MS) archives terminal tickets after n ms\n" +
         "--stale-close-ms (or GETHEN_STALE_CLOSE_MS) closes stale ready/failed tickets\n" +
         "--build-commit (or GETHEN_BUILD_COMMIT) is the expected Worker build\n" +
+        "--heartbeat-stale-ms (or GETHEN_HEARTBEAT_STALE_MS) marks stale workers\n" +
         "--workspace is the logical workstream id dispatched with assignments\n" +
         "(the engine has no per-assignment workspace yet).\n" +
         "--escalation auto|park (default park): park waits for a person (the run\n" +
@@ -829,6 +833,15 @@ export async function serveCommand(
   const retentionFlag = option("--retention-ms") ?? env.GETHEN_RETENTION_MS;
   const staleFlag = option("--stale-close-ms") ?? env.GETHEN_STALE_CLOSE_MS;
   const buildCommit = option("--build-commit") ?? env.GETHEN_BUILD_COMMIT;
+  const heartbeatFlag = option("--heartbeat-stale-ms") ?? env.GETHEN_HEARTBEAT_STALE_MS;
+  let heartbeatStaleMs: number | undefined;
+  if (heartbeatFlag !== undefined) {
+    heartbeatStaleMs = Number(heartbeatFlag);
+    if (!Number.isSafeInteger(heartbeatStaleMs) || heartbeatStaleMs < 0) {
+      writeError("gethen serve: --heartbeat-stale-ms must be a non-negative integer");
+      return 1;
+    }
+  }
   let staleCloseMs: number | undefined;
   if (staleFlag !== undefined) {
     staleCloseMs = Number(staleFlag);
@@ -860,6 +873,7 @@ export async function serveCommand(
       ...(retentionMs === undefined ? {} : { retentionMs }),
       ...(staleCloseMs === undefined ? {} : { staleCloseMs }),
       ...(buildCommit === undefined ? {} : { buildCommit }),
+      ...(heartbeatStaleMs === undefined ? {} : { heartbeatStaleMs }),
     });
   } catch (error) {
     writeError(`gethen serve: ${messageOf(error)}`);

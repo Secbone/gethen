@@ -10,6 +10,7 @@ export type RuntimeWarningCode =
   | "recovered_without_report"
   | "mailbox_dead"
   | "worker_offline"
+  | "worker_stale"
   | "queue_timeout"
   | "worker_version_mismatch";
 
@@ -24,6 +25,7 @@ export interface WarningThresholds {
   recoveredWithoutReport?: number;
   mailboxDead?: number;
   offlineWorkers?: number;
+  staleWorkers?: number;
   queueTimeouts?: number;
   /** Threshold for build-commit skew; defaults to 1 (warn on any skew). */
   workerVersionMismatch?: number;
@@ -75,6 +77,17 @@ export function runtimeWarnings(
       code: "worker_offline",
       count: offlineCount,
       message: `${offlineCount} registered Worker(s) are offline`,
+    });
+  }
+  const staleThreshold = threshold(thresholds.staleWorkers);
+  const staleCount = input.workers.filter(
+    (worker) => worker.registered && worker.health === "stale",
+  ).length;
+  if (staleCount >= staleThreshold) {
+    warnings.push({
+      code: "worker_stale",
+      count: staleCount,
+      message: `${staleCount} registered Worker(s) have stale heartbeats; check liveness`,
     });
   }
   const timeouts = threshold(thresholds.queueTimeouts);

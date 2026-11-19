@@ -144,6 +144,8 @@ export interface GethenConfig {
   notifySession?: string;
   /** Coalesce notification bursts into one wake message (default 50ms). */
   wakeBatchMs?: number;
+  /** Heartbeat age after which a Worker is stale; defaults to 90s (0 disables). */
+  heartbeatStaleMs?: number;
   /** Archive terminal Tickets after this window (all outcomes). */
   retentionMs?: number;
   /** Close stale ready/failed Tickets after this window (all outcomes). */
@@ -646,6 +648,7 @@ export function apply(ctx: DshContext, config: GethenConfig = {}): void {
     policy: DEFAULT_POLICY,
     workspace: ws?.workspace ?? DEFAULT_WORKSTREAM,
     ...(ws?.packDigest === undefined ? {} : { packDigest: ws.packDigest }),
+    ...(config.heartbeatStaleMs === undefined ? {} : { heartbeatStaleMs: config.heartbeatStaleMs }),
     ...(config.retentionMs === undefined ? {} : { retentionMs: config.retentionMs }),
     ...(config.staleCloseMs === undefined ? {} : { staleCloseMs: config.staleCloseMs }),
     ...(config.buildCommit === undefined ? {} : { buildCommit: config.buildCommit }),

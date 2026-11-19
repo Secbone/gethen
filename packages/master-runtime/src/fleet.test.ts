@@ -265,6 +265,31 @@ describe("createRoutedLaunchPort", () => {
     await launched;
   });
 
+  it("derives stale health from the heartbeat age", () => {
+    const directory = new WorkerDirectory(["worker-a"], {
+      staleAfterMs: 1_000,
+      now: () => new Date(Date.parse(AT) + 5_000),
+    });
+    directory.register(manifest("worker-a", "/ws"), AT);
+    expect(directory.snapshots()[0]?.health).toBe("stale");
+    expect(directory.manifests()[0]?.health.state).toBe("stale");
+  });
+
+  it("can reject stale heartbeat Workers when configured", async () => {
+    const directory = new WorkerDirectory(["worker-a"], {
+      staleAfterMs: 1,
+      now: () => new Date(Date.parse(AT) + 5_000),
+    });
+    directory.register(manifest("worker-a", "/ws"), AT);
+    const port = createRoutedLaunchPort({
+      directory,
+      ports: new Map(),
+      routing: { rejectStaleHealth: true },
+    });
+    const outcome = await port.launch(request("assignment-stale-health", "/ws"));
+    expect(outcome.report.summary).toContain("ROUTER_PARKED:stale-health");
+  });
+
   it("prefers a fallback Worker that can map the requested workspace", async () => {
     const directory = new WorkerDirectory(["worker-map", "worker-default"]);
     directory.register(

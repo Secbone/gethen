@@ -481,6 +481,25 @@ describe("MailboxAgent failures and limits", () => {
     await agent.flush();
   });
 
+  it("fails fast on a workspace resolution error instead of retrying", async () => {
+    const { agent, mailbox, harness } = setup({ maxAttempts: 5 });
+    harness.startError = new Error(
+      'WORKSTREAM_NOT_OWNED: workspace "/srv/projects" has no default',
+    );
+    mailbox.enqueue(MAILBOX, assignEnvelope());
+    await agent.runOnce();
+    await agent.flush();
+
+    const result = mailbox.lastSent(MESSAGE_TYPES.result);
+    expect(result?.data).toMatchObject({
+      assignmentId: "a1",
+      kind: "failed",
+      summary: expect.stringContaining("WORKSTREAM_NOT_OWNED"),
+    });
+    expect(mailbox.nacks).toHaveLength(0);
+    expect(agent.active).toBe(0);
+  });
+
   it("retries a failed result send without another inbound message", async () => {
     const { agent, mailbox, harness } = setup({
       retryDelayMs: 10,

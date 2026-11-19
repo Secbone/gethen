@@ -249,6 +249,8 @@ export interface MasterRuntimeOptions {
   staleCloseMs?: number;
   /** Master build commit Workers should match; defaults to GETHEN_BUILD_COMMIT. */
   buildCommit?: string;
+  /** Heartbeat age after which a Worker is stale; defaults to 90s (0 disables). */
+  heartbeatStaleMs?: number;
   /** Poll interval for the master mailbox and link delivery loops. */
   pollIntervalMs?: number;
 }
@@ -328,8 +330,11 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
   );
   const defaultWorkerId = options.workerId ?? (workerIds.length === 1 ? workerIds[0] : undefined);
   const routing: RoutingOptions = options.routing ?? {};
+  const heartbeatStaleMs = options.heartbeatStaleMs ?? 90_000;
   const directory = new WorkerDirectory(workerIds, {
     ...(routing.preferWorker === undefined ? {} : { preferWorker: routing.preferWorker }),
+    staleAfterMs: heartbeatStaleMs,
+    ...(options.now === undefined ? {} : { now: options.now }),
   });
 
   let mailboxStore: SqliteMailboxStore | undefined;

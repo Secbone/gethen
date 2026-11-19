@@ -496,7 +496,11 @@ async function runMailboxWorker(config: WorkerConfig): Promise<number> {
    * refused unless the operator explicitly mapped it: the Worker never writes
    * the Master's repository.
    */
-  function resolveWorkspace(workspace: string): string {
+  const workspaceResolutions = new Map<string, ReturnType<typeof resolveWorkspaceTarget>>();
+
+  function resolveWorkspaceTargetFor(workspace: string): ReturnType<typeof resolveWorkspaceTarget> {
+    const cached = workspaceResolutions.get(workspace);
+    if (cached !== undefined) return cached;
     const options = {
       workstreams: workstreamConfigs.keys(),
       prepare: (id: string): PreparedWorkstream => {
@@ -519,11 +523,12 @@ async function runMailboxWorker(config: WorkerConfig): Promise<number> {
     } as const;
     try {
       const target = resolveWorkspaceTarget(workspace, options);
+      workspaceResolutions.set(workspace, target);
       process.stderr.write(
         `worker: workspace-resolve requested=${target.requested} ` +
           `resolved=${target.resolved} source=${target.source}\n`,
       );
-      return target.resolved;
+      return target;
     } catch (error) {
       process.stderr.write(
         `worker: workspace-resolve requested=${workspace} source=error ` +
@@ -531,6 +536,10 @@ async function runMailboxWorker(config: WorkerConfig): Promise<number> {
       );
       throw error;
     }
+  }
+
+  function resolveWorkspace(workspace: string): string {
+    return resolveWorkspaceTargetFor(workspace).resolved;
   }
 
   const baseHarness = createSdkHarnessExecutor({

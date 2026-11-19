@@ -11,7 +11,7 @@ export type SessionId = string;
 export type TicketId = string;
 export type AssignmentId = string;
 
-export type WorkerHealth = "online" | "degraded" | "offline";
+export type WorkerHealth = "online" | "degraded" | "stale" | "offline";
 export type RuntimeKind = "dsh" | "opencode" | "pi";
 export type CostClass = "low" | "mid" | "high";
 

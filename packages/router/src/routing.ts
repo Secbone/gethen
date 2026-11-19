@@ -68,6 +68,8 @@ export interface RouteOptions {
   expectedBuildCommit?: string;
   /** Original workspace, used to prefer Workers that can map/default it. */
   preferredWorkspace?: string;
+  /** Treat stale heartbeat Workers as unavailable; default false (warn only). */
+  rejectStaleHealth?: boolean;
 }
 
 export interface RouteResult {
@@ -93,6 +95,8 @@ export function rejectReason(
   options: RouteOptions = {},
 ): string | undefined {
   if (manifest.health.state === "offline") return "offline";
+  if (options.rejectStaleHealth === true && manifest.health.state === "stale")
+    return "stale-health";
   if (
     options.rejectStaleWorkers === true &&
     options.expectedBuildCommit !== undefined &&
