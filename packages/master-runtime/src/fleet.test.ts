@@ -273,6 +273,14 @@ describe("createRoutedLaunchPort", () => {
     directory.register(manifest("worker-a", "/ws"), AT);
     expect(directory.snapshots()[0]?.health).toBe("stale");
     expect(directory.manifests()[0]?.health.state).toBe("stale");
+
+    // A fresh heartbeat registration restores online without reconnecting.
+    const fresh = new Date(Date.parse(AT) + 5_000).toISOString();
+    directory.register(
+      manifest("worker-a", "/ws", { health: { state: "online", lastHeartbeatAt: fresh } }),
+      fresh,
+    );
+    expect(directory.snapshots()[0]?.health).toBe("online");
   });
 
   it("can reject stale heartbeat Workers when configured", async () => {

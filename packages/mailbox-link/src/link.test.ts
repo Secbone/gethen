@@ -434,6 +434,14 @@ describe("@gethen/mailbox-link routing", () => {
 // ---------------------------------------------------------------------------
 
 describe("@gethen/mailbox-link protocol", () => {
+  it("refreshes hello with heartbeat without resubscribing", async () => {
+    const harness = createHarness();
+    const client = await attachClient(harness);
+    await expect(client.heartbeat()).resolves.toBeUndefined();
+    client.close();
+    await expect(client.heartbeat()).rejects.toThrow(/closed|attached/);
+  });
+
   it("answers hello and ping with server metadata", async () => {
     const harness = createHarness();
 

@@ -579,6 +579,27 @@ DSH 插件用 `config.buildCommit`。`gethen_status` / `/gethen/workers` 的
 升级步骤：先构建/更新 Worker bundle -> 注入新的 `GETHEN_BUILD_COMMIT` -> 重启 Worker ->
 在 `/gethen/workers` 确认 build 与 Master 一致 -> 再开启 `rejectStaleWorkers` 收紧。
 
+远端 Worker 通过 mailbox 自升级（已实测 worker-1 unknown -> a957825）：
+
+```bash
+# Worker 机器
+cd /home/gethen/Code/gethen
+git fetch origin && git checkout refactor/superagent && git pull --ff-only
+cd /root/workspace/.gethen-edge/ws/gethen && node scripts/build-dsh.mjs   # 或部署目录的构建脚本
+export GETHEN_BUILD_COMMIT="$(git rev-parse --short HEAD)"
+export GETHEN_BUILT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+export GETHEN_BUILD_BUNDLE="/root/workspace/.gethen-edge/dsh-build/worker.js"
+sudo systemctl restart gethen-worker
+
+# Master 侧
+GET /gethen/workers    # build.commit 变为新值，workspaceMap 生效
+```
+
+心跳：Worker 每 `heartbeatIntervalMs`（默认 30s；`--heartbeat-ms`）发一次 mailbox hello
+刷新 `lastHeartbeatAt`，不会重新 subscribe。Master 用 `heartbeatStaleMs`（默认 90s）判断
+`stale`；transport session 关闭则直接 `offline`。`routing.rejectStaleHealth` 可把 stale
+从候选中剔除（reason `stale-health`），默认只告警。
+
 ## 3. 本机验证
 
 不接真实模型的确定性验证（WS + FakeExecutor，无需 dsh/凭证）：

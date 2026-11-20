@@ -60,6 +60,8 @@ export interface WorkerConfig {
   maxExecutionMs?: number;
   /** Directory for durable worker state (session key registry). */
   stateDir?: string;
+  /** Registration heartbeat interval in ms; defaults to 30s. */
+  heartbeatIntervalMs?: number;
   /** Cost class advertised to the Master router (default "mid"). */
   costClass?: "low" | "mid" | "high";
   /** Declared DSH capability overrides; these are filter hints, not permissions. */
@@ -115,6 +117,8 @@ interface WorkerConfigFile {
   maxExecutionMs?: number;
   /** Directory for durable worker state (session key registry). */
   stateDir?: string;
+  /** Registration heartbeat interval in ms; defaults to 30s. */
+  heartbeatIntervalMs?: number;
   /** Cost class advertised to the Master router (default "mid"). */
   costClass?: "low" | "mid" | "high";
   /** Declared DSH capability overrides; these are filter hints, not permissions. */
@@ -167,6 +171,10 @@ export function parseWorkerConfig(argv: string[], options: WorkerConfigOptions =
   );
   const isolation = parseIsolation(flagValue(argv, "--isolation") ?? file.isolation);
   const stateDir = flagValue(argv, "--state-dir") ?? file.stateDir;
+  const heartbeatIntervalMs = optionalPositiveInt(
+    flagValue(argv, "--heartbeat-ms") ?? file.heartbeatIntervalMs,
+    "heartbeatIntervalMs",
+  );
   const forceApproval =
     argv.includes("--force-approval") ||
     file.forceApproval === true ||
@@ -219,6 +227,7 @@ export function parseWorkerConfig(argv: string[], options: WorkerConfigOptions =
     ...(requestTimeoutMs === undefined ? {} : { requestTimeoutMs }),
     ...(isolation === undefined ? {} : { isolation }),
     ...(stateDir === undefined ? {} : { stateDir }),
+    ...(heartbeatIntervalMs === undefined ? {} : { heartbeatIntervalMs }),
     ...(costClass === undefined ? {} : { costClass }),
     ...(capabilities === undefined ? {} : { capabilities }),
     ...(forceApproval ? { forceApproval: true } : {}),
@@ -280,6 +289,15 @@ function parseDnsOverrides(
     }
   }
   return entries.length === 0 ? undefined : Object.fromEntries(entries);
+}
+
+function optionalPositiveInt(value: unknown, label: string): number | undefined {
+  const parsed = typeof value === "string" && value.trim().length > 0 ? Number(value) : value;
+  if (parsed === undefined) return undefined;
+  if (typeof parsed !== "number" || !Number.isSafeInteger(parsed) || parsed <= 0) {
+    throw new Error(`${label} must be a positive integer`);
+  }
+  return parsed;
 }
 
 /** Validate the executor isolation mode. */
@@ -568,6 +586,42 @@ async function runMailboxWorker(config: WorkerConfig): Promise<number> {
         prepared === undefined
           ? task
           : { ...task, prompt: `${task.prompt}${deliveryInstructions(prepared)}` };
+      let resolution: ReturnType<typeof resolveWorkspaceTarget> | undefined;
+      try {
+        resolution = resolveWorkspaceTargetFor(task.workspace);
+        sink.event({
+          type: "workspace.resolve",
+          at: new Date().toISOString(),
+          data: {
+            requested: resolution.requested,
+            resolved: resolution.resolved,
+            source: resolution.source,
+          },
+        });
+      } catch (error) {
+        sink.event({
+          type: "workspace.resolve",
+          at: new Date().toISOString(),
+          data: {
+            requested: task.workspace,
+            resolved: "",
+            source: "error",
+            reason: messageOf(error),
+          },
+        });
+        throw error;
+      }
+      const resolvedPrepared =
+        prepared ??
+        (resolution.source === "default-workstream" && config.defaultWorkstream !== undefined
+          ? preparedFor(config.defaultWorkstream)
+          : undefined);
+      if (resolvedPrepared !== undefined && prepared === undefined) {
+        assigned = {
+          ...task,
+          prompt: `${task.prompt}${deliveryInstructions(resolvedPrepared)}`,
+        };
+      }
       if (forceApproval) {
         assigned = {
           ...assigned,
@@ -575,7 +629,8 @@ async function runMailboxWorker(config: WorkerConfig): Promise<number> {
         };
       }
       process.stderr.write(
-        `worker: assign ${task.assignmentId} workspace=${task.workspace} cwd=${resolveWorkspace(task.workspace)}\n`,
+        `worker: assign ${task.assignmentId} workspace=${task.workspace} ` +
+          `cwd=${resolution?.resolved ?? "unresolved"} source=${resolution?.source ?? "error"}\n`,
       );
       let execution: Awaited<ReturnType<typeof baseHarness.start>>;
       try {
@@ -587,10 +642,10 @@ async function runMailboxWorker(config: WorkerConfig): Promise<number> {
           },
           report: (report) => {
             let outgoing = report;
-            if (prepared !== undefined && report.kind === "ready") {
+            if (resolvedPrepared !== undefined && report.kind === "ready") {
               try {
-                const delivery = finalizeDelivery(prepared, {
-                  message: `chore(${prepared.id}): ${task.assignmentId}`,
+                const delivery = finalizeDelivery(resolvedPrepared, {
+                  message: `chore(${resolvedPrepared.id}): ${task.assignmentId}`,
                 });
                 outgoing = {
                   ...report,
@@ -654,6 +709,7 @@ async function runMailboxWorker(config: WorkerConfig): Promise<number> {
   let reconnecting = false;
   let reconnectPromise: Promise<void> | undefined;
   let reconnectTimer: NodeJS.Timeout | undefined;
+  let heartbeatTimer: NodeJS.Timeout | undefined;
   let attempt = 0;
 
   function watch(target: TransportSession): void {
@@ -707,11 +763,24 @@ async function runMailboxWorker(config: WorkerConfig): Promise<number> {
   }
 
   watch(session);
+  const heartbeatEvery = config.heartbeatIntervalMs ?? 30_000;
+  if (heartbeatEvery > 0) {
+    heartbeatTimer = setInterval(() => {
+      void link.heartbeat().catch((error: unknown) => {
+        process.stderr.write(`gethen worker: heartbeat failed: ${messageOf(error)}\n`);
+      });
+    }, heartbeatEvery);
+    heartbeatTimer.unref();
+  }
   await waitForSignal();
   stopping = true;
   if (reconnectTimer !== undefined) {
     clearTimeout(reconnectTimer);
     reconnectTimer = undefined;
+  }
+  if (heartbeatTimer !== undefined) {
+    clearInterval(heartbeatTimer);
+    heartbeatTimer = undefined;
   }
   if (reconnectPromise !== undefined) await reconnectPromise.catch(() => undefined);
 
@@ -803,6 +872,7 @@ function configFile(argv: string[]): WorkerConfigFile {
   const defaultWorkspace = optionalString(parsed, "defaultWorkspace");
   const defaultWorkstream = optionalString(parsed, "defaultWorkstream");
   const requestTimeoutMs = optionalNumber(parsed, "requestTimeoutMs");
+  const heartbeatIntervalMs = optionalNumber(parsed, "heartbeatIntervalMs");
   const isolation = optionalString(parsed, "isolation");
   const stateDir = optionalString(parsed, "stateDir");
   const workspaceRoot = optionalString(parsed, "workspaceRoot");
@@ -825,6 +895,7 @@ function configFile(argv: string[]): WorkerConfigFile {
   if (defaultWorkspace !== undefined) file.defaultWorkspace = defaultWorkspace;
   if (defaultWorkstream !== undefined) file.defaultWorkstream = defaultWorkstream;
   if (requestTimeoutMs !== undefined) file.requestTimeoutMs = requestTimeoutMs;
+  if (heartbeatIntervalMs !== undefined) file.heartbeatIntervalMs = heartbeatIntervalMs;
   if (isolation !== undefined) file.isolation = isolation as "shared" | "process";
   if (stateDir !== undefined) file.stateDir = stateDir;
   if (workspaceRoot !== undefined) file.workspaceRoot = workspaceRoot;

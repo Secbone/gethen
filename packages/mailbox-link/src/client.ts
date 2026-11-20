@@ -86,6 +86,8 @@ export interface MailboxClientLink {
   readonly connected: boolean;
   /** Attach (or re-attach after reconnect) to a transport session. */
   attach(session: TransportSession): Promise<void>;
+  /** Refresh the Master's Worker registration heartbeat without resubscribing. */
+  heartbeat(): Promise<void>;
   receive(options?: MailboxReceiveOptions): Promise<ReceivedMessage[]>;
   ack(ids: string[]): Promise<number>;
   nack(ids: string[], options?: MailboxNackOptions): Promise<number>;
@@ -214,6 +216,25 @@ class MailboxClientLinkImpl implements MailboxClientLink {
       this.detach("disconnected", "mailbox link attach failed");
       throw toLinkError(error, "disconnected");
     }
+  }
+
+  async heartbeat(): Promise<void> {
+    this.assertOpen();
+    if (!this.connected) {
+      throw new MailboxLinkError("disconnected", "mailbox link is not attached to an open session");
+    }
+    parseOrThrow(
+      await this.call(
+        "hello",
+        {
+          protocol: 1,
+          mailbox: this.mailbox,
+          ...(this.worker === undefined ? {} : { worker: this.worker }),
+        },
+        this.requestTimeoutMs,
+      ),
+      parseHelloResult,
+    );
   }
 
   receive(options: MailboxReceiveOptions = {}): Promise<ReceivedMessage[]> {
