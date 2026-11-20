@@ -36,12 +36,15 @@ import {
   createMasterRuntime,
   DEFAULT_MASTER_POLICY,
   DEFAULT_WORKSTREAM,
+  emptySessionsStatus,
   type MailboxHealth,
   type MasterRuntime,
   type MasterRuntimeTasks,
   type RoutingOptions,
   type RuntimeWarning,
   type SchedulingMetrics,
+  type SessionStats,
+  type SessionsStatus,
   taskSummary,
   type WarningThresholds,
   type WorkerSnapshot,
@@ -154,6 +157,11 @@ export interface GethenConfig {
   buildCommit?: string;
   /** Thresholds for health warnings; each defaults to 1. */
   warnings?: WarningThresholds;
+  /**
+   * Override the Master's local DSH session observation (tests/embedders with
+   * a non-default DSH home). Defaults to a scan of `$DSH_HOME`/`~/.dsh`.
+   */
+  localSessions?: () => SessionStats;
 }
 
 /** The worker transport endpoint registered on the DSH web server. */
@@ -249,6 +257,8 @@ interface ToolDeps {
   scheduling?(): SchedulingMetrics;
   /** Direct result envelopes vs status-recovery settlements. */
   settlements?(): BridgeSettlementMetrics;
+  /** Master + Worker DSH session-store aggregate. */
+  sessions?(): SessionsStatus;
   /** Actionable health warnings from the runtime. */
   warnings?(): RuntimeWarning[];
   /**
@@ -335,6 +345,26 @@ function registerTools(ctx: DshContext, deps: ToolDeps): void {
           launch: { type: "string", enum: ["fake", "ws"] },
           workers: { type: "number" },
           workerDetails: { type: "array", items: { type: "object" } },
+          sessions: {
+            type: "object",
+            properties: {
+              master: { type: "object" },
+              totalSessions: { type: "number" },
+              totalBytes: { type: "number" },
+              oldestDays: { type: "number" },
+              keyRegistryEntries: { type: "number" },
+              reportingWorkers: { type: "number" },
+              workers: { type: "array", items: { type: "object" } },
+            },
+            required: [
+              "master",
+              "totalSessions",
+              "totalBytes",
+              "keyRegistryEntries",
+              "reportingWorkers",
+              "workers",
+            ],
+          },
           warnings: {
             type: "array",
             items: {
@@ -413,6 +443,7 @@ function registerTools(ctx: DshContext, deps: ToolDeps): void {
           "escalations",
           "launch",
           "workers",
+          "sessions",
         ],
       ),
       render: (_args, value) => text(value),
@@ -433,6 +464,7 @@ function registerTools(ctx: DshContext, deps: ToolDeps): void {
         escalations: status.counts.escalations,
         launch: deps.launch(),
         workers: deps.workers(),
+        sessions: deps.sessions?.() ?? emptySessionsStatus(),
         warnings: deps.warnings?.() ?? [],
         settlements: deps.settlements?.() ?? {
           directCompleted: 0,
@@ -653,6 +685,7 @@ export function apply(ctx: DshContext, config: GethenConfig = {}): void {
     ...(config.staleCloseMs === undefined ? {} : { staleCloseMs: config.staleCloseMs }),
     ...(config.buildCommit === undefined ? {} : { buildCommit: config.buildCommit }),
     ...(config.warnings === undefined ? {} : { warnings: config.warnings }),
+    ...(config.localSessions === undefined ? {} : { localSessions: config.localSessions }),
     ...(ws?.workerId === undefined ? {} : { workerId: ws.workerId }),
     ...(ws?.workers === undefined ? {} : { workers: ws.workers }),
     ...(ws?.routing === undefined ? {} : { routing: ws.routing }),
@@ -738,6 +771,7 @@ export function apply(ctx: DshContext, config: GethenConfig = {}): void {
     launch: () => mounted.launch,
     workers: () => mounted.health().workers,
     workerDetails: () => mounted.workers(),
+    sessions: () => mounted.sessions(),
     mailbox: () => (mounted.launch === "ws" ? mounted.health().mailbox : undefined),
     tasks: mounted.tasks,
     notifications: mounted.notifications,

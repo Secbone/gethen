@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -7,6 +7,7 @@ import {
   parseWorkerConfig,
   workerBuild,
   workerManifest,
+  workerSessionStats,
 } from "./commands/worker";
 
 describe("gethen worker config", () => {
@@ -362,6 +363,40 @@ describe("worker hello registration", () => {
       expect(workerManifest(config).build?.commit).toBe("unknown");
     } finally {
       if (previous !== undefined) process.env.GETHEN_BUILD_COMMIT = previous;
+    }
+  });
+
+  it("reports local session stats in the manifest", () => {
+    const root = mkdtempSync(join(tmpdir(), "gethen-worker-sessions-"));
+    const home = join(root, "dsh");
+    const stateDir = join(root, "state");
+    const sessionDir = join(home, "sessions", "--work--", "session-a");
+    mkdirSync(sessionDir, { recursive: true });
+    mkdirSync(stateDir, { recursive: true });
+    const log = join(sessionDir, "session.v4.jsonl.zstd");
+    writeFileSync(log, "x".repeat(512));
+    const at = new Date("2026-11-18T00:00:00.000Z");
+    const mtime = new Date(at.getTime() - 20 * 86_400_000);
+    utimesSync(log, mtime, mtime);
+    utimesSync(sessionDir, mtime, mtime);
+    writeFileSync(
+      join(stateDir, "worker-1.sessions.json"),
+      JSON.stringify({ "project-x": "session-a" }),
+    );
+    try {
+      const config = parseWorkerConfig([...base, "--state-dir", stateDir]);
+      const stats = workerSessionStats(config, { DSH_HOME: home });
+      expect(stats).toMatchObject({
+        sessions: 1,
+        totalBytes: 512,
+        oldestDays: expect.any(Number),
+        keyRegistryEntries: 1,
+      });
+      expect(stats?.observedAt).toBeDefined();
+      const manifest = workerManifest(config, "2026-11-18T00:00:00.000Z", stats);
+      expect(manifest.sessions).toEqual(stats);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 

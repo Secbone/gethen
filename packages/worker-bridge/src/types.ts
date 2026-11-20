@@ -39,6 +39,24 @@ export interface WorkerWorkspace {
   branch?: string;
 }
 
+/**
+ * Local DSH session-store observation a Worker reports in its manifest.
+ * The Master only aggregates these numbers for operators; it never inspects a
+ * Worker filesystem itself. `oldestDays` is absent when no session exists.
+ */
+export interface WorkerSessionStats {
+  /** Session directories under the Worker's local DSH home. */
+  sessions: number;
+  /** Total size of those directories, in bytes. */
+  totalBytes: number;
+  /** Age in days of the least recently modified session. */
+  oldestDays?: number;
+  /** Entries in the durable key -> sessionId registries on the Worker. */
+  keyRegistryEntries: number;
+  /** When the Worker sampled these values (RFC 3339). */
+  observedAt: string;
+}
+
 /** The Master's view of one selectable Worker instance. */
 export interface WorkerManifest {
   id: WorkerId;
@@ -56,6 +74,8 @@ export interface WorkerManifest {
   workspaceMap?: Record<string, string>;
   /** Default directory a Worker uses when the requested workspace is absent. */
   defaultWorkspace?: string;
+  /** Latest local DSH session-store observation; absent on older Workers. */
+  sessions?: WorkerSessionStats;
 }
 
 /** One Assignment sent to a Worker. */

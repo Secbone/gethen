@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@gethen/agent": "workspace:*",
+    "@gethen/dsh-sessions": "workspace:*",
     "@gethen/executor-sdk": "workspace:*",
     "@gethen/mailbox-link": "workspace:*",
     "@gethen/master": "workspace:*",

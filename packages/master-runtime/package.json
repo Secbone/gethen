@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@gethen/dsh-sessions": "workspace:*",
     "@gethen/master": "workspace:*",
     "@gethen/fleet": "workspace:*",
     "@gethen/router": "workspace:*",

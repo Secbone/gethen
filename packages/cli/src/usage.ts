@@ -10,9 +10,12 @@ Usage:
   gethen status    Read the master database (counts + recent tickets)
   gethen ticket    Acknowledge, close or archive a ticket (ack|close|archive)
   gethen task      Inspect or steer a running assignment (status|logs|steer|cancel)
-  gethen session   List harness sessions and read session history
+  gethen session   List/read harness sessions, or prune old local DSH sessions
   gethen doctor    Check Node, dsh, credentials and the local environment
   gethen help      Show this help
+
+\`gethen session prune --older-than <days> [--yes]\` is a local, dry-run-first
+cleanup that keeps active Assignments and key-registry sessions.
 
 GETHEN_* environment variables are optional. Run \`gethen doctor\` to check
 this machine before running a worker, and \`gethen status --json\` to inspect a

@@ -73,6 +73,9 @@ importers:
       '@gethen/agent':
         specifier: workspace:*
         version: link:../agent
+      '@gethen/dsh-sessions':
+        specifier: workspace:*
+        version: link:../dsh-sessions
       '@gethen/executor-sdk':
         specifier: workspace:*
         version: link:../executor-sdk
@@ -205,6 +208,9 @@ importers:
       '@gethen/bridge-mailbox':
         specifier: workspace:*
         version: link:../bridge-mailbox
+      '@gethen/dsh-sessions':
+        specifier: workspace:*
+        version: link:../dsh-sessions
       '@gethen/fleet':
         specifier: workspace:*
         version: link:../fleet

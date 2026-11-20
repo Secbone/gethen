@@ -231,12 +231,17 @@ gethen task answer <assignmentId> --option allow --text "允许" --master https:
 # 会话管理：先看目录/历史，再决定新建或复用
 gethen session list --master https://<master>
 gethen session history <sessionId> --master https://<master>
+# 本机历史 session 清理：默认 dry-run，--yes 才删除；活跃 assignment/key 会跳过
+gethen session prune --older-than 30
+gethen session prune --older-than 30 --yes
 gethen run --session-id <sessionId> "在已有会话里继续" --master https://<master>
 # 首次：新建会话并登记 key；之后用同一个 key 复用（未知 key 会失败，不会静默新建）
 gethen run --session-id "" 2>/dev/null || true
 # 新建并登记 key 目前通过 API/DSH 工具传 session={"mode":"new","key":"project-x"}
 # run 默认 5 秒后返回 waiting/running（settled:false），用 task status 继续跟
 gethen run --reuse-key project-x "复用该 key 的会话" --master https://<master>
+# session 数量/大小/最旧天数在 gethen_status.sessions 与 /health.sessions 聚合；
+# 清理细节（master 侧 DSH 目录、key registry、安全规则）见 deploy.md 3.2
 gethen task status <assignmentId> --master https://<master>
 
 # 本地不花钱的两级验证

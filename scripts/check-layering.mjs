@@ -22,6 +22,7 @@ export const ALLOWED_WORKSPACE_DEPS = {
   "@gethen/harness": [],
   "@gethen/dsh-sessions": [],
   "@gethen/master-runtime": [
+    "@gethen/dsh-sessions",
     "@gethen/master",
     "@gethen/transport",
     "@gethen/bridge-mailbox",
@@ -60,6 +61,7 @@ export const ALLOWED_WORKSPACE_DEPS = {
   "@gethen/workspace": ["@gethen/core", "@gethen/evolution", "@gethen/storage-file"],
   "@gethen/cli": [
     "@gethen/agent",
+    "@gethen/dsh-sessions",
     "@gethen/executor-sdk",
     "@gethen/mailbox-link",
     "@gethen/master",

@@ -88,6 +88,12 @@ export interface MailboxClientLink {
   attach(session: TransportSession): Promise<void>;
   /** Refresh the Master's Worker registration heartbeat without resubscribing. */
   heartbeat(): Promise<void>;
+  /**
+   * Replace the Worker registration and, when connected, re-send `hello`.
+   * This is how a Worker refreshes observation fields (e.g. session stats)
+   * without opening a new transport session. A later `heartbeat()` reuses it.
+   */
+  refreshWorker(worker: WorkerManifest): Promise<void>;
   receive(options?: MailboxReceiveOptions): Promise<ReceivedMessage[]>;
   ack(ids: string[]): Promise<number>;
   nack(ids: string[], options?: MailboxNackOptions): Promise<number>;
@@ -122,7 +128,7 @@ class MailboxClientLinkImpl implements MailboxClientLink {
   readonly mailbox: string;
 
   private readonly name: string | undefined;
-  private readonly worker: WorkerManifest | undefined;
+  private worker: WorkerManifest | undefined;
   private readonly batchSize: number;
   private readonly visibilityTimeoutMs: number;
   private readonly requestTimeoutMs: number;
@@ -231,6 +237,20 @@ class MailboxClientLinkImpl implements MailboxClientLink {
           mailbox: this.mailbox,
           ...(this.worker === undefined ? {} : { worker: this.worker }),
         },
+        this.requestTimeoutMs,
+      ),
+      parseHelloResult,
+    );
+  }
+
+  async refreshWorker(worker: WorkerManifest): Promise<void> {
+    this.assertOpen();
+    this.worker = worker;
+    if (!this.connected) return;
+    parseOrThrow(
+      await this.call(
+        "hello",
+        { protocol: 1, mailbox: this.mailbox, worker },
         this.requestTimeoutMs,
       ),
       parseHelloResult,

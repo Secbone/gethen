@@ -3,6 +3,7 @@ import { isIP } from "node:net";
 import { homedir, hostname } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { agentMailboxName, createMailboxAgent, type MailboxAgent } from "@gethen/agent";
+import { collectSessionStats } from "@gethen/dsh-sessions";
 import { createSdkHarnessExecutor } from "@gethen/executor-sdk";
 import { createMailboxClientLink, type MailboxClientLink } from "@gethen/mailbox-link";
 import { createWsTransport, type TransportSession } from "@gethen/transport";
@@ -11,6 +12,7 @@ import {
   parseWorkerManifest,
   type WorkerCapabilities,
   type WorkerManifest,
+  type WorkerSessionStats,
   type WorkerWorkspace,
   workstreamBranch,
 } from "@gethen/worker-bridge";
@@ -387,6 +389,31 @@ export async function workerCommand(argv: string[]): Promise<number> {
 const MASTER_MAILBOX = "mailbox:master";
 const RECONNECT_INITIAL_MS = 500;
 const RECONNECT_MAX_MS = 30_000;
+/** How often the Worker re-samples local session stats and re-sends `hello`. */
+export const SESSION_STATS_REFRESH_MS = 60_000;
+
+/**
+ * Sample the Worker's own DSH session store: directory count/size/oldest age
+ * plus entries in the durable `key -> sessionId` registries. Best effort: an
+ * unreadable store reports undefined rather than failing the daemon.
+ */
+export function workerSessionStats(
+  config: Pick<WorkerConfig, "stateDir">,
+  env: NodeJS.ProcessEnv = process.env,
+): WorkerSessionStats | undefined {
+  try {
+    const stats = collectSessionStats({
+      ...(env.DSH_HOME === undefined ? {} : { home: env.DSH_HOME }),
+      stateDir: config.stateDir ?? join(homedir(), ".gethen", "worker"),
+    });
+    return {
+      ...stats,
+      observedAt: stats.observedAt ?? new Date().toISOString(),
+    };
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * The registration reported in the mailbox `hello`: the Master forms its
@@ -413,6 +440,7 @@ export function workerBuild(env: NodeJS.ProcessEnv = process.env): {
 export function workerManifest(
   config: WorkerConfig,
   at = new Date().toISOString(),
+  sessions?: WorkerSessionStats,
 ): WorkerManifest {
   // Workstreams advertise logical ids; legacy paths keep their old ids so a
   // rolling deployment can still route to an older Worker.
@@ -440,6 +468,7 @@ export function workerManifest(
     build: workerBuild(),
     ...(config.workspaceMap === undefined ? {} : { workspaceMap: config.workspaceMap }),
     ...(config.defaultWorkspace === undefined ? {} : { defaultWorkspace: config.defaultWorkspace }),
+    ...(sessions === undefined ? {} : { sessions }),
   };
   const parsed = parseWorkerManifest(manifest);
   if (!parsed.ok) throw new Error(`worker registration is invalid: ${parsed.reason}`);
@@ -474,10 +503,12 @@ async function runMailboxWorker(config: WorkerConfig): Promise<number> {
     return 1;
   }
 
+  const manifest = (): WorkerManifest =>
+    workerManifest(config, new Date().toISOString(), workerSessionStats(config));
   const link: MailboxClientLink = await createMailboxClientLink({
     session,
     mailbox,
-    worker: workerManifest(config),
+    worker: manifest(),
   });
 
   const forceApproval = config.forceApproval === true;
@@ -703,6 +734,19 @@ async function runMailboxWorker(config: WorkerConfig): Promise<number> {
   process.stdout.write(
     `worker ${workerId} connected to ${config.masterUrl} (mailbox: ${mailbox})\n`,
   );
+  // Session counts/sizes change as assignments finish; re-hello periodically so
+  // `gethen_status.sessions` and the Worker details stay useful. The timer is
+  // unref'd and a failed refresh is non-fatal (the next tick retries).
+  const statsTimer = setInterval(() => {
+    try {
+      void link.refreshWorker(manifest()).catch((error: unknown) => {
+        process.stderr.write(`worker: session stats refresh failed: ${messageOf(error)}\n`);
+      });
+    } catch (error) {
+      process.stderr.write(`worker: session stats refresh failed: ${messageOf(error)}\n`);
+    }
+  }, SESSION_STATS_REFRESH_MS);
+  statsTimer.unref();
 
   let currentSession = session;
   let stopping = false;
@@ -774,6 +818,7 @@ async function runMailboxWorker(config: WorkerConfig): Promise<number> {
   }
   await waitForSignal();
   stopping = true;
+  clearInterval(statsTimer);
   if (reconnectTimer !== undefined) {
     clearTimeout(reconnectTimer);
     reconnectTimer = undefined;

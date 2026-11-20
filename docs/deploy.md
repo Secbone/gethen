@@ -653,6 +653,53 @@ gethen doctor --json
 - 想要自动答复升级（仅测试用）：`gethen serve --escalation auto`（按 defaultOption/第一个选项回答）。
 - Worker 默认 `park`（等人）；生产建议由 DSH agent 或面板回答。
 
+### 3.2 Session 生命周期与清理
+
+DSH 把每个 session 放在 `$DSH_HOME`（未设置时 `~/.dsh`）下：
+
+- `sessions/<project>/<sessionId>/session.v4.jsonl.zstd`：完整事件日志（体积主要来源）；
+- `storages/session_projcache/sessions/<sessionId>.json`：cwd/模型/turn 状态等元数据。
+
+Master 自己的 DSH 会话、以及 Worker 在本机跑的 assignment 会话都会持续累积；Gethen
+不自动删除它们。观测值由 Worker 在 `hello`/manifest 的 `sessions` 字段上报
+（`sessions` 目录数、总字节、最旧天数、key registry 条目数），Master 每 60 秒可收到
+一次刷新，并把这些值聚合到：
+
+- `gethen_status.sessions`（`master` 本机 + 各 `workers` 上报值，`totalSessions` 等）；
+- `gethen_status.workerDetails[].sessions`（单个 Worker 的明细）；
+- `GET /health` 的 `sessions`（同样含 master 与 worker 明细）。
+
+清理只在本机执行，不经过 Master HTTP API：
+
+```bash
+# 先看会删什么（默认就是 dry-run，--dry-run 可显式写出）
+gethen session prune --older-than 30
+
+# 确认后真正删除；只删除 mtime 早于 30 天的 session 目录
+gethen session prune --older-than 30 --yes
+
+# 自定义 DSH home / Worker key registry / master sqlite
+gethen session prune --older-than 30 --yes \
+  --dsh-home /var/lib/dsh --state-dir /var/lib/gethen/worker \
+  --db /var/lib/gethen/master.sqlite
+
+# 机器可读结果（删除数、释放字节、跳过原因）
+gethen session prune --older-than 30 --yes --json
+```
+
+安全规则（任一命中即跳过并计入 `skipped`）：
+
+- 运行中/等待中的 Assignment 关联 session：从 master sqlite 的 assignments
+  （`running`/`waiting`）读取；数据库存在但读不了时命令直接失败，不会盲删；
+- 任意 `--state-dir` 下 `*.sessions.json` key registry 映射到的 session（后续
+  `session.mode:"reuse"` 仍要能解析）；
+- DSH 元数据仍显示打开 turn（`running`）的 session。
+
+建议用 systemd timer/cron 在低峰期执行，例如每周一次
+`gethen session prune --older-than 30 --yes`；先跑 dry-run 观察候选数量与空间。
+Master 与 Worker 同机共享 `$DSH_HOME` 时，`gethen_status.sessions` 的 master 与
+worker 计数会重叠（这正是保留两套明细的原因）；跨机部署则各自执行 prune。
+
 ## 4. 故障排查
 
 | 现象 | 排查 |

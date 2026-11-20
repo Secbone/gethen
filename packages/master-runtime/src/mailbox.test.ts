@@ -16,6 +16,7 @@ import { createWsTransport, type TransportSession } from "@gethen/transport";
 import type { WorkerManifest } from "@gethen/worker-bridge";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createMasterRuntime, type MasterRuntime, type MasterRuntimeOptions } from "./runtime";
+import { emptySessionsStatus } from "./sessions";
 
 const NOW = new Date("2026-11-17T08:00:00.000Z");
 const AT = NOW.toISOString();
@@ -117,6 +118,7 @@ async function startHarness(options: HarnessOptions = {}): Promise<Harness> {
     tokens: options.tokens ?? [{ workerId: WORKER, token: TOKEN }],
     workspace: "/ws",
     now: () => NOW,
+    localSessions: () => ({ sessions: 0, totalBytes: 0, keyRegistryEntries: 0 }),
     mailboxDbPath: join(dir, `mailbox-${sequence}.sqlite`),
     pollIntervalMs: 5,
     visibilityTimeoutMs: 1_000,
@@ -313,6 +315,7 @@ describe("createMasterRuntime mailbox stack", () => {
         recoveredWithoutReport: 0,
         lateCompleted: 0,
       },
+      sessions: emptySessionsStatus(),
       warnings: [],
     });
     expect(runtime.bridge?.workerMailbox).toBe(WORKER_MAILBOX);
@@ -942,6 +945,7 @@ describe("createMasterRuntime mailbox stack", () => {
         recoveredWithoutReport: 0,
         lateCompleted: 0,
       },
+      sessions: emptySessionsStatus(),
       warnings: [],
     });
     await expect(runtime.close()).resolves.toBeUndefined();

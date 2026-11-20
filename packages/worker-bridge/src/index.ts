@@ -25,6 +25,7 @@ export type {
   WorkerId,
   WorkerManifest,
   WorkerSessionRef,
+  WorkerSessionStats,
   WorkerState,
   WorkerWorkspace,
   WorkspaceId,

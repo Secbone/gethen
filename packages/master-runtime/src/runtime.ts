@@ -65,6 +65,14 @@ import {
   type WorkerSnapshot,
 } from "./fleet";
 import { NotificationHub } from "./notifications";
+import {
+  aggregateSessions,
+  emptySessionStats,
+  emptySessionsStatus,
+  localSessionStats,
+  type SessionStats,
+  type SessionsStatus,
+} from "./sessions";
 import { type RuntimeWarning, runtimeWarnings, type WarningThresholds } from "./warnings";
 
 /** Task state/event and session types (re-exported from bridge-mailbox). */
@@ -253,6 +261,11 @@ export interface MasterRuntimeOptions {
   heartbeatStaleMs?: number;
   /** Poll interval for the master mailbox and link delivery loops. */
   pollIntervalMs?: number;
+  /**
+   * Override the Master's own DSH session observation shown by
+   * `gethen_status`/`/health`. Defaults to a local scan of `$DSH_HOME`.
+   */
+  localSessions?: () => SessionStats;
 }
 
 export type {
@@ -276,6 +289,8 @@ export interface MasterRuntimeHealth {
   scheduling: SchedulingMetrics;
   /** Direct result envelopes vs status-recovery settlements. */
   settlements: BridgeSettlementMetrics;
+  /** Master + Worker DSH session-store aggregate. */
+  sessions: SessionsStatus;
   /** Actionable degenerate states (empty when healthy). */
   warnings: RuntimeWarning[];
 }
@@ -299,6 +314,8 @@ export interface MasterRuntime {
   scheduling(): SchedulingMetrics;
   /** Direct vs recovered settlement counters (zeros in fake mode). */
   settlements(): BridgeSettlementMetrics;
+  /** Master + Worker DSH session-store aggregate. */
+  sessions(): SessionsStatus;
   health(): MasterRuntimeHealth;
   /**
    * Close the communication stack first (bridge -> session links -> transport
@@ -573,6 +590,36 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
     return counters;
   }
 
+  let localSessionsCache: { at: number; value: SessionStats } | undefined;
+
+  /** Cached Master-local observation; a caller provider is always fresh. */
+  function currentLocalSessions(): SessionStats {
+    if (options.localSessions !== undefined) {
+      try {
+        return options.localSessions();
+      } catch {
+        return emptySessionStats();
+      }
+    }
+    const at = Date.now();
+    if (localSessionsCache !== undefined && at - localSessionsCache.at < 30_000) {
+      return localSessionsCache.value;
+    }
+    let value: SessionStats;
+    try {
+      value = localSessionStats(options.now === undefined ? {} : { now: options.now() });
+    } catch {
+      value = emptySessionStats();
+    }
+    localSessionsCache = { at, value };
+    return value;
+  }
+
+  /** Aggregate when the caller already has a fresh Worker snapshot. */
+  function sessionsStatus(workers: WorkerSnapshot[] = directory.snapshots()): SessionsStatus {
+    return aggregateSessions(currentLocalSessions(), workers);
+  }
+
   function health(): MasterRuntimeHealth {
     const launch: LaunchMode = mailboxBridge === undefined ? "fake" : "ws";
     if (closed) {
@@ -592,10 +639,12 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
           recoveredWithoutReport: 0,
           lateCompleted: 0,
         },
+        sessions: emptySessionsStatus(),
         warnings: [],
       };
     }
     const tickets = service.store.tickets.list();
+    const workers = directory.snapshots();
     return {
       launch,
       workers: mailboxServer === undefined ? 0 : mailboxServer.sessions().length,
@@ -611,6 +660,7 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
         recoveredWithoutReport: 0,
         lateCompleted: 0,
       },
+      sessions: sessionsStatus(workers),
       warnings: runtimeWarnings(
         {
           settlements: mailboxBridge?.settlementMetrics() ?? {
@@ -620,7 +670,7 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
             lateCompleted: 0,
           },
           mailbox: mailboxHealth(),
-          workers: directory.snapshots(),
+          workers,
           scheduling: (routedPort ?? { metrics: emptySchedulingMetrics }).metrics(),
           expectedBuildCommit,
         },
@@ -726,6 +776,7 @@ export function createMasterRuntime(options: MasterRuntimeOptions): MasterRuntim
         recoveredWithoutReport: 0,
         lateCompleted: 0,
       },
+    sessions: () => sessionsStatus(),
     health,
     close,
   };

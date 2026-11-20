@@ -33,6 +33,14 @@ interface StatusResult {
     lateCompleted: number;
   };
   warnings?: Array<{ code: string; message: string; count: number }>;
+  sessions?: {
+    totalSessions: number;
+    totalBytes: number;
+    keyRegistryEntries: number;
+    reportingWorkers: number;
+    workers: unknown[];
+    master: { sessions: number; totalBytes: number; keyRegistryEntries: number };
+  };
   scheduling?: {
     queued: number;
     running: number;
@@ -228,7 +236,10 @@ describe("Gethen DSH plugin", () => {
 
   it("reports status counts and stages the ticket for review (fake launch)", async () => {
     const { ctx, tools } = context();
-    apply(ctx, { dir: stateDir() });
+    apply(ctx, {
+      dir: stateDir(),
+      localSessions: () => ({ sessions: 0, totalBytes: 0, keyRegistryEntries: 0 }),
+    });
     await tool(tools, "gethen_run").execute({ text: "fix the failing test" }, {});
     await expect(tool(tools, "gethen_status").execute({}, {})).resolves.toEqual({
       tickets: 1,
@@ -255,6 +266,14 @@ describe("Gethen DSH plugin", () => {
         recoveredCompleted: 0,
         recoveredWithoutReport: 0,
         lateCompleted: 0,
+      },
+      sessions: {
+        master: { sessions: 0, totalBytes: 0, keyRegistryEntries: 0 },
+        totalSessions: 0,
+        totalBytes: 0,
+        keyRegistryEntries: 0,
+        reportingWorkers: 0,
+        workers: [],
       },
       warnings: [],
     } satisfies StatusResult);

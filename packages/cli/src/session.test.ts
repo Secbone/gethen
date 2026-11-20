@@ -1,4 +1,7 @@
+import { existsSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { parseSessionArgs, sessionCommand } from "./commands/session";
 
@@ -81,13 +84,26 @@ describe("gethen session", () => {
       afterSeq: 0,
       timeoutMs: 250,
     });
-    expect(parseSessionArgs(["list"], { GETHEN_MASTER_URL: "http://m:1" }).master).toBe(
-      "http://m:1",
-    );
+    const fromEnv = parseSessionArgs(["list"], { GETHEN_MASTER_URL: "http://m:1" });
+    expect(fromEnv.action).toBe("list");
+    if (fromEnv.action === "list") expect(fromEnv.master).toBe("http://m:1");
 
     expect(() => parseSessionArgs(["list"])).toThrow(/--master/);
     expect(() => parseSessionArgs(["history", "--master", "http://m:1"])).toThrow(/session id/);
     expect(() => parseSessionArgs(["bogus", "--master", "http://m:1"])).toThrow(/subcommand/);
+    expect(parseSessionArgs(["prune", "--older-than", "30"])).toMatchObject({
+      action: "prune",
+      olderThanDays: 30,
+      dryRun: true,
+      yes: false,
+      json: false,
+    });
+    const yes = parseSessionArgs(["prune", "--older-than", "0.5", "--yes"]);
+    expect(yes.action === "prune" ? yes.dryRun : undefined).toBe(false);
+    const both = parseSessionArgs(["prune", "--older-than", "30", "--yes", "--dry-run"]);
+    expect(both.action === "prune" ? both.dryRun : undefined).toBe(true);
+    expect(() => parseSessionArgs(["prune"])).toThrow(/older-than/);
+    expect(() => parseSessionArgs(["prune", "--older-than", "0"])).toThrow(/positive number/);
     expect(() =>
       parseSessionArgs(["history", "s1", "--master", "http://m:1", "--limit", "0"]),
     ).toThrow(/positive integer/);
@@ -181,5 +197,182 @@ describe("gethen session", () => {
       }),
     ).toBe(1);
     expect(unreachable.lines.join("\n")).toContain("cannot reach master");
+  });
+});
+
+const DAY_MS = 86_400_000;
+
+interface PruneFixture {
+  root: string;
+  dshHome: string;
+  stateDir: string;
+  db: string;
+}
+
+/** A throwaway DSH home plus an empty worker state dir and a missing master db. */
+function pruneFixture(): PruneFixture {
+  const root = mkdtempSync(join(tmpdir(), "gethen-session-prune-"));
+  const dshHome = join(root, "dsh");
+  const stateDir = join(root, "state");
+  mkdirSync(dshHome, { recursive: true });
+  mkdirSync(stateDir, { recursive: true });
+  return { root, dshHome, stateDir, db: join(root, "master.sqlite") };
+}
+
+function writeSession(
+  fixture: PruneFixture,
+  sessionId: string,
+  ageDays: number,
+  now: Date,
+  options: { openTurn?: boolean } = {},
+): string {
+  const dir = join(fixture.dshHome, "sessions", "--work-project--", sessionId);
+  mkdirSync(dir, { recursive: true });
+  const log = join(dir, "session.v4.jsonl.zstd");
+  writeFileSync(log, "x".repeat(4096));
+  const mtime = new Date(now.getTime() - ageDays * DAY_MS);
+  utimesSync(log, mtime, mtime);
+  utimesSync(dir, mtime, mtime);
+  if (options.openTurn === true) {
+    const projcache = join(fixture.dshHome, "storages", "session_projcache", "sessions");
+    mkdirSync(projcache, { recursive: true });
+    writeFileSync(
+      join(projcache, `${sessionId}.json`),
+      JSON.stringify({
+        version: 7,
+        record: {
+          identity: { formatVersion: 4, createdAt: mtime.getTime(), cwd: "/work/project" },
+          rows: {
+            turnBoundary: { ver: 2, seq: 1, val: { openTurnStartSeq: 1 } },
+          },
+        },
+      }),
+    );
+  }
+  return dir;
+}
+
+describe("gethen session prune", () => {
+  const NOW = new Date("2026-11-20T00:00:00.000Z");
+
+  it("is a dry run unless --yes is passed and never deletes candidates", async () => {
+    const fixture = pruneFixture();
+    try {
+      const old = writeSession(fixture, "old-session", 40, NOW);
+      const fresh = writeSession(fixture, "fresh-session", 1, NOW);
+      const out = capture();
+      const errors = capture();
+      expect(
+        await sessionCommand(
+          [
+            "prune",
+            "--older-than",
+            "30",
+            "--dsh-home",
+            fixture.dshHome,
+            "--state-dir",
+            fixture.stateDir,
+            "--db",
+            fixture.db,
+          ],
+          { write: out.write, error: errors.write, now: NOW },
+        ),
+      ).toBe(0);
+      const text = out.lines.join("\n");
+      expect(text).toContain("dry run");
+      expect(text).toContain("would free");
+      expect(text).toContain("old-session");
+      expect(existsSync(old)).toBe(true);
+      expect(existsSync(fresh)).toBe(true);
+      expect(errors.lines).toEqual([]);
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  it("deletes old sessions but skips key-registry mappings and open turns", async () => {
+    const fixture = pruneFixture();
+    try {
+      const removable = writeSession(fixture, "old-removable", 40, NOW);
+      const keyed = writeSession(fixture, "old-keyed", 40, NOW);
+      const running = writeSession(fixture, "old-running", 40, NOW, { openTurn: true });
+      const fresh = writeSession(fixture, "fresh-session", 1, NOW);
+      writeFileSync(
+        join(fixture.stateDir, "worker-1.sessions.json"),
+        JSON.stringify({ "project-x": "old-keyed" }),
+      );
+
+      const out = capture();
+      const errors = capture();
+      expect(
+        await sessionCommand(
+          [
+            "prune",
+            "--older-than",
+            "30",
+            "--yes",
+            "--json",
+            "--dsh-home",
+            fixture.dshHome,
+            "--state-dir",
+            fixture.stateDir,
+            "--db",
+            fixture.db,
+          ],
+          { write: out.write, error: errors.write, now: NOW },
+        ),
+      ).toBe(0);
+      expect(errors.lines).toEqual([]);
+      const body = JSON.parse(out.lines.join("\n")) as {
+        dryRun: boolean;
+        deleted: Array<{ sessionId: string }>;
+        skipped: Array<{ sessionId: string; reason: string }>;
+        bytesFreed: number;
+      };
+      expect(body.dryRun).toBe(false);
+      expect(body.deleted.map((entry) => entry.sessionId)).toEqual(["old-removable"]);
+      expect(body.bytesFreed).toBe(4096);
+      expect(body.skipped).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ sessionId: "old-keyed", reason: "key_registry" }),
+          expect.objectContaining({ sessionId: "old-running", reason: "running_session" }),
+        ]),
+      );
+      expect(existsSync(removable)).toBe(false);
+      expect(existsSync(keyed)).toBe(true);
+      expect(existsSync(running)).toBe(true);
+      expect(existsSync(fresh)).toBe(true);
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses to prune when an existing master db cannot be read", async () => {
+    const fixture = pruneFixture();
+    try {
+      writeFileSync(fixture.db, "not sqlite");
+      const out = capture();
+      const errors = capture();
+      expect(
+        await sessionCommand(
+          [
+            "prune",
+            "--older-than",
+            "30",
+            "--yes",
+            "--dsh-home",
+            fixture.dshHome,
+            "--state-dir",
+            fixture.stateDir,
+            "--db",
+            fixture.db,
+          ],
+          { write: out.write, error: errors.write, now: NOW },
+        ),
+      ).toBe(1);
+      expect(errors.lines.join("\n")).toContain("cannot read");
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
   });
 });

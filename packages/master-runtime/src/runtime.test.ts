@@ -10,6 +10,7 @@ import {
   type MasterRuntime,
   type MasterRuntimeOptions,
 } from "./runtime";
+import { emptySessionsStatus } from "./sessions";
 
 const NOW = new Date("2026-11-17T08:00:00.000Z");
 
@@ -34,6 +35,8 @@ function makeRuntime(overrides: Partial<MasterRuntimeOptions> = {}): MasterRunti
   const runtime = createMasterRuntime({
     dbPath: join(dir, `runtime-${runtimeCount}`, "master.sqlite"),
     now: () => NOW,
+    // Keep health assertions independent of the developer's ~/.dsh.
+    localSessions: () => ({ sessions: 0, totalBytes: 0, keyRegistryEntries: 0 }),
     ...overrides,
   });
   runtimes.push(runtime);
@@ -95,6 +98,7 @@ describe("createMasterRuntime", () => {
         recoveredWithoutReport: 0,
         lateCompleted: 0,
       },
+      sessions: emptySessionsStatus(),
       warnings: [],
     });
 
@@ -170,6 +174,7 @@ describe("createMasterRuntime", () => {
         recoveredWithoutReport: 0,
         lateCompleted: 0,
       },
+      sessions: emptySessionsStatus(),
       warnings: [],
     });
     // The mailbox store defaults next to the master database.

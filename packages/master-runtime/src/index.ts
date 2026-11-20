@@ -25,4 +25,5 @@ export type {
 export * from "./control";
 export * from "./fleet";
 export * from "./runtime";
+export * from "./sessions";
 export * from "./warnings";

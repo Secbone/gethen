@@ -99,9 +99,22 @@ describe("WorkerDirectory", () => {
     const directory = new WorkerDirectory(["worker-a", "worker-b"]);
     expect(directory.snapshots().every((worker) => !worker.registered)).toBe(true);
     directory.connect("worker-a");
-    directory.register(manifest("worker-a", "/ws-a", { load: { running: 0, quota: 2 } }), AT);
+    directory.register(
+      manifest("worker-a", "/ws-a", {
+        load: { running: 0, quota: 2 },
+        sessions: {
+          sessions: 3,
+          totalBytes: 4096,
+          oldestDays: 12,
+          keyRegistryEntries: 1,
+          observedAt: AT,
+        },
+      }),
+      AT,
+    );
     expect(directory.onlineCount()).toBe(1);
     expect(directory.manifest("worker-a")?.load).toEqual({ running: 0, quota: 2 });
+    expect(directory.snapshots()[0]?.sessions).toMatchObject({ sessions: 3, totalBytes: 4096 });
 
     directory.acquire("worker-a", "assignment-1");
     expect(directory.manifest("worker-a")?.load.running).toBe(1);

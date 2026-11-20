@@ -11,6 +11,7 @@ import type {
   WorkerCapabilities,
   WorkerHealth,
   WorkerManifest,
+  WorkerSessionStats,
 } from "./types";
 import { BridgeContractError } from "./validate";
 
@@ -39,6 +40,32 @@ function isTimestamp(value: unknown): value is string {
     !Number.isNaN(Date.parse(value)) &&
     /^\d{4}-\d{2}-\d{2}T/.test(value)
   );
+}
+
+function parseSessionStats(value: unknown): WorkerSessionStats | string {
+  if (!isRecord(value)) return "sessions must be an object";
+  const { sessions, totalBytes, keyRegistryEntries, oldestDays, observedAt } = value;
+  for (const [name, count] of Object.entries({ sessions, totalBytes, keyRegistryEntries })) {
+    if (typeof count !== "number" || !Number.isInteger(count) || count < 0) {
+      return `sessions.${name} must be a non-negative integer`;
+    }
+  }
+  if (
+    oldestDays !== undefined &&
+    (typeof oldestDays !== "number" || !Number.isFinite(oldestDays) || oldestDays < 0)
+  ) {
+    return "sessions.oldestDays must be a non-negative number";
+  }
+  if (!isTimestamp(observedAt)) {
+    return "sessions.observedAt must be an RFC 3339 timestamp";
+  }
+  return {
+    sessions: sessions as number,
+    totalBytes: totalBytes as number,
+    ...(oldestDays === undefined ? {} : { oldestDays: oldestDays as number }),
+    keyRegistryEntries: keyRegistryEntries as number,
+    observedAt: observedAt as string,
+  };
 }
 
 function parseCapabilities(value: unknown): WorkerCapabilities | string {
@@ -140,6 +167,13 @@ export function parseWorkerManifest(value: unknown): WorkerManifestResult {
     };
   }
 
+  let sessions: WorkerSessionStats | undefined;
+  if (value.sessions !== undefined) {
+    const parsed = parseSessionStats(value.sessions);
+    if (typeof parsed === "string") return { ok: false, reason: parsed };
+    sessions = parsed;
+  }
+
   if (!isRecord(value.health)) return { ok: false, reason: "worker.health must be an object" };
   if (!(HEALTH as readonly unknown[]).includes(value.health.state))
     return { ok: false, reason: "worker.health.state is invalid" };
@@ -167,6 +201,7 @@ export function parseWorkerManifest(value: unknown): WorkerManifestResult {
       ...(build === undefined ? {} : { build }),
       ...(Object.keys(workspaceMap).length === 0 ? {} : { workspaceMap }),
       ...(value.defaultWorkspace === undefined ? {} : { defaultWorkspace: value.defaultWorkspace }),
+      ...(sessions === undefined ? {} : { sessions }),
     },
   };
 }

@@ -24,7 +24,7 @@ import {
   type WorkerCapabilities,
   type WorkerManifest,
 } from "@gethen/router";
-import type { WorkerBuild, WorkerHealth } from "@gethen/worker-bridge";
+import type { WorkerBuild, WorkerHealth, WorkerSessionStats } from "@gethen/worker-bridge";
 
 /** A zeroed scheduling snapshot (fake launch, closed runtime, no routing). */
 export function emptySchedulingMetrics(): SchedulingMetrics {
@@ -113,6 +113,8 @@ export interface WorkerSnapshot {
   build?: WorkerBuild;
   workspaceMap?: Record<string, string>;
   defaultWorkspace?: string;
+  /** Last local DSH session observation reported in `hello`. */
+  sessions?: WorkerSessionStats;
   load: { running: number; quota: number };
   lastHeartbeatAt?: string;
   /** Assignment ids currently dispatched to this Worker. */
@@ -320,6 +322,7 @@ export class WorkerDirectory {
         ...(manifest?.defaultWorkspace === undefined
           ? {}
           : { defaultWorkspace: manifest.defaultWorkspace }),
+        ...(manifest?.sessions === undefined ? {} : { sessions: manifest.sessions }),
         load: manifest?.load ?? { running: entry.active.size, quota: 0 },
         ...(entry.lastHeartbeatAt === undefined ? {} : { lastHeartbeatAt: entry.lastHeartbeatAt }),
         active: entry.active.size,
